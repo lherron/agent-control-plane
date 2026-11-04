@@ -477,7 +477,11 @@ export interface JobsStore {
     executionIdentity?: JobExecutionIdentity | undefined
   ): { job: JobRecord; jobRun: JobRunRecord }
   /** Local readiness hint; does not authorize admission or mutate work. */
-  hasSchedulerWork(now: string): boolean
+  hasSchedulerWork(
+    now: string,
+    baseline?: JobExecutionIdentity | undefined,
+    onAdmissionRefused?: ((refusal: JobAdmissionRefusal) => void) | undefined
+  ): boolean
   claimDueJobs(input: ClaimDueJobsInput): ClaimedDueJob[]
   listInflightFlowJobRuns(input?: RunRecoveryInput | undefined): ClaimedDueJob[]
   listJobRunReaperCandidates(input?: RunRecoveryInput | undefined): ClaimedDueJob[]

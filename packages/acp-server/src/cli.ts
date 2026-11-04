@@ -8,7 +8,12 @@ import { openSqliteConversationStore } from 'acp-conversation'
 import { writeLogLine } from 'acp-core'
 import type { Actor } from 'acp-core'
 import { openInterfaceStore } from 'acp-interface-store'
-import { type JobsStore, createJobsScheduler, openSqliteJobsStore } from 'acp-jobs-store'
+import {
+  type JobAdmissionRefusal,
+  type JobsStore,
+  createJobsScheduler,
+  openSqliteJobsStore,
+} from 'acp-jobs-store'
 import { createAcpReconciler, readReconcilerConfig } from 'acp-reconciler'
 import { type PbcContinuationJob, openAcpStateStore } from 'acp-state-store'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
@@ -1066,6 +1071,23 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     jobsStore !== undefined ? createJobNodeIdentityAuthority(launcherDeps.hrcClient) : undefined
   const jobIdentityStartup =
     jobNodeIdentityAuthority !== undefined ? await jobNodeIdentityAuthority.initialize() : undefined
+  const reportReadinessExclusion = ({ job, code }: JobAdmissionRefusal): void => {
+    writeLogLine({
+      level: 'warn',
+      component: 'jobs',
+      event: 'jobs.schedule.readiness_excluded',
+      data: { jobId: job.jobId, slug: job.slug, code, executionNodes: job.executionNodes ?? null },
+    })
+  }
+  if (jobIdentityStartup?.ok === true) {
+    // Publish excluded schedules once at baseline, including future schedules.
+    // hasSchedulerWork reports only new/changed exclusions on subsequent ticks.
+    jobsStore?.hasSchedulerWork(
+      new Date().toISOString(),
+      jobIdentityStartup.identity,
+      reportReadinessExclusion
+    )
+  }
   if (jobIdentityStartup !== undefined && !jobIdentityStartup.ok) {
     writeLogLine({
       level: 'error',
@@ -1419,7 +1441,20 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           schedulerTickInProgress = true
           void Promise.resolve()
             .then(async () => {
-              const jobsReady = jobsStore?.hasSchedulerWork(new Date().toISOString()) === true
+              // The startup identity is only a negative readiness hint. Work still
+              // requires verifyFresh below; refused/foreign jobs cannot re-arm
+              // an otherwise empty tick forever.
+              const diagnostics = jobNodeIdentityAuthority?.getDiagnostics()
+              const baseline =
+                diagnostics?.baseline !== undefined && diagnostics.lastVerifiedAt !== undefined
+                  ? { ...diagnostics.baseline, verifiedAt: diagnostics.lastVerifiedAt }
+                  : undefined
+              const jobsReady =
+                jobsStore?.hasSchedulerWork(
+                  new Date().toISOString(),
+                  baseline,
+                  reportReadinessExclusion
+                ) === true
               const verification =
                 jobsReady && (jobsScheduler !== undefined || jobOutputReconciler !== undefined)
                   ? await jobNodeIdentityAuthority?.verifyFresh('scheduler_tick')

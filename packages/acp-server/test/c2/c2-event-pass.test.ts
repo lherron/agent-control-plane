@@ -1,6 +1,6 @@
 /**
  * T-12421 amendment (b): an HRC event for a watched seat starts a read now,
- * rate-limited to one per pollMs with a trailing read; the poll timer is only
+ * rate-limited to one per min(pollMs, 2 s) with a trailing read; the poll timer is only
  * the fallback.
  *
  * Ways this can fail: the change waits for the poll tick anyway; a burst of
@@ -8,6 +8,7 @@
  * (no trailing read); an event for an unwatched seat starts reads.
  */
 import { expect, test } from 'bun:test'
+import { C2_DEFAULTS } from '../../src/c2/config.js'
 
 import {
   SEAT,
@@ -62,7 +63,7 @@ test('an asks change reaches the snapshot without waiting for a slow poll', asyn
   )
 }, 30_000)
 
-test('a burst of events reads at most once per pollMs, and the trailing read sees the last one', async () => {
+test('a 30 s fallback still coalesces a burst within 2 s and sees its last event', async () => {
   await withC2Acp(
     async (acp) => {
       await warm(acp)
@@ -73,8 +74,8 @@ test('a burst of events reads at most once per pollMs, and the trailing read see
         acp.fake.touch(SEAT, 'turn.message')
         await Bun.sleep(20)
       }
-      // ~400 ms of events inside one 1 s window: one leading read, one trailing.
-      await settle(1500)
+      // ~400 ms of events inside one 2 s window: one leading read, one trailing.
+      await settle(2500)
       const reads = seatReads(acp) - reads0
       expect(reads).toBeGreaterThanOrEqual(1)
       expect(reads).toBeLessThanOrEqual(3)
@@ -83,7 +84,7 @@ test('a burst of events reads at most once per pollMs, and the trailing read see
         'burst 19'
       )
     },
-    { config: { pollMs: 1000 } }
+    { config: { pollMs: 30_000 } }
   )
 }, 30_000)
 
@@ -108,3 +109,7 @@ test('an event for an unwatched seat starts no read', async () => {
     { config: { pollMs: 10_000 } }
   )
 }, 30_000)
+
+test('production fallback is 30 s', () => {
+  expect(C2_DEFAULTS.pollMs).toBe(30_000)
+})

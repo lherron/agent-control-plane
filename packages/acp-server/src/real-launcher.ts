@@ -27,9 +27,15 @@ import { ACP_SERVER_USER_AGENT } from './user-agent.js'
 import { readOptionalString as readString } from './wrkf/value.js'
 
 const DEFAULT_WAIT_TIMEOUT_MS = 180_000
-const DEFAULT_POLL_INTERVAL_MS = 500
 const RAW_EVENT_POLL_INTERVAL_MS = 100
 const RAW_EVENT_POLL_GRACE_MS = 2_000
+const RUN_TERMINAL_EVENT_KINDS = new Set([
+  'turn.completed',
+  'turn.failed',
+  'turn.interrupted',
+  'turn.reaped',
+  'runtime.terminated',
+])
 const UNAVAILABLE_TMUX_STATUSES = new Set(['terminated', 'stale', 'failed', 'exited'])
 
 export type RawRunEventRecord = Pick<HrcEventEnvelope, 'eventKind' | 'eventJson'>
@@ -47,12 +53,14 @@ export type RealLauncherClient = Pick<
   HrcClient,
   'ensureTarget' | 'resolveSession' | 'deliverLiteralBySelector' | 'dispatchTurn'
 > &
-  Partial<Pick<HrcClient, 'locateScope'>>
+  Partial<Pick<HrcClient, 'locateScope'>> &
+  Pick<HrcClient, 'tailEvents' | 'watchBoundedEvents'>
 
 type RealLauncherOptions = {
   socketPath?: string | undefined
   hrcDbPath?: string | undefined
   watchTimeoutMs?: number | undefined
+  /** Legacy option; run completion now follows the HRC lifecycle stream. */
   pollIntervalMs?: number | undefined
   createClient?: ((socketPath: string) => RealLauncherClient) | undefined
   inputAttemptStore?: InputAttemptStore | undefined
@@ -68,7 +76,6 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     ((path: string) => new HrcClient({ socketPath: path, userAgent: ACP_SERVER_USER_AGENT }))
   const inputAttemptStore = options.inputAttemptStore
   const waitTimeoutMs = options.watchTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS
-  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
 
   return async ({
     sessionRef,
@@ -241,7 +248,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
           sessionRef,
           afterHrcSeq: latestAssistantSeq,
           timeoutMs: waitTimeoutMs,
-          pollIntervalMs,
+          client,
           runStore,
           acpRunId,
         })
@@ -326,7 +333,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
               hrcDbPath,
               runId: dispatchedRunId,
               timeoutMs: waitTimeoutMs,
-              pollIntervalMs,
+              client,
             })
 
       const terminalOutcome = mapHrcRunTerminalStatus(completedRun)
@@ -417,7 +424,7 @@ async function waitForTmuxAssistantMessage(options: {
   sessionRef: SessionRef
   afterHrcSeq: number
   timeoutMs: number
-  pollIntervalMs: number
+  client: RealLauncherClient
   runStore: RunStore | undefined
   acpRunId: string | undefined
 }): Promise<UnifiedSessionEvent | undefined> {
@@ -437,7 +444,7 @@ async function waitForTmuxAssistantMessage(options: {
     hrcDbPath: options.hrcDbPath,
     runId: options.deliveredHrcRunId,
     timeoutMs: options.timeoutMs,
-    pollIntervalMs: options.pollIntervalMs,
+    client: options.client,
   })
   const terminalOutcome = mapHrcRunTerminalStatus(completedRun)
   if (terminalOutcome === undefined) {
@@ -799,23 +806,80 @@ async function waitForRunCompletion(options: {
   hrcDbPath: string
   runId: string
   timeoutMs: number
-  pollIntervalMs: number
+  client: RealLauncherClient
 }): Promise<{
   status: string
   errorCode?: string | undefined
   errorMessage?: string | undefined
 }> {
   const deadline = Date.now() + options.timeoutMs
-
-  while (Date.now() <= deadline) {
+  const timeoutError = () => new Error(`timed out waiting for HRC run ${options.runId} to complete`)
+  let backoffMs = 250
+  while (Date.now() < deadline) {
+    // Bootstrap/reconnect is authoritative. Never settle from event payloads.
     const run = readRunStatus(options.hrcDbPath, options.runId)
-    if (run !== undefined && mapHrcRunTerminalStatus(run) !== undefined) {
-      return run
+    if (run !== undefined && mapHrcRunTerminalStatus(run) !== undefined) return run
+    const abort = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // Bound the whole attempt, including tailEvents (which has no signal).
+    const bound = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => {
+          abort.abort()
+          reject(timeoutError())
+        },
+        Math.min(30_000, deadline - Date.now())
+      )
+    })
+    try {
+      const terminal = await Promise.race([
+        (async () => {
+          const tail = await options.client.tailEvents({ runId: options.runId, limit: 1 })
+          if (abort.signal.aborted) return undefined
+          for await (const record of options.client.watchBoundedEvents({
+            ledgerIncarnationId: tail.ledgerIncarnationId,
+            afterSeq: tail.headHrcSeq,
+            runId: options.runId,
+            signal: abort.signal,
+          })) {
+            if (abort.signal.aborted) return undefined
+            if (
+              record.type === 'gap' ||
+              record.type === 'ledger_replaced' ||
+              record.type === 'home_unreachable'
+            )
+              break
+            // ready closes the tail/status/subscribe race, including terminal
+            // state committed before the captured head. Filter run IDs too.
+            if (
+              record.type !== 'ready' &&
+              (record.event.runId !== options.runId ||
+                !RUN_TERMINAL_EVENT_KINDS.has(record.event.eventKind))
+            )
+              continue
+            const current = readRunStatus(options.hrcDbPath, options.runId)
+            if (current !== undefined && mapHrcRunTerminalStatus(current) !== undefined)
+              return current
+            if (record.type !== 'ready') backoffMs = 250
+          }
+          return undefined
+        })(),
+        bound,
+      ])
+      if (terminal !== undefined) return terminal
+    } catch {
+      if (Date.now() >= deadline) throw timeoutError()
+      // Reopen after transport failure, gap, ledger replacement or the 30 s
+      // missed-event repair bound. Bootstrap and ready check authoritative state.
+    } finally {
+      clearTimeout(timer)
+      abort.abort()
     }
-    await Bun.sleep(options.pollIntervalMs)
+    // The stream may close normally, or repeatedly refuse. Avoid a hot loop.
+    await Bun.sleep(Math.max(0, Math.min(backoffMs, deadline - Date.now())))
+    backoffMs = Math.min(backoffMs * 2, 5_000)
   }
-
-  throw new Error(`timed out waiting for HRC run ${options.runId} to complete`)
+  throw timeoutError()
 }
 
 function updateAcpRun(

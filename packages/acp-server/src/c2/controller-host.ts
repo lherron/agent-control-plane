@@ -2,7 +2,7 @@
  * The always-on C2 controller host in ACP (T-12207; C2 rev 4 D2, D9).
  *
  * One c2-core `Controller` per ACP instance with `classify: true`, ticking on
- * every HRC observation change and at least every 15 s. ACP adds only
+ * every HRC observation change and at least every 30 s. ACP adds only
  * transport: the snapshot cache and its opaque revision, the bounded long
  * poll, the last-good stale snapshot, artifact resolution, and mapping c2-core
  * cards to the wire through `toWire` / `wireCard` with ACP-minted artifact ids.
@@ -94,6 +94,7 @@ export function createC2Service(
   workClient?: WorkClient | undefined
 ): C2Service {
   const pollMs = config.pollMs ?? C2_DEFAULTS.pollMs
+  const coalesceMs = Math.min(pollMs, 2_000)
   const roots = config.artifactRoots ?? defaultArtifactRoots()
   const host: C2HrcHost = createC2HrcHost({
     client: hrcClient,
@@ -157,7 +158,7 @@ export function createC2Service(
   }
 
   // T-12421 (b): an HRC event for a watched seat starts a read now, at most one
-  // per pollMs (leading edge); events inside the window get one trailing read,
+  // per coalesceMs (leading edge); events inside the window get one trailing read,
   // as do events that land while a read is in flight. The poll timer stays.
   let stopped = false
   let lastKickAt = Number.NEGATIVE_INFINITY
@@ -165,7 +166,7 @@ export function createC2Service(
   let afterInFlight = false
   function kick(): void {
     if (trailing !== null || stopped) return
-    const wait = lastKickAt + pollMs - Date.now()
+    const wait = lastKickAt + coalesceMs - Date.now()
     if (wait > 0) {
       trailing = setTimeout(() => {
         trailing = null

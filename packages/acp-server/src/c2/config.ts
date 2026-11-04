@@ -24,8 +24,8 @@ export type AcpC2Config = {
    */
   artifactRoots?: readonly string[] | undefined
   /**
-   * Fallback HRC observation cadence (Vesta, in-scope seats, seats with c2
-   * rows), and the floor between reads an HRC event for a watched seat starts.
+   * Fallback HRC observation cadence (Vesta, in-scope seats, seats with c2 rows).
+   * Event coalescing is independently capped at 2 s.
    */
   pollMs?: number | undefined
   /**
@@ -42,7 +42,7 @@ export type AcpC2Config = {
 }
 
 export const C2_DEFAULTS = {
-  pollMs: 2000,
+  pollMs: 30_000,
   literalInputTimeoutMs: 30_000,
 } as const
 
