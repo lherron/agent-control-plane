@@ -141,7 +141,6 @@ export class MailKicker implements MailKickerContext {
   /** Commit tokens are wake hints; only runTailOnce advances the durable cursor. */
   private async followLedger(): Promise<void> {
     let token: string | undefined
-    let changed = true
     let nextSweepAt = Date.now() + LEDGER_SWEEP_TICKS * 1000
     let reminderRetryAt = 0
     while (!this.stopping) {
@@ -151,7 +150,6 @@ export class MailKicker implements MailKickerContext {
           const initial = await this.untilStopped(this.ledger.commitWait({ timeoutMs: 25000 }))
           if (initial === undefined) return
           token = initial.token
-          changed = initial.changed
         }
         await this.untilStopped(this.runTailOnce())
         if (this.stopping) return
@@ -161,7 +159,9 @@ export class MailKicker implements MailKickerContext {
           for (const target of due) this.wake(target, 'periodic')
           reminderRetryAt = due.length > 0 ? now + REMINDER_CHECK_TICKS * 1000 : 0
         }
-        if (changed || now >= nextSweepAt) {
+        // A coarse commit can belong to any project. Only the tail names
+        // delivery targets; full recovery scans keep their independent clock.
+        if (now >= nextSweepAt) {
           await this.untilStopped(this.runSweepOnce())
           nextSweepAt = Date.now() + LEDGER_SWEEP_TICKS * 1000
         }
@@ -191,7 +191,7 @@ export class MailKicker implements MailKickerContext {
         const result = await this.untilStopped(this.ledger.commitWait({ since: token, timeoutMs }))
         if (result === undefined) return
         token = result.token
-        changed = result.changed
+        const changed = result.changed
         // Capacity exhaustion returns immediately, unchanged. Pace it as one
         // ordinary poll interval, never turn it into a busy loop.
         if (!changed && Date.now() - started < Math.min(1000, timeoutMs))

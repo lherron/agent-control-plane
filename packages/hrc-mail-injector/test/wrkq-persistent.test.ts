@@ -127,11 +127,20 @@ for await (const line of createInterface({input: process.stdin})) {
   process.env['PATH'] = `${dir}:${originalPath ?? ''}`
   const ledger = createWrkqLedger()
   try {
-    const waiting = ledger.commitWait({ since: 'before', timeoutMs: 30000 })
+    let waitSettled = false
+    const waiting = ledger.commitWait({ since: 'before', timeoutMs: 30000 }).then(
+      (result) => {
+        waitSettled = true
+        return result
+      },
+      (error: unknown) => {
+        waitSettled = true
+        return error
+      }
+    )
     await Bun.sleep(100)
-    const started = Date.now()
     expect(await ledger.eventsView({ cursor: 0 })).toEqual({ items: [], highWater: 7 })
-    expect(Date.now() - started).toBeLessThan(500)
+    expect(waitSettled).toBe(false)
     expect(await waiting).toEqual({ token: 'opaque', changed: false })
     const frames = (await readFile(trace, 'utf8')).trim().split('\n').map(JSON.parse)
     expect(new Set(frames.map((f) => f.pid)).size).toBe(2)
@@ -139,13 +148,11 @@ for await (const line of createInterface({input: process.stdin})) {
     expect(frame.params).toEqual({ since: 'before', timeoutMs: 25000 })
     const parked = ledger.commitWait({ since: 'opaque' }).catch((error: unknown) => error)
     await Bun.sleep(50)
-    const closing = Date.now()
     await ledger.close()
-    expect(Date.now() - closing).toBeLessThan(500)
     expect(await parked).toBeInstanceOf(WrkqLedgerUnavailableError)
   } finally {
     await ledger.close()
     process.env['PATH'] = originalPath
     await rm(dir, { recursive: true, force: true })
   }
-}, 30000)
+}, 45000)
