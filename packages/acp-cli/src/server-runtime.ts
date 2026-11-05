@@ -464,6 +464,7 @@ async function resolveControlPlaneChannelId(
 
 async function startGatewayInProcess(
   options: AcpServerCliOptions,
+  commitWaker: Awaited<ReturnType<typeof startAcpServeBin>>['commitWaker'],
   env: NodeJS.ProcessEnv = process.env
 ): Promise<GatewayDiscordApp> {
   const jobRunsChannelId = await resolveJobRunsChannelId(env)
@@ -501,6 +502,7 @@ async function startGatewayInProcess(
       client: ledgerClient,
       store: ledgerStore,
       closeOnStop: true,
+      commitWaker,
     },
   })
   try {
@@ -534,7 +536,7 @@ async function serverForeground(args: readonly string[]): Promise<void> {
 
     const discordEnabled = !gatewayDisabled(args)
     if (discordEnabled) {
-      gateway = await startGatewayInProcess(resolved.options)
+      gateway = await startGatewayInProcess(resolved.options, server.commitWaker)
     }
 
     // Startup stays on stderr (acp-server.err.log), where it has always gone.

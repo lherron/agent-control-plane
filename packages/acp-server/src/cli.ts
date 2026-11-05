@@ -88,6 +88,7 @@ import { createRealLauncher, readRunStatus } from './real-launcher.js'
 import { acpStateDir } from './state-dir.js'
 import { ACP_SERVER_USER_AGENT } from './user-agent.js'
 import { createWrkfClientLifecycle } from './wrkf/client-lifecycle.js'
+import type { CommitWaker } from './wrkq-commit-waker.js'
 
 const DEFAULT_COORD_DB_PATH = '/Users/lherron/praesidium/var/db/acp-coordination.db'
 const DEFAULT_PORT = 18470
@@ -1033,6 +1034,7 @@ function mergeMetadata(
 export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   shutdown(): Promise<void>
   startupConfig: Record<string, unknown>
+  commitWaker: CommitWaker | undefined
 }> {
   const acpBaseUrl = resolveAcpBaseUrl(options)
   process.env['ACP_BASE_URL'] = acpBaseUrl
@@ -1525,6 +1527,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   let closed = false
   return {
     startupConfig: formatStartupConfig(options),
+    commitWaker: wrkfLifecycle.commitWaker,
     async shutdown(): Promise<void> {
       if (closed) {
         return

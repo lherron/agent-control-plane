@@ -83,6 +83,16 @@ export type GatewayDiscordAppOptions = {
         client: WorkClient
         store: InterfaceStore
         closeOnStop?: boolean | undefined
+        /** Shared by the embedding server; standalone gateways retain their poll interval. */
+        commitWaker?:
+          | {
+              token(): Promise<number>
+              wait(
+                since: number,
+                options?: { signal?: AbortSignal | undefined; timeoutMs?: number | undefined }
+              ): Promise<void>
+            }
+          | undefined
       }
     | undefined
 }
@@ -123,6 +133,10 @@ export class GatewayDiscordApp {
   private readonly workActivityChannelId?: string | undefined
   private ledgerHumanEgressLoopPromise: Promise<void> | undefined
   private ledgerHumanEgressLoopStopped = false
+  private ledgerHumanEgressAbort = new AbortController()
+  private readonly ledgerCommitWaker: NonNullable<
+    GatewayDiscordAppOptions['ledgerHumanEgress']
+  >['commitWaker']
   private readonly ledgerHumanEgress?: DiscordLedgerEgress | undefined
   private readonly ledgerHumanEgressResources?:
     | { client: WorkClient; store: InterfaceStore; closeOnStop: boolean }
@@ -237,6 +251,7 @@ export class GatewayDiscordApp {
       webhooks: webhooks,
       workActivityChannelId: this.workActivityChannelId,
     })
+    this.ledgerCommitWaker = options.ledgerHumanEgress?.commitWaker
     this.ledgerHumanEgress =
       options.ledgerHumanEgress === undefined
         ? undefined
@@ -343,6 +358,7 @@ export class GatewayDiscordApp {
       await this.ledgerHumanEgress.reconcileAttempting()
       await this.ledgerHumanEgress.initializeCursor()
       this.ledgerHumanEgressLoopStopped = false
+      this.ledgerHumanEgressAbort = new AbortController()
       this.ledgerHumanEgressLoopPromise = this.runLedgerHumanEgressLoop()
     }
 
@@ -370,6 +386,7 @@ export class GatewayDiscordApp {
     this.deliveryLoopStopped = true
     this.lifecycle.systemEventsLoopStopped = true
     this.ledgerHumanEgressLoopStopped = true
+    this.ledgerHumanEgressAbort.abort()
     this.live.stopped = true
     this.live.stopAllLiveSubscriptions('app_stop')
     this.pending.clear()
@@ -458,8 +475,19 @@ export class GatewayDiscordApp {
   private async runLedgerHumanEgressLoop(): Promise<void> {
     while (!this.ledgerHumanEgressLoopStopped) {
       try {
+        // Capture before the bounded cursor read so a commit during it cannot
+        // be lost. A coarse wake never runs startup reconciliation or a sweep.
+        const token = await this.ledgerCommitWaker?.token()
+        if (this.ledgerHumanEgressLoopStopped) break
         await this.ledgerHumanEgress?.pollOnce()
-        await sleep(this.deliveryPollMs)
+        if (this.ledgerCommitWaker !== undefined && token !== undefined) {
+          await this.ledgerCommitWaker.wait(token, {
+            signal: this.ledgerHumanEgressAbort.signal,
+            timeoutMs: 25_000,
+          })
+        } else {
+          await sleep(this.deliveryPollMs)
+        }
       } catch (error) {
         log.error('gw.ledger_human_egress.loop_error', {
           message: 'Discord ledger human-egress iteration failed',
