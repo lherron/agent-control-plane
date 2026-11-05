@@ -418,6 +418,13 @@ export class HrcViewer {
     }
     const state = viewerStateForEventKind(event.eventKind)
     if (event.runtimeId !== undefined && state !== null) {
+      // Lifecycle facts alone do not request presentation. A missing row only
+      // needs repair when an owned pane still references that runtime.
+      if (
+        !this.presentationRows.has(event.runtimeId) &&
+        (await this.ghostmux.findHeadlessViewerSurfaceByRuntimeId(event.runtimeId)) === null
+      )
+        return
       const row = await this.currentPresentationRuntime(event.runtimeId)
       const previous = this.latestEvents.get(event.runtimeId)
       if (previous !== undefined && TERMINAL_EVENT_KINDS.has(previous.eventKind)) return
@@ -844,15 +851,14 @@ export class HrcViewer {
         row.scopeRef === event.scopeRef &&
         normalizePresentationLaneRef(row.laneRef) === normalizePresentationLaneRef(event.laneRef)
     )
-    if (rows.length === 0) {
-      await this.reconcile('stream_reset')
-      return
-    }
     const resolved = payload['resolved']
     if (resolved !== null && !Object.hasOwn(asRecord(resolved), 'value')) {
       await this.reconcile('stream_reset')
       return
     }
+    // Metadata is continuity state, not a request to present a seat. A later
+    // runtime.presentation loads the current store metadata in its own repair.
+    if (rows.length === 0) return
     for (const row of rows) {
       const metadata = structuredClone(row.metadata ?? {})
       let target: Record<string, unknown> = metadata
@@ -884,7 +890,11 @@ export class HrcViewer {
       await this.reconcile('stream_reset')
       return
     }
-    const row = await this.currentPresentationRuntime(event.runtimeId)
+    // Retirement never needs discovery of a runtime we do not present.
+    const row =
+      event.eventKind === 'surface.unbound'
+        ? this.presentationRows.get(event.runtimeId)
+        : await this.currentPresentationRuntime(event.runtimeId)
     // A rebound changes ownership even if the destination runtime is missing.
     for (const retained of this.presentationRows.values()) {
       retained.operatorSurfaces = (retained.operatorSurfaces ?? []).filter(
@@ -950,6 +960,7 @@ export class HrcViewer {
     } catch (error) {
       this.warn('broker_headless_viewer.status_surface_lookup_failed', error, { runtimeId })
     }
+    if (paneSurfaceId === null && !this.presentationRows.has(runtimeId)) return []
     const row = await this.currentPresentationRuntime(runtimeId)
     return row === undefined
       ? paneSurfaceId === null

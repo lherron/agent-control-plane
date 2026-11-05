@@ -627,7 +627,16 @@ describe('T-12511 retained presentation', () => {
     const harness = makeHarness({ rows })
     await harness.viewer.reconcile('start')
     rows.push(presentationRow({ runtimeId: 'rt-new' }))
-    await harness.viewer.handleEvent(event('turn.started', { runtimeId: 'rt-new' }))
+    await harness.viewer.handleEvent(
+      event('runtime.presentation', {
+        runtimeId: 'rt-new',
+        payload: {
+          invocation: { operatorAttachPending: false },
+          presentation: { operatorAttachable: true, viewerRequested: true },
+          tmux: { socketPath: '/tmp/new.sock', attachTarget: 'new:tui' },
+        },
+      })
+    )
     await Bun.sleep(175)
     expect(harness.reads).toEqual({ presentation: 2, latest: 2 })
   })
@@ -700,4 +709,118 @@ describe('T-12511 retained action fences', () => {
     expect(harness.terminalTitleCalls).toHaveLength(2)
     expect(harness.reads).toEqual({ presentation: 1, latest: 1 })
   })
+})
+
+describe('T-12511 cadence: unrelated stream events', () => {
+  test('metadata for an unpresented scope does no HRC reads, cold or bootstrapped', async () => {
+    for (const bootstrap of [false, true]) {
+      const harness = makeHarness({ rows: [presentationRow()] })
+      if (bootstrap) await harness.viewer.reconcile('start')
+      const before = { ...harness.reads }
+      await harness.viewer.handleEvent(
+        event('session.metadata.changed', {
+          scopeRef: 'agent:mable:project:hrc-runtime:task:primary',
+          runtimeId: undefined,
+          payload: { key: 'title', resolved: { value: 'Unpresented title', source: 'api' } },
+        })
+      )
+      expect(harness.reads).toEqual(before)
+    }
+  })
+
+  test('metadata for an unpresented lane does no HRC reads', async () => {
+    const harness = makeHarness({ rows: [presentationRow()] })
+    await harness.viewer.reconcile('start')
+    await harness.viewer.handleEvent(
+      event('session.metadata.changed', {
+        laneRef: 'other',
+        runtimeId: undefined,
+        payload: { key: 'appearance.terminalBg', resolved: { value: '#123456', source: 'api' } },
+      })
+    )
+    expect(harness.reads).toEqual({ presentation: 1, latest: 1 })
+  })
+
+  test('a row presented later loads current store metadata after earlier metadata was ignored', async () => {
+    const scopeRef = 'agent:cody:project:hrc-runtime:task:T-12511'
+    const rows = [presentationRow()]
+    const harness = makeHarness({ rows })
+    await harness.viewer.reconcile('start')
+    await harness.viewer.handleEvent(
+      event('session.metadata.changed', {
+        scopeRef,
+        runtimeId: undefined,
+        payload: { key: 'appearance.terminalBg', resolved: { value: '#111111', source: 'api' } },
+      })
+    )
+    expect(harness.reads).toEqual({ presentation: 1, latest: 1 })
+    rows.push(
+      presentationRow({
+        scopeRef,
+        runtimeId: 'rt-later',
+        metadata: { appearance: { terminalBg: '#123456' } },
+      })
+    )
+    await harness.viewer.handleEvent(
+      event('runtime.presentation', {
+        scopeRef,
+        runtimeId: 'rt-later',
+        payload: {
+          invocation: { operatorAttachPending: false },
+          presentation: { operatorAttachable: true, viewerRequested: true },
+          tmux: { socketPath: '/tmp/later.sock', attachTarget: 'later:tui' },
+        },
+      })
+    )
+    expect(harness.backgroundCalls.at(-1)?.hex).toBe('#123456')
+    expect(harness.reads).toEqual({ presentation: 2, latest: 2 })
+  })
+
+  test('unbound surface for an unknown unpresented runtime does no HRC reads', async () => {
+    const harness = makeHarness({ rows: [presentationRow()] })
+    await harness.viewer.reconcile('start')
+    await harness.viewer.handleEvent(
+      event('surface.unbound', {
+        runtimeId: 'rt-unpresented',
+        payload: {
+          surfaceKind: 'ghostty',
+          surfaceId: 'retired',
+        },
+      })
+    )
+    expect(harness.reads).toEqual({ presentation: 1, latest: 1 })
+  })
+
+  test('lifecycle event with neither a retained runtime nor a viewer pane does no HRC reads', async () => {
+    const harness = makeHarness({ rows: [presentationRow()] })
+    await harness.viewer.reconcile('start')
+    await harness.viewer.handleEvent(event('turn.completed', { runtimeId: 'rt-unpresented' }))
+    await Bun.sleep(175)
+    expect(harness.reads).toEqual({ presentation: 1, latest: 1 })
+  })
+
+  test('a viewer pane referencing a missing runtime still recovers the full snapshot', async () => {
+    const rows = [presentationRow()]
+    const panes: HeadlessViewerPane[] = []
+    const harness = makeHarness({ rows, panes })
+    await harness.viewer.reconcile('start')
+    rows.push(presentationRow({ runtimeId: 'rt-new' }))
+    panes.push({ surfaceId: 'pane', runtimeId: 'rt-new', hostSessionId: 'hs-1', generation: 1 })
+    await harness.viewer.handleEvent(event('turn.started', { runtimeId: 'rt-new' }))
+    await Bun.sleep(175)
+    expect(harness.reads).toEqual({ presentation: 2, latest: 2 })
+  })
+})
+
+test('T-12511 cadence preserves malformed metadata recovery for an unpresented scope', async () => {
+  const harness = makeHarness({ rows: [presentationRow()] })
+  await harness.viewer.reconcile('start')
+  await harness.viewer.handleEvent(
+    event('session.metadata.changed', {
+      scopeRef: 'agent:mable:project:hrc-runtime:task:primary',
+      runtimeId: undefined,
+      payload: { key: 'title', resolved: {} },
+    })
+  )
+  expect(harness.reads).toEqual({ presentation: 2, latest: 2 })
 })
