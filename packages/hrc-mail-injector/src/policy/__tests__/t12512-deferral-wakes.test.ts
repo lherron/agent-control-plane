@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
-import { forgetDeferredWake, observeDeferredWake, stopDeferredWakes } from '../wake/deferred.js'
+import {
+  forgetDeferredWake,
+  nextDeferredWakeAt,
+  observeDeferredWake,
+  stopDeferredWakes,
+} from '../wake/deferred.js'
 import type { T08094Harness } from './t08094-harness.js'
 import { TARGET_REF, createT08094Harness, destroyT08094Harness } from './t08094-harness.js'
 
@@ -16,9 +21,16 @@ beforeEach(async () => {
     wakes.push(target)
   }
   h.context.ledger.pendingView = async (params) => {
-    expect(params.scopes).toEqual([])
+    expect(params.scopes).toEqual([TARGET_REF])
     reads += 1
-    return { items: [], blocking: [], repended: 1 }
+    return {
+      items: [...h.ledger.envelopes.values()].map((envelope) => ({
+        ...envelope,
+        state: 'pending' as const,
+      })),
+      blocking: [],
+      repended: 1,
+    }
   }
 })
 
@@ -37,6 +49,32 @@ describe('T-12512 event-driven deferral deadlines', () => {
     expect(wakes).toEqual([TARGET_REF])
     await Bun.sleep(30)
     expect(reads).toBe(1)
+  })
+
+  it('keeps a due envelope until the ledger exposes it on a bounded re-arm', async () => {
+    const envelope = h.ledger.say({ state: 'deferred', retryAt: '2020-01-01T00:00:00Z' })
+    h.context.ledger.pendingView = async () => {
+      reads += 1
+      if (reads === 1) return { items: [], blocking: [], repended: 0 }
+      envelope.state = 'pending'
+      return { items: [envelope], blocking: [], repended: 1 }
+    }
+    await observeDeferredWake(h.context, envelope.id)
+    await Bun.sleep(50)
+    expect(reads).toBe(1)
+    expect(wakes).toEqual([])
+    expect(Number.isFinite(nextDeferredWakeAt(h.context))).toBe(true)
+    await Bun.sleep(1100)
+    expect(reads).toBe(2)
+    expect(wakes).toEqual([TARGET_REF])
+    expect(nextDeferredWakeAt(h.context)).toBe(Number.POSITIVE_INFINITY)
+  })
+
+  it('gives the ledger a full second beyond its whole-second retry boundary', async () => {
+    const at = Math.ceil((Date.now() + 60_000) / 1000) * 1000
+    const envelope = h.ledger.say({ state: 'deferred', retryAt: new Date(at).toISOString() })
+    await observeDeferredWake(h.context, envelope.id)
+    expect(nextDeferredWakeAt(h.context)).toBe(at + 1000)
   })
 
   it('does no idle remote reads and cancels a terminal deferral before it is due', async () => {

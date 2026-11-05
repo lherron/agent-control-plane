@@ -7,7 +7,9 @@ import { targetSessionRefForLedgerScope } from '../ledger/scope.js'
 const MAX_TIMER_MS = 2_147_483_647
 const RETRY_MS = 30_000
 
-type Deadline = { target: string; atMs: number }
+const REPEND_BACKOFF_MS = [1000, 2000, 5000] as const
+
+type Deadline = { target: string; atMs: number; attempts: number }
 type DeferredWakes = {
   deadlines: Map<string, Deadline>
   timer?: ReturnType<typeof setTimeout> | undefined
@@ -40,8 +42,13 @@ export async function observeDeferredWake(
     wakes.set(server, state)
   }
   // wrkq compares due times at whole-second precision. Never consume a timer
-  // before the ledger can actually repend a subsecond timestamp.
-  state.deadlines.set(envelopeId, { target, atMs: Math.ceil(atMs / 1_000) * 1_000 })
+  // before the ledger can actually repend a subsecond timestamp. Give its
+  // whole-second due check one full second beyond that boundary.
+  state.deadlines.set(envelopeId, {
+    target,
+    atMs: Math.ceil(atMs / 1_000) * 1_000 + 1000,
+    attempts: 0,
+  })
   arm(server, state)
 }
 
@@ -93,16 +100,36 @@ function arm(server: MailKickerContext, state: DeferredWakes): void {
       }
       const operation = (async () => {
         try {
-          // This existing read lazily repends due deferrals globally. Empty
-          // scopes falls back to the caller; its returned items are not the due
-          // set. Wake only recipients whose observed retry clock just fired.
-          await server.ledger.pendingView({ scopes: [] })
+          // This read lazily repends deferrals, but a successful empty read
+          // does not prove a due envelope has repended. Ask for the named
+          // recipients so the same response can confirm each wake is ready.
+          const view = await server.ledger.pendingView({
+            scopes: [...new Set(due.map(([, deadline]) => deadline.target))],
+            includeFyi: true,
+          })
           if (server.stopping) return
+          const pending = new Set(
+            view.items
+              .filter((envelope) => envelope.state === 'pending')
+              .map((envelope) => envelope.id)
+          )
           const targets = new Set<string>()
           for (const [id, deadline] of due) {
             if (state.deadlines.get(id) !== deadline) continue
-            state.deadlines.delete(id)
-            targets.add(deadline.target)
+            if (pending.has(id)) {
+              state.deadlines.delete(id)
+              targets.add(deadline.target)
+              continue
+            }
+            const backoff = REPEND_BACKOFF_MS[deadline.attempts]
+            if (backoff === undefined) {
+              // The independent 300s recovery owns any remaining work.
+              state.deadlines.delete(id)
+              server.log('WARN', 'wrkq.kicker.deferral_wake_exhausted', { envelope: id })
+            } else {
+              deadline.attempts += 1
+              deadline.atMs = Date.now() + backoff
+            }
           }
           state.retryAtMs = 0
           for (const target of targets) server.wake(target, 'periodic')
