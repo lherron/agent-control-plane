@@ -194,7 +194,7 @@
         "acp-server": "./src/cli.ts",
       },
       "dependencies": {
-        "@praesidium/c2-core": "0.3.0",
+        "@praesidium/c2-core": "0.3.1",
         "@wrkq/client": "latest",
         "acp-admin-store": "*",
         "acp-capability-host": "*",
@@ -682,7 +682,7 @@
 
     "@opentelemetry/semantic-conventions": ["@opentelemetry/semantic-conventions@1.43.0", "http://mini:4873/@opentelemetry/semantic-conventions/-/semantic-conventions-1.43.0.tgz", {}, "sha512-eSYWTm620tTk45EKSedaUL8MFYI8hW164hIXsgIHyxu3VobUB3fFCu5t0hQby6OoWRPsG1KkKUG2M5UadiLiVg=="],
 
-    "@praesidium/c2-core": ["@praesidium/c2-core@0.3.0", "http://mini:4873/@praesidium/c2-core/-/c2-core-0.3.0.tgz", {}, "sha512-LAMsYt6b6I7cZvnqLZAus03GFHF595UTRu37RcN/oPL9guu3PjevLVkiryJZGt7ZoNx4RpDQLgtn/li36UH0OQ=="],
+    "@praesidium/c2-core": ["@praesidium/c2-core@0.3.1", "http://mini:4873/@praesidium/c2-core/-/c2-core-0.3.1.tgz", {}, "sha512-a501tAYsIbCdASCdC5wkFsWyMB43lVgkWaec87EmS7zBRH1xbLs6Ta5HKT6jsDE2sX9Z0otrnCrmB2XqoA1Tfw=="],
 
     "@protobufjs/aspromise": ["@protobufjs/aspromise@1.1.2", "http://mini:4873/@protobufjs/aspromise/-/aspromise-1.1.2.tgz", {}, "sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ=="],
 
