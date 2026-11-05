@@ -265,6 +265,9 @@ export async function withC2Acp<T>(
           return { status: response.status, body: (await response.json()) as T }
         },
       }
+      // Rev 5: the controller's first pass writes the fixture row's c2.item. Let it land so a test
+      // starts from a quiescent seat (its "writes nothing" and long-poll checks measure from here).
+      if (options.hrcDownAtBoot !== true && options.noScope !== true) await itemWritten(fake)
       try {
         return await run(acp)
       } finally {
@@ -382,6 +385,17 @@ export function seatSends(acp: C2Acp) {
 }
 
 /** Wait past a few controller poll periods so background work would have shown. */
+/** Wait (bounded, never failing) for the controller to write the fixture seat's first c2.item. */
+async function itemWritten(fake: ReturnType<typeof startFakeHrc>): Promise<void> {
+  for (let i = 0; i < 60; i++) {
+    if (fake.writes().some((w) => JSON.stringify(w.body).includes('"kind":"item"'))) {
+      await settle(150)
+      return
+    }
+    await settle(50)
+  }
+}
+
 export function settle(ms = 400): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }

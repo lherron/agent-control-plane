@@ -28,7 +28,9 @@ async function warm(acp: Parameters<Parameters<typeof withC2Acp>[0]>[0]) {
     if (Date.now() > deadline) throw new Error('no follower')
     await Bun.sleep(10)
   }
-  await settle(300)
+  // Rev 5: the controller's boot item write was itself an event and took the coalescer's
+  // leading edge; wait out that window so the next event reads at once.
+  await settle(2_100)
   return snapshot
 }
 

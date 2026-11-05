@@ -4,15 +4,16 @@
  *
  * The id is opaque to the phone: base64url JSON of `{sessionRef, rowId}`. It
  * carries no path and needs no secret, because resolution re-reads the CURRENT
- * view and takes the path only from that row's `c2.detail`; a forged id can
- * name only a file a shown row already links. Containment is checked after
+ * view and takes the path only from that row's `c2.detail` (or its collapsed
+ * feed item's copied `detailRef`); a forged id can name only a file the view
+ * already links. Containment is checked after
  * realpath, so a symlink or `..` cannot step outside the roots. Evidence images
  * no longer exist (rev 4 §4).
  */
 import { realpathSync, statSync } from 'node:fs'
 import { extname, isAbsolute, sep } from 'node:path'
 
-import type { ArtifactRef, View } from '@praesidium/c2-core'
+import { type ArtifactRef, type View, detailPathOf } from '@praesidium/c2-core'
 
 export const HTML_MAX_BYTES = 64 * 1024
 export const HTML_CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'"
@@ -61,12 +62,10 @@ function realRoots(roots: readonly string[]): string[] {
 export function serveArtifact(rawId: string, view: View, roots: readonly string[]): Response {
   const id = decode(rawId)
   if (id === undefined) return refusal(400, 'invalid_artifact_id')
-  const row = view.entries
-    .find((e) => e.seat.sessionRef === id.sessionRef)
-    ?.rows.find((r) => r.id === id.rowId)
-  // A changed or vanished row or explanation invalidates the id; the client refreshes.
-  if (row === undefined) return refusal(404, 'artifact_missing')
-  const path = row.detail.path
+  // The path comes from the current view only: the shown row's c2.detail, or, once its item
+  // collapsed (rev 5 F12), the detailRef the controller copied into a feed item. A changed or
+  // vanished explanation invalidates the id; the client refreshes.
+  const path = detailPathOf(view, id.sessionRef, id.rowId)
   if (path === undefined || !isAbsolute(path)) return refusal(404, 'artifact_missing')
   if (!HTML_TYPES.has(extname(path).toLowerCase())) return refusal(403, 'artifact_refused')
 

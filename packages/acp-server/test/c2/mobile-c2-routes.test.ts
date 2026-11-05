@@ -88,7 +88,7 @@ describe('GET /v1/mobile/c2/v2/snapshot', () => {
         'release',
         'snooze',
       ])
-      expect(snapshot.counts).toEqual({ openRows: 1, openEntries: 1 })
+      expect(snapshot.counts).toMatchObject({ openRows: 1, openEntries: 1 })
       expect(entry.key).toEqual({
         sessionRef: SEAT_REF,
         subject: 'seat',
@@ -471,5 +471,79 @@ describe('the existing mobile gate covers /v1/mobile/c2/v2/* unchanged', () => {
       },
       { mobileAuthStore: store }
     )
+  })
+})
+
+type FeedItem = {
+  itemId: string
+  kind: string
+  state: string
+  firstSeenAt: string
+  rowId?: string
+  ask?: string
+  answerable: boolean
+  waiting: boolean
+  key?: { sessionRef: string; subject: 'seat'; ns: string; kind: string; id: string }
+  recordUpdatedAt?: string
+  recordIndex?: number
+  close?: { cause: string }
+  answer?: { option?: string; recommended: boolean; edited: boolean }
+  seat: { scopeRef: string; callSign: string }
+}
+
+describe('rev 5 feed (timeline-feed r3.1 §2.10)', () => {
+  test('the snapshot carries the controller-written item beside entries; a feed-only answer closes it answered', async () => {
+    await withC2Acp(async (acp) => {
+      let item: FeedItem | undefined
+      for (let i = 0; i < 40 && item === undefined; i++) {
+        const { body } = await acp.getJson<Snapshot & { feed: FeedItem[] }>(SNAPSHOT)
+        item = body.feed?.find((x) => x.seat.scopeRef === SEAT && x.rowId === 'ship')
+        if (item === undefined) await settle(100)
+      }
+      if (item === undefined) throw new Error('no feed item for the fixture row')
+      const { snapshot, entry } = await snapshotEntry(acp)
+      expect(snapshot.entries.length).toBeGreaterThan(0)
+      expect(item).toMatchObject({
+        kind: 'row',
+        state: 'open',
+        ask: ASK,
+        answerable: true,
+        waiting: true,
+        recordIndex: 0,
+      })
+      expect(new Date(item.firstSeenAt).toISOString()).toBe(item.firstSeenAt)
+      expect(item.key).toEqual(entry.key)
+      expect(item.recordUpdatedAt).toBe(entry.expectUpdatedAt)
+      const stored = acp.fake.find(SEAT, 'item', item.itemId, null)
+      expect(stored?.by ?? stored?.updatedBy).toBe('system:c2-controller')
+
+      const request = {
+        requestId: newRequestId(),
+        key: item.key,
+        expectUpdatedAt: item.recordUpdatedAt,
+        actionId: 'answers',
+        kind: 'answer',
+        answers: [{ id: 'ship', option: 'Ship' }],
+        text: ANSWER_TEXT,
+        recommended: true,
+        edited: false,
+      }
+      expect((await acp.postJson<ActionResponse>(ACTIONS, request)).body.outcome).toBe('sent')
+      let closed: FeedItem | undefined
+      for (let i = 0; i < 40 && closed?.state !== 'closed'; i++) {
+        await settle(100)
+        const { body } = await acp.getJson<Snapshot & { feed: FeedItem[] }>(SNAPSHOT)
+        closed = body.feed.find((x) => x.itemId === item!.itemId)
+      }
+      expect(closed).toMatchObject({
+        state: 'closed',
+        close: { cause: 'answered' },
+        answer: { option: 'Ship', recommended: true, edited: false },
+      })
+      const acts = acp.fake.ledger.filter((e) => e.eventKind === 'session.annotation.action')
+      expect(acts.map((a) => a.payload)).toMatchObject([
+        { attributes: { action: 'answered', rowId: 'ship', recommended: true, edited: false } },
+      ])
+    })
   })
 })
