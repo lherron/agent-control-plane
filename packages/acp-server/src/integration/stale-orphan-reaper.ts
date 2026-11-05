@@ -15,6 +15,7 @@ import { isUnroutableRun } from './interface-run-dispatcher.js'
 
 export const STALE_NEVER_DISPATCHED_MS = 7 * 24 * 60 * 60_000
 export const STALE_UNROUTABLE_MS = 24 * 60 * 60_000
+export const PROTECTED_ORPHAN_RECHECK_MS = 6 * 60 * 60_000
 const terminalRuns = new Set(['completed', 'failed', 'cancelled'])
 const terminalQueues = new Set(['completed', 'failed', 'cancelled', 'expired'])
 const deadRuntimes = new Set(['terminated', 'stale', 'crashed', 'failed', 'exited'])
@@ -45,6 +46,30 @@ type Input = {
 export function createStaleOrphanReaper(input: Input) {
   const now = input.now ?? Date.now
   const aged = (timestamp: string, bound: number) => now() - Date.parse(timestamp) > bound
+  // Only protection is reusable: a cached verdict can delay cleanup, never authorize it.
+  const protectedProofs = new Map<string, { snapshot: string; reason: string; recheckAt: number }>()
+
+  async function protectedProof(
+    key: string,
+    state: unknown,
+    run: StoredRun,
+    apply: boolean
+  ): Promise<string | undefined> {
+    if (!apply) return proveDead(run)
+    const snapshot = JSON.stringify(state)
+    const cached = protectedProofs.get(key)
+    if (cached !== undefined && cached.snapshot === snapshot && now() < cached.recheckAt)
+      return cached.reason
+    protectedProofs.delete(key)
+    const reason = await proveDead(run)
+    if (reason !== undefined)
+      protectedProofs.set(key, {
+        snapshot,
+        reason,
+        recheckAt: now() + PROTECTED_ORPHAN_RECHECK_MS,
+      })
+    return reason
+  }
 
   function snapshot(runId: string) {
     const run = input.runStore.getRun(runId)
@@ -255,7 +280,12 @@ export function createStaleOrphanReaper(input: Input) {
         hostSessionId: original.hostSessionId,
         hrcRunId: original.hrcRunId,
       }
-      const protection = await proveDead(identity)
+      const protection = await protectedProof(
+        `application:${id}`,
+        { original, target },
+        identity,
+        apply
+      )
       if (protection !== undefined) {
         report.protected.push({ runId: target.runId, reason: `${id}: ${protection}` })
         continue
@@ -385,6 +415,10 @@ export function createStaleOrphanReaper(input: Input) {
   }
 
   async function scan(apply: boolean) {
+    // Retain only recent protection, including when candidates disappear from ACP.
+    if (apply)
+      for (const [key, proof] of protectedProofs)
+        if (now() >= proof.recheckAt) protectedProofs.delete(key)
     const report: { actions: OrphanAction[]; protected: { runId: string; reason: string }[] } = {
       actions: [],
       protected: [],
@@ -403,7 +437,7 @@ export function createStaleOrphanReaper(input: Input) {
       if (planned.length === 0) continue
       const started = planned.some((a) => a.reason === 'stale_unroutable')
       if (started) {
-        const protection = await proveDead(original.run)
+        const protection = await protectedProof(`run:${runId}`, original, original.run, apply)
         if (protection !== undefined) {
           report.protected.push({ runId, reason: protection })
           continue

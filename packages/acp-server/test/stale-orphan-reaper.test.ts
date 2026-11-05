@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openAcpStateStore } from 'acp-state-store'
 import type { AcpHrcClient } from '../src/deps.js'
-import { createStaleOrphanReaper } from '../src/integration/stale-orphan-reaper.js'
+import {
+  PROTECTED_ORPHAN_RECHECK_MS,
+  createStaleOrphanReaper,
+} from '../src/integration/stale-orphan-reaper.js'
 
 const cleanup: (() => void)[] = []
 afterEach(() => {
@@ -201,6 +204,95 @@ test('fails old unroutable work with dead identity while a newer scope runtime e
     errorCode: 'stale_unroutable',
   })
 })
+
+test('unchanged foreign candidates locate once across dispatcher ticks', async () => {
+  const f = fixture()
+  const { run } = f.seed('running')
+  let locates = 0
+  const reaper = createStaleOrphanReaper({
+    ...f.reaperInput,
+    hrcClient: {
+      ...f.reaperInput.hrcClient,
+      locateScope: async () => {
+        locates++
+        return { authority: { state: 'bound', isLocal: false } } as Awaited<
+          ReturnType<AcpHrcClient['locateScope']>
+        >
+      },
+    },
+  })
+  for (let tick = 0; tick < 20; tick++) await reaper.runOnce()
+  expect(f.state.runs.getRun(run.runId)?.status).toBe('running')
+  expect(locates).toBe(1)
+})
+
+test('protection expires without sliding on ticks; dry-run always obtains fresh evidence', async () => {
+  const f = fixture()
+  const { run } = f.seed('running')
+  let clock = now
+  let locates = 0
+  let foreign = true
+  const reaper = createStaleOrphanReaper({
+    ...f.reaperInput,
+    now: () => clock,
+    hrcClient: {
+      ...f.reaperInput.hrcClient,
+      locateScope: async () => {
+        locates++
+        return { authority: { state: 'bound', isLocal: !foreign } } as Awaited<
+          ReturnType<AcpHrcClient['locateScope']>
+        >
+      },
+    },
+  })
+  await reaper.runOnce()
+  foreign = false
+  clock += PROTECTED_ORPHAN_RECHECK_MS - 1
+  await reaper.runOnce()
+  expect(locates).toBe(1)
+  expect((await reaper.dryRun()).actions.some((a) => a.id === run.runId)).toBe(true)
+  expect(locates).toBe(2)
+  await reaper.runOnce() // Dry-run does not populate or invalidate the cadence cache.
+  expect(locates).toBe(2)
+  clock++
+  // Fresh API evidence alone cannot bypass synchronous local live evidence.
+  f.hrc.exec("INSERT INTO runtimes VALUES ('rt-live','ready',NULL,NULL,NULL)")
+  f.hrc.prepare('UPDATE runtimes SET scope_ref = ?, lane_ref = ?').run(run.scopeRef, run.laneRef)
+  await reaper.runOnce()
+  expect(locates).toBe(3)
+  expect(f.state.runs.getRun(run.runId)?.status).toBe('running')
+  f.hrc.exec('DELETE FROM runtimes')
+  await reaper.runOnce()
+  expect(locates).toBe(4) // Successful death proofs are never cached.
+  expect(f.state.runs.getRun(run.runId)?.status).toBe('failed')
+})
+
+for (const changed of ['run', 'queue', 'admission'] as const) {
+  test(`changed ${changed} invalidates protected proof immediately`, async () => {
+    const f = fixture()
+    const { run } = f.seed('running')
+    let locates = 0
+    const reaper = createStaleOrphanReaper({
+      ...f.reaperInput,
+      hrcClient: {
+        ...f.reaperInput.hrcClient,
+        locateScope: async () => {
+          locates++
+          return { authority: { state: 'unknown' } } as Awaited<
+            ReturnType<AcpHrcClient['locateScope']>
+          >
+        },
+      },
+    })
+    await reaper.runOnce()
+    const table = { run: 'runs', queue: 'input_queue', admission: 'input_admissions' }[changed]
+    f.state.sqlite.prepare(`UPDATE ${table} SET updated_at = ?`).run('2026-06-02T00:00:00Z')
+    await reaper.runOnce()
+    await reaper.runOnce()
+    expect(locates).toBe(2)
+    expect(f.state.runs.getRun(run.runId)?.status).toBe('running')
+  })
+}
 
 test('queued run with already-cancelled never-dispatched queue also expires', async () => {
   const f = fixture()
