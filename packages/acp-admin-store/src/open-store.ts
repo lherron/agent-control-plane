@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { observeSqliteCommits } from 'acp-core'
 
 import type {
   Actor,
@@ -372,6 +373,7 @@ export const adminStoreMigrations: readonly AdminStoreMigration[] = [
 ]
 
 export interface OpenSqliteAdminStoreOptions {
+  onCommit?: ((tables: ReadonlySet<string>) => void) | undefined
   dbPath: string
 }
 
@@ -1396,8 +1398,9 @@ export function runAdminStoreMigrations(sqlite: SqliteDatabase): void {
 }
 
 export function openSqliteAdminStore(options: OpenSqliteAdminStoreOptions): AdminStore {
-  const sqlite = createSqliteDatabase(options.dbPath)
-  runAdminStoreMigrations(sqlite)
+  const rawSqlite = createSqliteDatabase(options.dbPath)
+  runAdminStoreMigrations(rawSqlite)
+  const sqlite = observeSqliteCommits(rawSqlite, options.onCommit)
 
   const agents = createAgentsStore(sqlite)
   const projects = createProjectsStore(sqlite)

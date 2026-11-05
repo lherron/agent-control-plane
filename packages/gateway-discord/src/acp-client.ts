@@ -106,8 +106,11 @@ export class GatewayAcpClient {
     readonly dashboardSnapshot: DashboardSnapshotFetcher
   ) {}
 
-  async fetchJson<T>(path: string): Promise<T> {
-    const response = await this.fetch(`${this.baseUrl}${path}`)
+  async fetchJson<T>(path: string, options?: { signal?: AbortSignal | undefined }): Promise<T> {
+    const response = await this.fetch(
+      `${this.baseUrl}${path}`,
+      options?.signal !== undefined ? { signal: options.signal } : undefined
+    )
     if (!response.ok) {
       throw new Error(`Request failed: ${response.status} ${await response.text()}`)
     }

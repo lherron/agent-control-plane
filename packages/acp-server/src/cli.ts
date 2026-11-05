@@ -1,6 +1,10 @@
 #!/usr/bin/env bun
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { assertJobExecutionAdmission } from 'acp-jobs-store'
+import { inputQueueDelayMs, jobsDelayMs } from './integration/store-scan-deadlines.js'
+import { createStoreScanLoop } from './integration/store-scan-loop.js'
+import { StoreCommitBus } from './store-commit-bus.js'
 
 import { openSqliteAdminStore } from 'acp-admin-store'
 import { startAcpCapabilityHost } from 'acp-capability-host'
@@ -1052,18 +1056,50 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     await mkdir(dirname(options.conversationDbPath), { recursive: true })
   }
 
-  const coordStore = openCoordinationStore(options.coordDbPath)
+  const commitBus = new StoreCommitBus()
+  const coordStore = openCoordinationStore(options.coordDbPath, (tables) => {
+    if (tables.has('wake_requests') || tables.has('*')) commitBus.notify('coordination')
+  })
   const interfaceStore = openInterfaceStore({
     dbPath: options.interfaceDbPath,
+    onCommit: (tables) => {
+      if (tables.has('delivery_requests') || tables.has('outbound_attachments') || tables.has('*'))
+        commitBus.notify('deliveries')
+    },
   })
-  const stateStore = openAcpStateStore({ dbPath: options.stateDbPath })
+  const stateStore = openAcpStateStore({
+    dbPath: options.stateDbPath,
+    onCommit: (tables) => {
+      if (tables.has('runs') || tables.has('*')) commitBus.notify('runs')
+      if (
+        [
+          'input_attempts',
+          'input_admissions',
+          'input_applications',
+          'input_queue',
+          'session_admission_sequence',
+          '*',
+        ].some((table) => tables.has(table))
+      )
+        commitBus.notify('admissions')
+      if (tables.has('pbc_continuation_jobs') || tables.has('*')) commitBus.notify('jobs')
+    },
+  })
   const adminStore =
     options.adminDbPath !== undefined
-      ? openSqliteAdminStore({ dbPath: options.adminDbPath })
+      ? openSqliteAdminStore({
+          dbPath: options.adminDbPath,
+          onCommit: (tables) => {
+            if (tables.has('system_events') || tables.has('*')) commitBus.notify('system-events')
+          },
+        })
       : undefined
   const jobsStore =
     options.jobsDbPath !== undefined
-      ? openSqliteJobsStore({ dbPath: options.jobsDbPath })
+      ? openSqliteJobsStore({
+          dbPath: options.jobsDbPath,
+          onCommit: () => commitBus.notify('jobs'),
+        })
       : undefined
   const conversationStore =
     options.conversationDbPath !== undefined
@@ -1167,6 +1203,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const serverDeps = {
     ...(wrkqStore !== undefined ? { wrkqStore } : {}),
     coordStore,
+    commitBus,
     ...(adminStore !== undefined ? { adminStore } : {}),
     ...(jobsStore !== undefined ? { jobsStore } : {}),
     ...(conversationStore !== undefined ? { conversationStore } : {}),
@@ -1262,6 +1299,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const wakeDispatcher =
     resolvedDeps.launchRoleScopedRun !== undefined && resolvedDeps.runtimeResolver !== undefined
       ? createWakeDispatcher({
+          commitBus,
           coordStore,
           inputAttemptStore: resolvedDeps.inputAttemptStore,
           runStore: resolvedDeps.runStore,
@@ -1314,6 +1352,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const interfaceRunDispatcher =
     resolvedDeps.launchRoleScopedRun !== undefined
       ? createInterfaceRunDispatcher({
+          commitBus,
           runStore: resolvedDeps.runStore,
           interfaceStore,
           ...(jobsStore !== undefined ? { jobsStore } : {}),
@@ -1346,6 +1385,14 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   const inputQueueDispatcher =
     resolvedDeps.launchRoleScopedRun !== undefined
       ? createInputQueueDispatcher({
+          commitBus,
+          nextDeadlineMs: () =>
+            inputQueueDelayMs(stateStore.sqlite, {
+              now: Date.now(),
+              cadenceMs: inputQueueDispatcherIntervalMs,
+              leaseTimeoutMs: inputQueueLeaseTimeoutMs,
+              ttlMs: resolvedDeps.inputQueuePolicy.ttlMs,
+            }),
           adminStore: resolvedDeps.adminStore,
           hrcClient: resolvedDeps.hrcClient,
           inputAdmissionStore: resolvedDeps.inputAdmissionStore,
@@ -1436,93 +1483,141 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
           runWorker: pbcWorkerRunner,
         })
       : undefined
-  let schedulerTickInProgress = false
-  const schedulerTimer =
+  let schedulerNextDelayMs = 60_000
+  const schedulerLoop =
     jobsScheduler !== undefined ||
     jobOutputReconciler !== undefined ||
     pbcWorkerScheduler !== undefined
-      ? setInterval(() => {
-          if (schedulerTickInProgress) {
-            return
-          }
-          schedulerTickInProgress = true
-          void Promise.resolve()
-            .then(async () => {
-              // The startup identity is only a negative readiness hint. Work still
-              // requires verifyFresh below; refused/foreign jobs cannot re-arm
-              // an otherwise empty tick forever.
-              const diagnostics = jobNodeIdentityAuthority?.getDiagnostics()
-              const baseline =
-                diagnostics?.baseline !== undefined && diagnostics.lastVerifiedAt !== undefined
-                  ? { ...diagnostics.baseline, verifiedAt: diagnostics.lastVerifiedAt }
-                  : undefined
-              const jobsReady =
-                jobsStore?.hasSchedulerWork(
-                  new Date().toISOString(),
-                  baseline,
-                  reportReadinessExclusion
-                ) === true
-              const verification =
-                jobsReady && (jobsScheduler !== undefined || jobOutputReconciler !== undefined)
-                  ? await jobNodeIdentityAuthority?.verifyFresh('scheduler_tick')
-                  : undefined
-              if (verification !== undefined && !verification.ok) {
+      ? createStoreScanLoop({
+          name: 'jobs-pbc-scheduler',
+          retryDelayMs: DEFAULT_JOBS_SCHEDULER_INTERVAL_MS,
+          bus: commitBus,
+          topics: ['jobs', 'runs'],
+          nextDelayMs: () => schedulerNextDelayMs,
+          scan: async () => {
+            await Promise.resolve()
+              .then(async () => {
+                // The startup identity is only a negative readiness hint. Work still
+                // requires verifyFresh below; refused/foreign jobs cannot re-arm
+                // an otherwise empty tick forever.
+                const diagnostics = jobNodeIdentityAuthority?.getDiagnostics()
+                const baseline =
+                  diagnostics?.baseline !== undefined && diagnostics.lastVerifiedAt !== undefined
+                    ? { ...diagnostics.baseline, verifiedAt: diagnostics.lastVerifiedAt }
+                    : undefined
+                const jobsReady =
+                  jobsStore?.hasSchedulerWork(
+                    new Date().toISOString(),
+                    baseline,
+                    reportReadinessExclusion
+                  ) === true
+                const verification =
+                  jobsReady && (jobsScheduler !== undefined || jobOutputReconciler !== undefined)
+                    ? await jobNodeIdentityAuthority?.verifyFresh('scheduler_tick')
+                    : undefined
+                if (verification !== undefined && !verification.ok) {
+                  writeLogLine({
+                    level: 'error',
+                    component: 'jobs',
+                    event: 'jobs.identity_missed_tick',
+                    data: {
+                      message: formatJobIdentityMissedTickDiagnostic(
+                        jobsStore,
+                        verification,
+                        new Date()
+                      ),
+                    },
+                  })
+                  return
+                }
+                if (jobsScheduler !== undefined && verification?.ok === true) {
+                  // tick() returns every job-run it touched this tick (scheduled
+                  // dispatch, dispatch_failed, flow advance, flow_advance_failed,
+                  // inflight flow re-advance). Project lifecycle telemetry from the
+                  // committed results — idempotent, so re-seen inflight runs no-op.
+                  const touched = await jobsScheduler.tick(new Date(), verification.identity)
+                  if (jobLifecycleEmitter !== undefined) {
+                    for (const run of touched) {
+                      jobLifecycleEmitter.reconcile(run)
+                    }
+                  }
+                }
+                if (jobOutputReconciler !== undefined && verification?.ok === true) {
+                  await jobOutputReconciler.runOnce(verification.identity)
+                }
+              })
+              .catch((error) => {
                 writeLogLine({
                   level: 'error',
                   component: 'jobs',
-                  event: 'jobs.identity_missed_tick',
-                  data: {
-                    message: formatJobIdentityMissedTickDiagnostic(
-                      jobsStore,
-                      verification,
-                      new Date()
-                    ),
-                  },
+                  event: 'jobs.scheduler_tick_failed',
+                  err: error,
                 })
-                return
-              }
-              if (jobsScheduler !== undefined && verification?.ok === true) {
-                // tick() returns every job-run it touched this tick (scheduled
-                // dispatch, dispatch_failed, flow advance, flow_advance_failed,
-                // inflight flow re-advance). Project lifecycle telemetry from the
-                // committed results — idempotent, so re-seen inflight runs no-op.
-                const touched = await jobsScheduler.tick(new Date(), verification.identity)
-                if (jobLifecycleEmitter !== undefined) {
-                  for (const run of touched) {
-                    jobLifecycleEmitter.reconcile(run)
+              })
+              .then(async () => {
+                if (pbcWorkerScheduler !== undefined) {
+                  await pbcWorkerScheduler.tick()
+                }
+              })
+              .catch((error) => {
+                writeLogLine({
+                  level: 'error',
+                  component: 'pbc',
+                  event: 'pbc.worker_scheduler_tick_failed',
+                  err: error,
+                })
+              })
+            const now = Date.now()
+            const diagnostics = jobNodeIdentityAuthority?.getDiagnostics()
+            const identity =
+              diagnostics?.baseline !== undefined && diagnostics.lastVerifiedAt !== undefined
+                ? { ...diagnostics.baseline, verifiedAt: diagnostics.lastVerifiedAt }
+                : undefined
+            const scheduleDeadlines =
+              jobsStore?.listJobs().jobs.flatMap((job) => {
+                if (job.archivedAt !== undefined || job.disabled || job.trigger.kind !== 'schedule')
+                  return []
+                if (identity !== undefined) {
+                  try {
+                    assertJobExecutionAdmission(job, identity)
+                  } catch {
+                    return []
                   }
                 }
-              }
-              if (jobOutputReconciler !== undefined && verification?.ok === true) {
-                await jobOutputReconciler.runOnce(verification.identity)
-              }
-            })
-            .catch((error) => {
-              writeLogLine({
-                level: 'error',
-                component: 'jobs',
-                event: 'jobs.scheduler_tick_failed',
-                err: error,
-              })
-            })
-            .then(async () => {
-              if (pbcWorkerScheduler !== undefined) {
-                await pbcWorkerScheduler.tick()
-              }
-            })
-            .catch((error) => {
-              writeLogLine({
-                level: 'error',
-                component: 'pbc',
-                event: 'pbc.worker_scheduler_tick_failed',
-                err: error,
-              })
-            })
-            .finally(() => {
-              schedulerTickInProgress = false
-            })
-        }, DEFAULT_JOBS_SCHEDULER_INTERVAL_MS)
+                return [
+                  job.nextFireAt === undefined
+                    ? now + DEFAULT_JOBS_SCHEDULER_INTERVAL_MS
+                    : Date.parse(job.nextFireAt) > now
+                      ? Date.parse(job.nextFireAt)
+                      : now + DEFAULT_JOBS_SCHEDULER_INTERVAL_MS,
+                ]
+              }) ?? []
+            schedulerNextDelayMs =
+              jobsStore === undefined
+                ? 60_000
+                : jobsDelayMs(jobsStore.sqlite, {
+                    now,
+                    cadenceMs: DEFAULT_JOBS_SCHEDULER_INTERVAL_MS,
+                    scheduleDeadlines,
+                    nodeId: identity?.nodeId,
+                  })
+            for (const job of [
+              ...stateStore.pbcContinuationJobs.listByStatus('queued'),
+              ...stateStore.pbcContinuationJobs.listByStatus('running'),
+            ]) {
+              schedulerNextDelayMs = Math.min(
+                schedulerNextDelayMs,
+                job.leaseExpiresAt === undefined
+                  ? DEFAULT_JOBS_SCHEDULER_INTERVAL_MS
+                  : Date.parse(job.leaseExpiresAt) > now
+                    ? Date.parse(job.leaseExpiresAt) - now
+                    : DEFAULT_JOBS_SCHEDULER_INTERVAL_MS
+              )
+            }
+          },
+        })
       : undefined
+  schedulerLoop?.start()
 
   let closed = false
   return {
@@ -1543,9 +1638,8 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       if (inputQueueDispatcher !== undefined) {
         await inputQueueDispatcher.stop()
       }
-      if (schedulerTimer !== undefined) {
-        clearInterval(schedulerTimer)
-      }
+      await schedulerLoop?.stop()
+      commitBus.close()
       await reconciler?.stop()
       for (const bunServer of bunServers) {
         bunServer.stop(true)

@@ -128,6 +128,7 @@ export class GatewayDiscordApp {
   private bindingsTimer: ReturnType<typeof setInterval> | undefined
   private deliveryLoopPromise: Promise<void> | undefined
   private deliveryLoopStopped = false
+  private deliveryLoopAbort = new AbortController()
   private deliveryCursor: string | undefined
   private readonly jobRunsChannelId?: string | undefined
   private readonly workActivityChannelId?: string | undefined
@@ -352,6 +353,7 @@ export class GatewayDiscordApp {
 
     this.live.stopped = false
     this.deliveryLoopStopped = false
+    this.deliveryLoopAbort = new AbortController()
     this.deliveryLoopPromise = this.runDeliveryLoop()
 
     if (this.ledgerHumanEgress !== undefined) {
@@ -384,6 +386,8 @@ export class GatewayDiscordApp {
 
   async stop(): Promise<void> {
     this.deliveryLoopStopped = true
+    this.deliveryLoopAbort.abort()
+    this.lifecycle.systemEventsAbort.abort()
     this.lifecycle.systemEventsLoopStopped = true
     this.ledgerHumanEgressLoopStopped = true
     this.ledgerHumanEgressAbort.abort()
@@ -437,10 +441,11 @@ export class GatewayDiscordApp {
     return payload.bindings
   }
 
-  async pollDeliveriesOnce(): Promise<number> {
-    const query = this.deliveryCursor ? `?since=${encodeURIComponent(this.deliveryCursor)}` : ''
+  async pollDeliveriesOnce(waitMs = 0): Promise<number> {
+    const query = `?waitMs=${waitMs}${this.deliveryCursor ? `&since=${encodeURIComponent(this.deliveryCursor)}` : ''}`
     const payload = await this.acp.fetchJson<DeliveryStreamResponse>(
-      `/v1/gateway/${encodeURIComponent(this.gatewayId)}/deliveries/stream${query}`
+      `/v1/gateway/${encodeURIComponent(this.gatewayId)}/deliveries/stream${query}`,
+      { signal: this.deliveryLoopAbort.signal }
     )
 
     if (payload.nextCursor) {
@@ -457,9 +462,9 @@ export class GatewayDiscordApp {
   private async runDeliveryLoop(): Promise<void> {
     while (!this.deliveryLoopStopped) {
       try {
-        const count = await this.pollDeliveriesOnce()
-        await sleep(count > 0 ? this.deliveryPollMs : this.deliveryIdleMs)
+        await this.pollDeliveriesOnce(60_000)
       } catch (error) {
+        if (this.deliveryLoopStopped) break
         log.error('gw.deliveries.loop_error', {
           message: 'Delivery loop iteration failed',
           trace: { gatewayId: this.gatewayId },

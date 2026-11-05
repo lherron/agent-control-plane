@@ -1,5 +1,6 @@
 import { badRequest, json } from '../http.js'
 import { parseJsonBody, requireRecord, requireTrimmedStringField } from '../parsers/body.js'
+import { readStorePage, readStorePageWaitMs } from './store-page-wait.js'
 
 import type { RouteHandler } from '../routing/route-context.js'
 
@@ -29,27 +30,34 @@ export const handleAppendSystemEvent: RouteHandler = async ({ request, deps }) =
   return json({ event }, 201)
 }
 
-export const handleListSystemEvents: RouteHandler = async ({ url, deps }) => {
+export const handleListSystemEvents: RouteHandler = async ({ request, url, deps }) => {
   return json({
-    events: deps.adminStore.systemEvents.list({
-      ...(readOptionalQueryValue(url, 'projectId') !== undefined
-        ? { projectId: readOptionalQueryValue(url, 'projectId') }
-        : {}),
-      ...(readOptionalQueryValue(url, 'kind') !== undefined
-        ? { kind: readOptionalQueryValue(url, 'kind') }
-        : {}),
-      ...(readOptionalQueryValue(url, 'occurredAfter') !== undefined
-        ? { occurredAfter: readOptionalQueryValue(url, 'occurredAfter') }
-        : {}),
-      ...(readOptionalQueryValue(url, 'occurredBefore') !== undefined
-        ? { occurredBefore: readOptionalQueryValue(url, 'occurredBefore') }
-        : {}),
-      ...(readOptionalQueryValue(url, 'afterEventId') !== undefined
-        ? { afterEventId: readOptionalQueryValue(url, 'afterEventId') }
-        : {}),
-      ...(readOptionalQueryValue(url, 'limit') !== undefined
-        ? { limit: readOptionalQueryValue(url, 'limit') }
-        : {}),
+    events: await readStorePage({
+      bus: deps.commitBus,
+      topic: 'system-events',
+      waitMs: readStorePageWaitMs(url),
+      signal: request.signal,
+      read: () =>
+        deps.adminStore.systemEvents.list({
+          ...(readOptionalQueryValue(url, 'projectId') !== undefined
+            ? { projectId: readOptionalQueryValue(url, 'projectId') }
+            : {}),
+          ...(readOptionalQueryValue(url, 'kind') !== undefined
+            ? { kind: readOptionalQueryValue(url, 'kind') }
+            : {}),
+          ...(readOptionalQueryValue(url, 'occurredAfter') !== undefined
+            ? { occurredAfter: readOptionalQueryValue(url, 'occurredAfter') }
+            : {}),
+          ...(readOptionalQueryValue(url, 'occurredBefore') !== undefined
+            ? { occurredBefore: readOptionalQueryValue(url, 'occurredBefore') }
+            : {}),
+          ...(readOptionalQueryValue(url, 'afterEventId') !== undefined
+            ? { afterEventId: readOptionalQueryValue(url, 'afterEventId') }
+            : {}),
+          ...(readOptionalQueryValue(url, 'limit') !== undefined
+            ? { limit: readOptionalQueryValue(url, 'limit') }
+            : {}),
+        }),
     }),
   })
 }

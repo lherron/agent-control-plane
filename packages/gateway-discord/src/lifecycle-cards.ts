@@ -21,6 +21,7 @@ async function sleep(ms: number): Promise<void> {
 
 export class LifecycleCards {
   systemEventsLoopStopped = false
+  systemEventsAbort = new AbortController()
   systemEventsLoopPromise = undefined as Promise<void> | undefined
   systemEventsCursor = undefined as string | undefined
   constructor(
@@ -86,7 +87,7 @@ export class LifecycleCards {
     return undefined
   }
 
-  async pollSystemEventsOnce(): Promise<number> {
+  async pollSystemEventsOnce(waitMs = 0): Promise<number> {
     if (
       this.options.jobRunsChannelId === undefined &&
       this.options.workActivityChannelId === undefined
@@ -95,7 +96,8 @@ export class LifecycleCards {
     }
     const cursor = this.systemEventsCursor ?? '0'
     const payload = await this.options.acp.fetchJson<SystemEventsResponse>(
-      `/v1/admin/system-events?afterEventId=${encodeURIComponent(cursor)}&limit=200`
+      `/v1/admin/system-events?afterEventId=${encodeURIComponent(cursor)}&limit=200&waitMs=${waitMs}`,
+      { signal: this.systemEventsAbort.signal }
     )
 
     // Failure summaries for job windows that ended before this batch (flushed every poll, so a
@@ -150,11 +152,17 @@ export class LifecycleCards {
   }
 
   async runSystemEventsLoop(): Promise<void> {
+    this.systemEventsAbort = new AbortController()
+    if (
+      this.options.jobRunsChannelId === undefined &&
+      this.options.workActivityChannelId === undefined
+    )
+      return
     while (!this.systemEventsLoopStopped) {
       try {
-        const count = await this.pollSystemEventsOnce()
-        await sleep(count > 0 ? this.options.jobRunsPollMs : this.options.deliveryIdleMs)
+        await this.pollSystemEventsOnce(this.options.jobRunFailureCardLimiter.nextSummaryDelayMs())
       } catch (error) {
+        if (this.systemEventsLoopStopped) break
         log.error('gw.jobruns.loop_error', {
           message: 'job-runs loop iteration failed',
           trace: { gatewayId: this.options.gatewayId },

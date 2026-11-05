@@ -288,6 +288,13 @@ export class JobRunFailureCardLimiter {
     return false
   }
 
+  nextSummaryDelayMs(): number {
+    const deadlines = [...this.windows.values()]
+      .filter((window) => window.suppressed > 0)
+      .map((window) => window.startedAt + this.windowMs - this.now())
+    return Math.max(1, Math.min(60_000, ...deadlines))
+  }
+
   /** Summary cards for windows that have ended with suppressed failures. Each
    * window is reported once and then cleared. */
   takeSummaries(resolveAvatar = avatarFor): WebhookPayload[] {

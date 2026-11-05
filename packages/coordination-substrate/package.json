@@ -24,6 +24,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "acp-core": "*",
     "agent-scope": "0.1.1-dev.20261102040413"
   },
   "devDependencies": {

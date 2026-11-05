@@ -1,4 +1,5 @@
 import { expect } from 'bun:test'
+import { waitForFakePage } from './app-acp-fixture.test.js'
 
 import { GatewayDiscordApp } from '../app.js'
 
@@ -339,6 +340,7 @@ export function createLiveProgressHarness(
     }
 
     if (url.pathname === '/v1/gateway/discord_prod/deliveries/stream') {
+      await waitForFakePage(request, () => deliveries.length > 0)
       const drained = deliveries.splice(0)
       return Response.json({ deliveries: drained, nextCursor: null })
     }

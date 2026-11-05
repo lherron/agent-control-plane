@@ -1658,7 +1658,12 @@ describe('T-08575 retained-evidence actuation fence', () => {
 
   test('U-up observes old-to-new schema upgrade without recreating the dispatcher', async () => {
     const hrc = createHrcDb()
-    const fx = createTmuxActuationFixture({ hrcDbPath: hrc.hrcDbPath, generation: 7 })
+    // This tests live schema detection, not a 10 ms stale deadline between reads.
+    const fx = createTmuxActuationFixture({
+      hrcDbPath: hrc.hrcDbPath,
+      generation: 7,
+      staleTimeoutMs: 10 * 60_000,
+    })
     await fx.dispatcher.runOnce()
     expect(fx.runStore.getRun(fx.run.runId)?.status).toBe('running')
 
@@ -1939,5 +1944,61 @@ describe('retained-evidence original incident boundaries', () => {
       expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(false)
       hrc.db.close()
     })
+  }
+})
+
+// HRC is the only writer after startup in this regression: no ACP wake hint.
+test('commit bus keeps reconciliation cadence for an HRC-only completion', async () => {
+  const { StoreCommitBus } = await import('../store-commit-bus.js')
+  const hrc = createHrcDb()
+  const interfaceStore = openInterfaceStore({ dbPath: ':memory:' })
+  const runStore = new InMemoryRunStore()
+  const sessionRef = {
+    scopeRef: 'agent:cody:project:agent-control-plane:task:T-12582',
+    laneRef: 'main' as const,
+  }
+  const run = runStore.createRun({ sessionRef, status: 'running' })
+  runStore.updateRun(run.runId, {
+    hrcRunId: 'bus-hrc-run',
+    hostSessionId: 'bus-host',
+    generation: 1,
+    runtimeId: 'bus-runtime',
+    transport: 'headless',
+  })
+  insertRunStatus(hrc.db, {
+    runId: 'bus-hrc-run',
+    hostSessionId: 'bus-host',
+    runtimeId: 'bus-runtime',
+    ...sessionRef,
+    generation: 1,
+    transport: 'headless',
+    status: 'running',
+  })
+  const bus = new StoreCommitBus()
+  const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
+    commitBus: bus,
+    runStore,
+    interfaceStore,
+    hrcDbPath: hrc.hrcDbPath,
+    config: { intervalMs: 2000, staleTimeoutMs: 60000 },
+  })
+  try {
+    dispatcher.start()
+    await Bun.sleep(30)
+    expect(runStore.getRun(run.runId)?.status).toBe('running')
+    const version = bus.version('runs')
+    const start = performance.now()
+    hrc.db
+      .query("UPDATE runs SET status = 'completed', completed_at = ? WHERE run_id = ?")
+      .run(new Date().toISOString(), 'bus-hrc-run')
+    while (runStore.getRun(run.runId)?.status === 'running' && performance.now() - start < 2100)
+      await Bun.sleep(5)
+    expect(runStore.getRun(run.runId)?.status).toBe('completed')
+    expect(performance.now() - start).toBeLessThan(2000)
+    expect(bus.version('runs')).toBe(version)
+  } finally {
+    await dispatcher.stop()
+    interfaceStore.close()
+    hrc.db.close()
   }
 })

@@ -60,11 +60,12 @@ scopes and renders agent activity and lifecycle events back into Discord.
 
 Two parallel outbound paths exist:
 
-- **Delivery queue poll** (`runDeliveryLoop`): polls
-  `GET /v1/gateway/:gatewayId/deliveries/stream?since=<cursor>` on an
-  interval (`DEFAULT_DELIVERY_POLL_MS` = 1s busy / `DEFAULT_DELIVERY_IDLE_MS`
-  = 2.5s idle), processes each delivery, and advances the cursor. This is the
-  general-purpose gateway delivery drain.
+- **Delivery queue drain** (`runDeliveryLoop`): requests
+  `GET /v1/gateway/:gatewayId/deliveries/stream?since=<cursor>&waitMs=60000`,
+  processes each delivery, advances the cursor, and immediately renews. An empty
+  page parks until an ACP store commit or the 60 s backstop. A timeout returns
+  the initial empty page without a second scan; a commit causes one re-read.
+  Omitting `waitMs` keeps the immediate response for external clients.
 - **Live per-run progress** (`SessionEventsManager` + `runLiveSubscription`):
   for every active interface binding, the gateway opens an NDJSON SSE
   subscription to `GET /v1/session-refs/events?sessionRef=...&follow=true`
@@ -89,9 +90,14 @@ explicit ACP id (`run_<hex12>`). An unmapped HRC id (`run-<uuid>`) receives
 ## Lifecycle cards (system-events → Discord)
 
 Separately from per-run progress, gateway-discord polls
-`GET /v1/admin/system-events?afterEventId=<cursor>&limit=200` globally (no
+`GET /v1/admin/system-events?afterEventId=<cursor>&limit=200&waitMs=60000` globally (no
 per-kind filter — the cursor always advances past every event kind so
-unrelated kinds are never re-fetched) and dispatches by kind family:
+unrelated kinds are never re-fetched) and dispatches by kind family. It renews
+immediately after each response; pending failure-summary deadlines shorten the
+wait, and stopping the gateway cancels both page requests. The optional integer
+`waitMs` is bounded to 0–60000 on both page routes.
+
+Dispatch by kind:
 
 - `job.*` → the fixed `#job-runs` channel (`ACP_DISCORD_JOB_RUNS_CHANNEL_ID`),
   rendered by `buildJobRunCard` (`job-runs.ts`).

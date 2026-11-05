@@ -48,6 +48,7 @@ export function createAcpFetch(input: {
       return Response.json({ projectId: null, contexts: {}, agents: input.agents ?? [] })
     }
     if (url.pathname === '/v1/gateway/discord_prod/deliveries/stream') {
+      await waitForFakePage(request, () => deliveries.length > 0)
       return Response.json({ deliveries: deliveries.splice(0), nextCursor: null })
     }
     if (/^\/v1\/gateway\/deliveries\/[^/]+\/(ack|fail)$/.test(url.pathname)) {
@@ -108,4 +109,23 @@ export function inboundChannelMessage(input: { id: string; channelId: string; co
     channel: { isThread: () => false },
     reply: async () => undefined,
   } as never
+}
+
+/** Model a parked page while tests can append to their in-memory queue. */
+export async function waitForFakePage(request: Request, hasData: () => boolean): Promise<void> {
+  const waitMs = Number(new URL(request.url).searchParams.get('waitMs') ?? 0)
+  if (waitMs <= 0 || hasData() || request.signal.aborted) return
+  await new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timeout)
+      clearInterval(check)
+      request.signal.removeEventListener('abort', finish)
+      resolve()
+    }
+    const timeout = setTimeout(finish, waitMs)
+    const check = setInterval(() => {
+      if (hasData()) finish()
+    }, 5)
+    request.signal.addEventListener('abort', finish, { once: true })
+  })
 }

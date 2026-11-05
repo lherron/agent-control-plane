@@ -1392,6 +1392,8 @@
     },
     "docs/agent-control-plane-current-spec.md": {
       "apiReferences": [
+        "GET /v1/admin/system-events",
+        "GET /v1/gateway/:gatewayId/deliveries/stream",
         "GET /v1/tasks/:taskId",
         "GET /v1/wrkq/projects/:project/timeline",
         "GET /v1/wrkq/tasks",
@@ -1876,6 +1878,7 @@
         "materializeWorkflowTrace",
         "messageParticipantKinds",
         "normalizeTransitionActor",
+        "observeSqliteCommits",
         "parseAcpWebhookEvent",
         "parseActorFromHeaders",
         "parseDurationToMs",

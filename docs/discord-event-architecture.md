@@ -82,9 +82,12 @@ interface bindings to enrich cards.
 embed), `work-activity.ts` (`buildWorkActivityCard`), and `app.ts`
 (`resolveCardTarget` / `pollSystemEventsOnce` / `runSystemEventsLoop`):
 
-- Polls `GET /v1/admin/system-events?afterEventId=&limit=200` **globally** (no
+- Polls `GET /v1/admin/system-events?afterEventId=&limit=200&waitMs=60000` **globally** (no
   kind filter; filters client-side and advances the cursor past every event so
-  unrelated kinds aren't re-fetched).
+  unrelated kinds aren't re-fetched). Empty pages park on ACP's in-process
+  commit bus for up to 60 s, shortened by pending failure-summary deadlines.
+  Only a version advance triggers a second read; timeout returns the initial
+  empty page and the gateway renews immediately.
 - Primes the cursor to the current tail on (re)start → no historical flood.
   In-memory cursor ⇒ **best-effort near-real-time** (events while the gateway is
   down are skipped).

@@ -420,3 +420,23 @@ implementation until source and installed behavior match them.
   route ignores the corresponding old ACP-kernel field.
 - Discord gateway changes require real Discord smoke validation; fake clients
   are not sufficient for completion claims.
+
+### ACP-local store notifications
+
+The daemon shares one in-process `StoreCommitBus` across its coordination,
+interface, state, admin, and jobs stores. Changed writes publish after the
+outer transaction commits; rollback publishes nothing. Only writes to relevant
+tables advance each topic, so unrelated heartbeat and projection writes do not
+wake the consumers. Dispatchers snapshot
+versions before scanning, then wait for a commit, their next deadline, or a
+60 s backstop. Pending/running work that completes in HRC retains its existing
+2 s reconciliation cadence. Scheduler work similarly retains its own schedule,
+lease, retry, and external-completion deadlines. Stores remain authoritative;
+notifications are hints and are not persisted. Startup performs a full scan.
+
+`GET /v1/gateway/:gatewayId/deliveries/stream` and
+`GET /v1/admin/system-events` accept optional integer `waitMs` (0–60000).
+An empty initial page waits; only a version advance triggers a second read.
+A timeout returns the original empty page. The embedded Discord gateway renews
+immediately with a 60 s wait, shortened for pending lifecycle summaries.
+`store_scan.count` debug lines expose cumulative scans for all six consumers.

@@ -6,6 +6,8 @@ import type {
   InputQueueStatus,
 } from 'acp-core'
 import { normalizeSessionRef } from 'agent-scope'
+import type { StoreCommitBus } from '../store-commit-bus.js'
+import { createStoreScanLoop } from './store-scan-loop.js'
 
 import type { LaunchRoleScopedRun, ResolvedAcpServerDeps } from '../deps.js'
 import type { RunStore, StoredRun } from '../domain/run-store.js'
@@ -59,6 +61,8 @@ export type InputQueueDispatcherDeps = Pick<
   | 'runtimeResolver'
   | 'inputQueuePolicy'
 > & {
+  nextDeadlineMs?: (() => number) | undefined
+  commitBus?: StoreCommitBus | undefined
   launchRoleScopedRun: NonNullable<LaunchRoleScopedRun>
   config: InputQueueDispatcherConfig
   hrcDbPath?: string | undefined
@@ -500,9 +504,7 @@ function expireQueueItem(
 }
 
 export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): InputQueueDispatcher {
-  let running = false
-  let inflight: Promise<void> | undefined
-  let timer: ReturnType<typeof setTimeout> | undefined
+  let nextDelayMs = 60_000
 
   async function dispatchItem(item: InputQueueItem): Promise<void> {
     if (queueItemExpiredByTtl(deps, item)) {
@@ -665,6 +667,13 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
     // Fair-by-session: scan one queued head per (scopeRef, laneRef) so blocked sessions
     // never starve later ones, even when total queued items exceed the global page limit.
     const items = deps.inputQueueStore.listDispatchableSessionHeads()
+    // Runs may complete in HRC without any ACP commit. Keep their existing cadence.
+    nextDelayMs =
+      items.length > 0 ||
+      deps.runStore.listRunsByStatus('pending').length > 0 ||
+      deps.runStore.listRunsByStatus('running').length > 0
+        ? deps.config.intervalMs
+        : 60_000
 
     for (const item of items) {
       try {
@@ -681,59 +690,17 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
     }
   }
 
-  function scheduleNext(): void {
-    if (!running) {
-      return
-    }
-    timer = setTimeout(() => {
-      const pass = runOnce()
-      inflight = pass
-      void pass
-        .catch((error) => {
-          writeLogLine({
-            level: 'error',
-            component: 'input-queue-dispatcher',
-            event: 'input_queue.loop_failed',
-            err: error,
-          })
-        })
-        .then(() => {
-          inflight = undefined
-          scheduleNext()
-        })
-    }, deps.config.intervalMs)
-  }
-
-  return {
-    start(): void {
-      running = true
-      const pass = runOnce()
-      inflight = pass
-      void pass
-        .catch((error) => {
-          writeLogLine({
-            level: 'error',
-            component: 'input-queue-dispatcher',
-            event: 'input_queue.startup_sweep_failed',
-            err: error,
-          })
-        })
-        .then(() => {
-          inflight = undefined
-          scheduleNext()
-        })
-    },
-    async stop(): Promise<void> {
-      running = false
-      if (timer !== undefined) {
-        clearTimeout(timer)
-      }
-      if (inflight !== undefined) {
-        await inflight
-      }
-    },
-    runOnce,
-  }
+  const loop = createStoreScanLoop({
+    name: 'input-queue-dispatcher',
+    bus: deps.commitBus,
+    topics: ['runs', 'admissions'],
+    scan: runOnce,
+    nextDelayMs: () =>
+      deps.commitBus === undefined
+        ? deps.config.intervalMs
+        : Math.min(nextDelayMs, deps.nextDeadlineMs?.() ?? 60_000),
+  })
+  return { start: loop.start, stop: loop.stop, runOnce }
 }
 
 export const __testing = {

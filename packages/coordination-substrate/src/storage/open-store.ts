@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { observeSqliteCommits } from 'acp-core'
 
 export type CoordinationStore = {
   sqlite: Database
@@ -99,9 +100,13 @@ export function readSchemaSql(): string {
   return readFileSync(resolveStorageAssetPath('schema.sql'), 'utf8')
 }
 
-export function openCoordinationStore(dbPath: string): CoordinationStore {
-  const sqlite = createCoordinationDatabase(dbPath)
-  runMigrations(sqlite)
+export function openCoordinationStore(
+  dbPath: string,
+  onCommit?: (tables: ReadonlySet<string>) => void
+): CoordinationStore {
+  const rawSqlite = createCoordinationDatabase(dbPath)
+  runMigrations(rawSqlite)
+  const sqlite = observeSqliteCommits(rawSqlite, onCommit)
 
   return {
     sqlite,

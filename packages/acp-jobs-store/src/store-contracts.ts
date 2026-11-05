@@ -387,6 +387,7 @@ export type JobExecutionAdmissionFailureCode =
   | 'job_execution_wrong_node'
 
 export interface OpenSqliteJobsStoreOptions {
+  onCommit?: ((tables: ReadonlySet<string>) => void) | undefined
   dbPath: string
 }
 

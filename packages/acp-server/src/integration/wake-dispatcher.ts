@@ -1,6 +1,8 @@
 import type { AdminStore } from 'acp-admin-store'
 import { parseScopeRef } from 'agent-scope'
 import { type CoordinationStore, consumeWake, leaseWake } from 'coordination-substrate'
+import type { StoreCommitBus } from '../store-commit-bus.js'
+import { createStoreScanLoop } from './store-scan-loop.js'
 
 import type { AgentRootResolver, LaunchRoleScopedRun, RuntimeResolver } from '../deps.js'
 import type { InputAttemptStore } from '../domain/input-attempt-store.js'
@@ -12,6 +14,7 @@ type WakeRequestRow = {
 }
 
 export type WakeDispatcherInput = {
+  commitBus?: StoreCommitBus | undefined
   coordStore: CoordinationStore
   inputAttemptStore: InputAttemptStore
   runStore: RunStore
@@ -57,10 +60,8 @@ export function createWakeDispatcher(input: WakeDispatcherInput): WakeDispatcher
     launchRoleScopedRun,
   } = input
 
-  let running = false
-  let inflight: Promise<void> | undefined
-  let _stopResolve: (() => void) | undefined
-  let timer: ReturnType<typeof setTimeout> | undefined
+  let intervalMs = 2_000
+  let nextDelayMs = 60_000
 
   async function dispatchWake(wakeId: string): Promise<void> {
     const leasedUntil = new Date(Date.now() + 60_000).toISOString()
@@ -133,58 +134,25 @@ export function createWakeDispatcher(input: WakeDispatcherInput): WakeDispatcher
 
   async function runOnce(): Promise<void> {
     const wakeIds = listQueuedWakeIds(coordStore)
+    nextDelayMs = wakeIds.length > 0 ? intervalMs : 60_000
 
     for (const wakeId of wakeIds) {
       await dispatchWake(wakeId)
     }
   }
 
-  function scheduleNext(intervalMs: number): void {
-    if (!running) {
-      return
-    }
-
-    timer = setTimeout(() => {
-      if (!running) {
-        return
-      }
-
-      const pass = runOnce()
-      inflight = pass
-      void pass
-        .catch(() => {})
-        .then(() => {
-          inflight = undefined
-          scheduleNext(intervalMs)
-        })
-    }, intervalMs)
-  }
-
+  const loop = createStoreScanLoop({
+    name: 'wake-dispatcher',
+    bus: input.commitBus,
+    topics: ['coordination'],
+    scan: runOnce,
+    nextDelayMs: () => (input.commitBus === undefined ? intervalMs : nextDelayMs),
+  })
   function start(opts: { intervalMs: number }): void {
-    running = true
-
-    const pass = runOnce()
-    inflight = pass
-    void pass
-      .catch(() => {})
-      .then(() => {
-        inflight = undefined
-        scheduleNext(opts.intervalMs)
-      })
+    intervalMs = opts.intervalMs
+    loop.start()
   }
-
-  async function stop(): Promise<void> {
-    running = false
-
-    if (timer !== undefined) {
-      clearTimeout(timer)
-      timer = undefined
-    }
-
-    if (inflight !== undefined) {
-      await inflight
-    }
-  }
+  const stop = loop.stop
 
   return { start, stop, runOnce }
 }

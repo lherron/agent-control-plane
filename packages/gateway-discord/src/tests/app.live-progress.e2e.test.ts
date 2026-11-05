@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { parseScopeRef } from 'agent-scope'
+import { waitForFakePage } from './app-acp-fixture.test.js'
 
 import { GatewayDiscordApp } from '../app.js'
 import {
@@ -345,6 +346,7 @@ describe('GatewayDiscordApp live tool progress e2e', () => {
       }
 
       if (url.pathname === '/v1/gateway/discord_prod/deliveries/stream') {
+        await waitForFakePage(request, () => false)
         return Response.json({ deliveries: [], nextCursor: null })
       }
 

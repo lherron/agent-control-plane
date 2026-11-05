@@ -1,3 +1,4 @@
+import type { StoreCommitBus } from './store-commit-bus.js'
 import type { CommitWaker } from './wrkq-commit-waker.js'
 
 import { join } from 'node:path'
@@ -254,6 +255,7 @@ export type HrcAgentSources = {
 }
 
 export interface AcpServerDeps {
+  commitBus?: StoreCommitBus | undefined
   // The four acp-core store ports, served by the @wrkq/client-backed adapter
   // (wrkq-lib createWrkqStoreAdapter). Optional: when wrkf is disabled
   // (ACP_WRKF_DISABLED) there is no client and thus no wrkq store — the server

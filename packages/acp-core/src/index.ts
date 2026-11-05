@@ -286,3 +286,4 @@ export {
   resolveCaller,
   withUserAgent,
 } from './user-agent.js'
+export { observeSqliteCommits } from './sqlite-commits.js'

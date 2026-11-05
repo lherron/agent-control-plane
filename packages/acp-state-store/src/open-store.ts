@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { observeSqliteCommits } from 'acp-core'
 
 import { InputAdmissionRepo } from './repos/input-admission-repo.js'
 import { InputApplicationRepo } from './repos/input-application-repo.js'
@@ -17,6 +18,7 @@ import { WrkfRouteIdempotencyRepo } from './repos/wrkf-route-idempotency-repo.js
 import Database, { type SqliteDatabase } from './sqlite.js'
 
 export interface OpenAcpStateStoreOptions {
+  onCommit?: ((tables: ReadonlySet<string>) => void) | undefined
   dbPath: string
 }
 
@@ -1123,10 +1125,11 @@ function createSqliteDatabase(dbPath: string): SqliteDatabase {
 }
 
 export function openAcpStateStore(options: OpenAcpStateStoreOptions): AcpStateStore {
-  const sqlite = createSqliteDatabase(options.dbPath)
-  initializeSchema(sqlite)
-  migrateLegacySchema(sqlite)
+  const rawSqlite = createSqliteDatabase(options.dbPath)
+  initializeSchema(rawSqlite)
+  migrateLegacySchema(rawSqlite)
 
+  const sqlite = observeSqliteCommits(rawSqlite, options.onCommit)
   const context: RepoContext = {
     sqlite,
   }

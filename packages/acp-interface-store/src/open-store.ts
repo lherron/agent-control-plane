@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { observeSqliteCommits } from 'acp-core'
 import { writeLogLine } from 'acp-core'
 
 import { DeliveryTargetResolver } from './delivery-target-resolver.js'
@@ -14,6 +15,7 @@ import type { RepoContext } from './repos/shared.js'
 import Database, { type SqliteDatabase } from './sqlite.js'
 
 export interface OpenInterfaceStoreOptions {
+  onCommit?: ((tables: ReadonlySet<string>) => void) | undefined
   dbPath: string
 }
 
@@ -535,9 +537,10 @@ function createSqliteDatabase(dbPath: string): SqliteDatabase {
 }
 
 export function openInterfaceStore(options: OpenInterfaceStoreOptions): InterfaceStore {
-  const sqlite = createSqliteDatabase(options.dbPath)
-  initializeSchema(sqlite)
+  const rawSqlite = createSqliteDatabase(options.dbPath)
+  initializeSchema(rawSqlite)
 
+  const sqlite = observeSqliteCommits(rawSqlite, options.onCommit)
   const context: RepoContext = {
     sqlite,
   }

@@ -4,6 +4,8 @@ import type { InterfaceStore } from 'acp-interface-store'
 import type { JobsStore } from 'acp-jobs-store'
 import { normalizeSessionRef } from 'agent-scope'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
+import type { StoreCommitBus } from '../store-commit-bus.js'
+import { createStoreScanLoop } from './store-scan-loop.js'
 
 import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
 import type { AcpHrcClient, ConversationStore } from '../deps.js'
@@ -43,6 +45,7 @@ export type InterfaceRunDispatcherConfig = {
 }
 
 export type InterfaceRunDispatcherInput = {
+  commitBus?: StoreCommitBus | undefined
   runStore: RunStore
   interfaceStore: InterfaceStore
   jobsStore?: JobsStore | undefined
@@ -100,9 +103,7 @@ export function createInterfaceRunDispatcher(
   const { runStore, interfaceStore, jobsStore, conversationStore, hrcClient, hrcDbPath, config } =
     input
 
-  let running = false
-  let inflight: Promise<void> | undefined
-  let timer: ReturnType<typeof setTimeout> | undefined
+  let nextDelayMs = 60_000
 
   async function runOnce(): Promise<void> {
     const pendingRuns = runStore.listRunsByStatus('pending')
@@ -111,6 +112,7 @@ export function createInterfaceRunDispatcher(
       .listRunsByStatus('completed')
       .filter((run) => readInterfaceRunSource(run) !== undefined && !hasFinalDelivery(run.runId))
     const runs = [...pendingRuns, ...runningRuns, ...completedRunsMissingFinalDelivery]
+    nextDelayMs = runs.length > 0 ? config.intervalMs : 60_000
 
     for (const run of runs) {
       try {
@@ -406,6 +408,15 @@ export function createInterfaceRunDispatcher(
       }
     }
 
+    // A completed run can be revisited while its final delivery is unavailable.
+    // Avoid publishing the same terminal write on every commit-triggered scan.
+    if (
+      run.status === 'completed' &&
+      run.errorCode === undefined &&
+      run.errorMessage === undefined &&
+      (metadata === undefined || JSON.stringify(metadata) === JSON.stringify(run.metadata))
+    )
+      return
     runStore.updateRun(run.runId, {
       status: 'completed',
       errorCode: null,
@@ -494,67 +505,15 @@ export function createInterfaceRunDispatcher(
     }
   }
 
-  function scheduleNext(): void {
-    if (!running) {
-      return
-    }
-
-    timer = setTimeout(() => {
-      if (!running) {
-        return
-      }
-
-      const pass = runOnce()
-      inflight = pass
-      void pass
-        .catch((error) => {
-          writeLogLine({
-            level: 'error',
-            component: 'interface-run-dispatcher',
-            event: 'interface_run.loop_failed',
-            err: error,
-          })
-        })
-        .then(() => {
-          inflight = undefined
-          scheduleNext()
-        })
-    }, config.intervalMs)
-  }
-
-  function start(): void {
-    running = true
-
-    // Startup sweep: immediately reconcile any runs that were left running
-    const pass = runOnce()
-    inflight = pass
-    void pass
-      .catch((error) => {
-        writeLogLine({
-          level: 'error',
-          component: 'interface-run-dispatcher',
-          event: 'interface_run.startup_sweep_failed',
-          err: error,
-        })
-      })
-      .then(() => {
-        inflight = undefined
-        scheduleNext()
-      })
-  }
-
-  async function stop(): Promise<void> {
-    running = false
-
-    if (timer !== undefined) {
-      clearTimeout(timer)
-      timer = undefined
-    }
-
-    if (inflight !== undefined) {
-      await inflight
-    }
-  }
+  const loop = createStoreScanLoop({
+    name: 'interface-run-dispatcher',
+    bus: input.commitBus,
+    topics: ['runs', 'deliveries'],
+    scan: runOnce,
+    nextDelayMs: () => (input.commitBus === undefined ? config.intervalMs : nextDelayMs),
+  })
+  const start = loop.start
+  const stop = loop.stop
 
   return { start, stop, runOnce }
 }

@@ -1,3 +1,4 @@
+import { observeSqliteCommits } from 'acp-core'
 import { createEventInbox } from './event-inbox.js'
 import { createEventMatches } from './event-matches.js'
 import { JobExecutionAdmissionError, assertJobExecutionAdmission } from './execution-admission.js'
@@ -21,8 +22,9 @@ import {
 } from './store-schema.js'
 
 export function openSqliteJobsStore(options: OpenSqliteJobsStoreOptions): JobsStore {
-  const sqlite = createSqliteDatabase(options.dbPath)
-  runJobsStoreMigrations(sqlite)
+  const rawSqlite = createSqliteDatabase(options.dbPath)
+  runJobsStoreMigrations(rawSqlite)
+  const sqlite = observeSqliteCommits(rawSqlite, options.onCommit)
   const jobDefinitions = createJobDefinitions(sqlite)
   const runRecords = createRunRecords(sqlite)
   const stepRuns = createStepRuns(sqlite)
