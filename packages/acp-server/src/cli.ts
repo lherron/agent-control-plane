@@ -26,6 +26,7 @@ import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
 import { createAspcService } from 'spaces-aspc'
 import { type WrkqStoreAdapter, createCollaborationLedger } from 'wrkq-lib'
+import { createStaleOrphanReaper } from './integration/stale-orphan-reaper.js'
 import {
   type FetchPlacementResolution,
   type FetchRunPreview,
@@ -1386,6 +1387,20 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     resolvedDeps.launchRoleScopedRun !== undefined
       ? createInputQueueDispatcher({
           commitBus,
+          reapStaleOrphans: createStaleOrphanReaper({
+            sqlite: stateStore.sqlite,
+            runStore: resolvedDeps.runStore,
+            inputQueueStore: resolvedDeps.inputQueueStore,
+            inputAdmissionStore: resolvedDeps.inputAdmissionStore,
+            inputApplicationStore: resolvedDeps.inputApplicationStore,
+            hrcClient: resolvedDeps.hrcClient,
+            hrcDbPath: resolveDatabasePath(),
+            jobsStore,
+            verifyJobNode: async () => {
+              const verified = await jobNodeIdentityAuthority?.verifyFresh('scheduler_tick')
+              return verified?.ok === true ? verified.identity.nodeId : undefined
+            },
+          }).runOnce,
           nextDeadlineMs: () =>
             inputQueueDelayMs(stateStore.sqlite, {
               now: Date.now(),

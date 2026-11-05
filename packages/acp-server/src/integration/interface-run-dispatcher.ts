@@ -97,6 +97,10 @@ function classifyRunReconciliation(
   return { kind: 'unsupported' }
 }
 
+export function isUnroutableRun(run: StoredRun): boolean {
+  return classifyRunReconciliation(run, readInterfaceRunSource(run)).kind === 'unsupported'
+}
+
 export function createInterfaceRunDispatcher(
   input: InterfaceRunDispatcherInput
 ): InterfaceRunDispatcher {

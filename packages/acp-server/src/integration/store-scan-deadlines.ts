@@ -45,13 +45,8 @@ export function inputQueueDelayMs(
       deadlines.push(Date.parse(row.leased_at) + input.leaseTimeoutMs)
     if (input.ttlMs !== undefined) deadlines.push(Date.parse(row.created_at) + input.ttlMs)
   }
-  // An outstanding input application can await HRC evidence independently of queue state.
-  if (
-    db
-      .prepare("SELECT 1 FROM input_applications WHERE status IN ('pending', 'accepted') LIMIT 1")
-      .get() != null
-  )
-    deadlines.push(input.now + input.cadenceMs)
+  // Application outcomes have no automatic two-second HRC ledger consumer.
+  // Their commits wake the dispatcher; orphan inspection uses the minute backstop.
   return boundedDeadline(input.now, deadlines, input.cadenceMs)
 }
 

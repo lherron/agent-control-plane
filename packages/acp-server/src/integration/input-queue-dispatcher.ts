@@ -61,6 +61,7 @@ export type InputQueueDispatcherDeps = Pick<
   | 'runtimeResolver'
   | 'inputQueuePolicy'
 > & {
+  reapStaleOrphans?: (() => Promise<unknown>) | undefined
   nextDeadlineMs?: (() => number) | undefined
   commitBus?: StoreCommitBus | undefined
   launchRoleScopedRun: NonNullable<LaunchRoleScopedRun>
@@ -662,6 +663,7 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
   }
 
   async function runOnce(): Promise<void> {
+    await deps.reapStaleOrphans?.()
     failStalePendingRunBlockers(deps)
 
     // Fair-by-session: scan one queued head per (scopeRef, laneRef) so blocked sessions

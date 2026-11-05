@@ -199,3 +199,46 @@ seconds when `ACP_SCHEDULER_ENABLED=1`. Jobs are authored as
 `var/agents/<agent>/schedules/*.toml`, compiled with `asp resources plan`,
 and applied with `acp admin managed-resource apply`. Full authoring/step
 reference: `docs/ACP_JOBS_TASKS_USAGE.md` in the repo.
+
+### Stale ACP inputs and orphaned job runs
+
+The input dispatcher reconciles stranded rows before it checks session blockers
+or dispatches queued work. Never-started inputs expire after seven days
+(`stale_never_dispatched`): runs become cancelled, queued items expired, and
+admissions failed. Deliberately held inputs, future retries, and inputs with
+execution correlation are excluded. Already-terminal queue history is preserved.
+
+Running inputs without a supported completion route fail after 24 hours
+(`stale_unroutable`) only when their own HRC execution is no longer live.
+Unrelated newer runtimes do not protect an old execution. Foreign/unknown
+placement, unavailable HRC evidence, live runtime/run evidence, and changed
+ACP state all prevent that transition. Terminal run outcomes also reconcile
+stranded queue/admission siblings (`stale_orphan`).
+
+The same pass settles old job runs whose definitions were deleted when their
+linked ACP run is terminal, and fails seven-day unlinked claims without an
+unexpired lease. Job changes require fresh HRC node identity and the matching
+`execution_node_id`; foreign and unstamped rows remain untouched. Undelivered
+output sinks are not bypassed.
+
+Inspect exact proposed actions without opening the stores for writes:
+
+```sh
+bun scripts/acp-stale-orphans-dry-run.ts > /tmp/acp-stale-orphans.json
+```
+
+Optional `--state-db`, `--jobs-db`, `--hrc-db`, and `--hrc-socket` select an
+isolated environment. There is no apply option. Review the action inventory
+before activating a new reaper policy; activation uses the normal ACP lifecycle.
+After activation, repeat the dry-run and compare dispatcher `store_scan.count`
+log deltas over ten minutes. Idle interface/input/jobs consumers should scan
+about once per minute; live work, due jobs, and real commits legitimately wake
+them earlier. `stale_orphan.reaped` records each applied table, row ID, outcome,
+and cause.
+
+Old pending/accepted contribution applications with terminal target runs become
+`ambiguous` only after their own HRC execution is proven dead. This records an
+unknown contribution outcome and preserves historical admission evidence.
+Foreign-owned and targetless applications remain protected in the dry-run.
+Applications have no automatic two-second HRC ledger consumer; their commits
+and the minute backstop wake orphan inspection without a separate fast timer.

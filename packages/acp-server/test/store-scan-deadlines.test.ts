@@ -35,3 +35,18 @@ test('job next due is its deadline; externally driven work retains cadence', () 
   expect(jobsDelayMs(db, input)).toBe(5000)
   db.close()
 })
+
+test('unresolved application evidence alone has no two-second consumer; commit wakes and backstop remain', () => {
+  const db = new Database(':memory:')
+  try {
+    db.exec(
+      'CREATE TABLE input_queue(status TEXT, not_before_at TEXT, leased_at TEXT, created_at TEXT); CREATE TABLE input_applications(status TEXT)'
+    )
+    db.exec("INSERT INTO input_applications VALUES ('pending'), ('accepted')")
+    expect(inputQueueDelayMs(db, { now: Date.now(), cadenceMs: 2000, leaseTimeoutMs: 10000 })).toBe(
+      60000
+    )
+  } finally {
+    db.close()
+  }
+})
