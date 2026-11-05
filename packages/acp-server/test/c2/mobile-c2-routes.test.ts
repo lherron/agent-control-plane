@@ -99,7 +99,11 @@ describe('GET /v1/mobile/c2/v2/snapshot', () => {
       expect(entry.expectUpdatedAt).toBe(acp.record().updatedAt)
       expect(entry.record?.updatedBy).toBe('agent:smokey')
       expect(entry.seat).toMatchObject({ scopeRef: SEAT, online: true, generation: 2 })
-      expect(entry.attention).toMatchObject({ state: 'blocking', excerpt: 'Ship the fixture?' })
+      expect(entry.attention).toMatchObject({
+        state: 'blocking',
+        excerpt: 'Ship the fixture?',
+        text: 'The fixture builds clean.\n\n**Ship the fixture?**',
+      })
       const row = entry.rows[0]!
       expect(row).toMatchObject({
         id: 'ship',

@@ -112,7 +112,15 @@ function refusalOf(error: unknown): Refusal | undefined {
 
 function toAttention(a: SessionAttentionWire | null | undefined): Attention | null {
   if (a === null || a === undefined) return null
-  return { source: a.source, state: a.state, kind: a.kind, at: a.at, excerpt: a.excerpt ?? null }
+  return {
+    source: a.source,
+    state: a.state,
+    kind: a.kind,
+    at: a.at,
+    excerpt: a.excerpt ?? null,
+    // The turn's whole final message (T-12644); absent from an older HRC.
+    ...(typeof a.text === 'string' ? { text: a.text } : {}),
+  }
 }
 
 type SessionAttentionWire = {
@@ -121,6 +129,7 @@ type SessionAttentionWire = {
   kind: string
   at: string
   excerpt?: string | null | undefined
+  text?: string | undefined
 }
 
 async function mapLimit<T, R>(

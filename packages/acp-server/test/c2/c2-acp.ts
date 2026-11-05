@@ -115,6 +115,7 @@ export function fixtureSeats(): FakeSeat[] {
         kind: 'decision',
         at: ATTENTION_AT,
         excerpt: 'Ship the fixture?',
+        text: 'The fixture builds clean.\n\n**Ship the fixture?**',
       },
     },
   ]

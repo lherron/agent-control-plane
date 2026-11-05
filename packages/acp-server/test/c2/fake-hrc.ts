@@ -31,6 +31,7 @@ export type FakeAttention = {
   kind: string
   at: string
   excerpt?: string | null
+  text?: string
 }
 
 export type FakeSeat = {
