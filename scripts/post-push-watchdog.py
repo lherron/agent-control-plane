@@ -61,6 +61,16 @@ def diagnose(directory, root, lock):
             job.result()
 
 
+def stop_probe(probe):
+    # A timed-out shell may leave its find/lsof children alive. They share the
+    # probe's process group, so reap the entire group even after its leader exits.
+    try:
+        os.killpg(probe.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    probe.wait()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--lock', type=Path, required=True)
@@ -141,10 +151,10 @@ def main():
                                               str(process.pid), str(args.lock)], start_new_session=True)
                 if probe is not None and probe.poll() is None and now - probe_started >= 60:
                     print('diagnostic collection reached its 60s budget', flush=True)
-                    os.killpg(probe.pid, signal.SIGKILL)
-                    probe.wait()
+                    stop_probe(probe)
                 # Publish only complete files, and never through the verify-output pipe.
                 if probe is not None and probe.poll() is not None:
+                    stop_probe(probe)
                     for path in sorted(args.artifacts.glob('diagnostic-*/*.txt')):
                         if path not in printed:
                             print(f'--- {path.name} ---\n{path.read_text(errors="replace")}', flush=True)
@@ -167,8 +177,8 @@ def main():
                 try:
                     probe.wait(timeout=10)
                 except subprocess.TimeoutExpired:
-                    os.killpg(probe.pid, signal.SIGKILL)
-                    probe.wait()
+                    pass
+                stop_probe(probe)
             for path in sorted(args.artifacts.glob('diagnostic-*/*.txt')):
                 if path not in printed:
                     print(f'--- {path.name} ---\n{path.read_text(errors="replace")}', flush=True)
