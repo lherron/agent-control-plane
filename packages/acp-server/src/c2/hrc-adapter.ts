@@ -16,6 +16,7 @@ import type {
   Refusal,
   SeatRow,
   SendTarget,
+  StartedSeat,
 } from '@praesidium/c2-core'
 import { scopePredicate } from '@praesidium/c2-core'
 
@@ -32,6 +33,9 @@ export type C2HrcClient = Pick<
   | 'listSessionAnnotations'
   | 'listSessions'
   | 'putSessionAnnotation'
+  | 'resolveRuntimeIntent'
+  | 'resolveSession'
+  | 'startRuntime'
   | 'tailEvents'
   | 'watchBoundedEvents'
 >
@@ -738,6 +742,56 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
           { principalRef: as ?? options.principal }
         )
       )
+    },
+    /**
+     * Card contract §6b: start a seat with no runtime, as HRC's kernel `seat.summon` does (declaration resolve, then
+     * exact claim-and-start keyed by requestId; HRC owns the replay). A refused declaration claimed nothing. Any other
+     * failure may follow a durable claim, so it reaches c2-core as an unknown (a throw, or a code it doesn't list).
+     */
+    async start(sessionRef: string, requestId: string): Promise<StartedSeat | Refusal> {
+      const { scopeRef } = splitSessionRef(sessionRef)
+      let intent: Awaited<ReturnType<C2HrcClient['resolveRuntimeIntent']>>['intent']
+      try {
+        const resolved = await client.resolveRuntimeIntent({
+          scopeRef,
+          runMode: 'task',
+          interactive: true,
+          preferredMode: 'headless',
+        })
+        intent = resolved.intent
+      } catch (error) {
+        if (error instanceof HrcDomainError) {
+          return { code: error.code, detail: { ...error.detail, stage: 'declaration' } }
+        }
+        throw error
+      }
+      let started: Awaited<ReturnType<C2HrcClient['startRuntime']>>
+      try {
+        started = await client.startRuntime({
+          sessionRef,
+          runtimeIntent: intent, // HRC localizes the correlation to this session at start
+          conflictPolicy: 'reject',
+          summonIntent: 'implicit',
+          idempotencyKey: requestId,
+          restartStyle: 'reuse_pty',
+        })
+      } catch (error) {
+        const refusal = refusalOf(error)
+        if (refusal !== undefined) return refusal
+        throw error
+      }
+      // The claim reply carries no generation; HRC's head names it, for the fenced send.
+      const head = await client.resolveSession({ sessionRef })
+      if (!head.found || head.hostSessionId !== started.hostSessionId) {
+        throw new Error(`HRC head for ${sessionRef} is not the started ${started.hostSessionId}`)
+      }
+      return {
+        sessionRef,
+        hostSessionId: started.hostSessionId,
+        runtimeId: started.runtimeId,
+        generation: head.generation,
+        replayed: started.claim?.replayed === true,
+      }
     },
     async send(target: SendTarget, text: string): Promise<Receipt | Refusal> {
       // HRC's literal-input route carries no principal; the receipt and the

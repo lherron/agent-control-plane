@@ -112,6 +112,16 @@ export type FakeHrc = {
   /** `refuse`: seats whose literal input answers 409 stale_context. */
   literalInput: { mode: LiteralInputMode; refuse: Set<string> }
   /**
+   * §2.13 keyed start, as the real routes answered on 2026-11-05 (T-12645 live/summon/real-*.json): declaration
+   * resolve, then exact claim-and-start (replayed by `idempotencyKey`), then `POST /v1/sessions/resolve` for the head.
+   * `refuse`: the route answers this HRC error. `hang`: the start is accepted and never answered.
+   */
+  start: {
+    declarationRefuse?: { status: number; code: string } | undefined
+    startRefuse?: { status: number; code: string } | undefined
+    hang?: boolean | undefined
+  }
+  /**
    * Seats whose session routes answer an HRC error, as a federated seat whose
    * home is retired or unreachable does (`session_home_pending` 503, …).
    * `routes` limits it to `annotations` and/or `attention`.
@@ -476,6 +486,80 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     return Response.json({ annotation: structuredClone(row), created })
   }
 
+  const start: FakeHrc['start'] = {}
+  const started = new Map<string, { runtimeId: string; hostSessionId: string }>()
+  function declarationsRoute(call: FakeCall): Response {
+    if (start.declarationRefuse) {
+      return hrcError(start.declarationRefuse.status, start.declarationRefuse.code, {
+        source: 'agent-profile',
+      })
+    }
+    const body = call.body as { scopeRef?: string; runMode?: string; preferredMode?: string }
+    return Response.json({
+      declaration: { warnings: [] },
+      intent: {
+        placement: {
+          agentRoot: '/agents/x',
+          cwd: '/x',
+          projectRoot: '/x',
+          runMode: body.runMode,
+          bundle: {},
+          dryRun: false,
+        },
+        execution: { preferredMode: body.preferredMode },
+        harness: {},
+        provision: {},
+      },
+    })
+  }
+  function startRoute(call: FakeCall): Promise<Response> | Response {
+    if (start.hang) return new Promise<Response>(() => {})
+    if (start.startRefuse) return hrcError(start.startRefuse.status, start.startRefuse.code, {})
+    const body = call.body as { sessionRef: string; idempotencyKey: string }
+    const scopeRef = body.sessionRef.replace(/\/lane:[^/]+$/, '')
+    const seat = seatMap.get(scopeRef)
+    if (seat === undefined) return hrcError(404, 'unknown_session', {})
+    let up = started.get(body.idempotencyKey)
+    const replayed = up !== undefined
+    if (up === undefined) {
+      up = {
+        runtimeId: `rt-started-${started.size + 1}`,
+        hostSessionId: `hsid-started-${started.size + 1}`,
+      }
+      started.set(body.idempotencyKey, up)
+      seat.hostSessionId = up.hostSessionId
+      seat.runtimeId = up.runtimeId
+      seat.generation += 1
+      seat.runtimeLive = true
+    }
+    return Response.json({
+      ...up,
+      transport: 'headless',
+      status: 'ready',
+      supportsInFlightInput: true,
+      claim: { scopeRef, sessionRef: body.sessionRef, replayed },
+    })
+  }
+  function sessionResolveRoute(call: FakeCall): Response {
+    const sessionRef = (call.body as { sessionRef?: string }).sessionRef ?? ''
+    const scopeRef = sessionRef.replace(/\/lane:[^/]+$/, '')
+    const seat = seatMap.get(scopeRef)
+    if (seat === undefined) return Response.json({ found: false })
+    return Response.json({
+      found: true,
+      created: false,
+      hostSessionId: seat.hostSessionId,
+      generation: seat.generation,
+      homeNodeId: null,
+      session: {
+        scopeRef,
+        laneRef: 'main',
+        generation: seat.generation,
+        hostSessionId: seat.hostSessionId,
+        status: 'active',
+      },
+    })
+  }
   function literalInputRoute(call: FakeCall): Promise<Response> | Response {
     if (literalInput.mode === 'hang') {
       // Accepted, never answered. The connection stays open until stop().
@@ -668,6 +752,12 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       if (url.pathname.startsWith('/v1/sessions/annotations')) {
         return annotationRoute(request, url, call)
       }
+      if (request.method === 'POST' && url.pathname === '/v1/declarations/resolve')
+        return declarationsRoute(call)
+      if (request.method === 'POST' && url.pathname === '/v1/runtimes/start')
+        return startRoute(call)
+      if (request.method === 'POST' && url.pathname === '/v1/sessions/resolve')
+        return sessionResolveRoute(call)
       if (request.method === 'POST' && url.pathname === '/v1/literal-input/by-selector') {
         return literalInputRoute(call)
       }
@@ -684,6 +774,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     ledger,
     runtimes,
     literalInput,
+    start,
     seatErrors,
     events: {
       enabled: true,
