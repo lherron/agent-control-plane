@@ -61,24 +61,21 @@ jobs:
 
       # One verify at a time on mini (it hosts the canonical wrkq DB). A job
       # waits for the machine-wide lock; it never skips. Verify runs in its own
-      # session: when a newer push cancels this run, the trap SIGKILLs that
+      # session: when a newer push cancels this run, the supervisor SIGKILLs that
       # session before wrkp can post, so a superseded run never reads as red.
-      # A hang past 45 min gets TERM instead, which wrkp posts as a failure.
+      # Keep the 45-minute wall limit. After lock acquisition, capture diagnostics
+      # at 8 minutes without output and terminate at 10 minutes. Evidence persists
+      # outside the checkout and is also printed to the Actions log.
       - name: Verify
         working-directory: ${{ env.WORKTREE }}
         run: |
-          mkdir -p "$(dirname "$LOCK")"
-          if ! lockf -t 0 "$LOCK" true; then
-            echo "$(date -u +%FT%TZ) verify lock held by another run; waiting"
-          fi
-          perl -MPOSIX -e 'POSIX::setsid() or die "setsid: $!"; exec @ARGV or die "exec: $!"' \
-            lockf "$LOCK" sh -c 'echo "$(date -u +%FT%TZ) verify lock acquired"; exec nice -n 10 wrkp just verify </dev/null' &
-          verify=$!
-          perl -e 'sleep 2700; print "verify hung for 45 min; terminating\n"; kill "TERM", -$ARGV[0]' "$verify" &
-          watchdog=$!
-          trap 'echo "$(date -u +%FT%TZ) run cancelled; dropping its verify unposted"; kill -KILL -- -"$verify" "$watchdog" 2>/dev/null; exit 1' INT TERM
-          rc=0; wait "$verify" || rc=$?
-          kill "$watchdog" 2>/dev/null || true
+          python3 scripts/post-push-watchdog.py \
+            --lock "$LOCK" \
+            --artifacts "/Users/lherron/praesidium/var/postpush-artifacts/$REPO/${{ github.run_id }}-${{ github.run_attempt }}" \
+            -- nice -n 10 wrkp just verify &
+          supervisor=$!
+          trap 'kill -TERM "$supervisor" 2>/dev/null || true; wait "$supervisor" 2>/dev/null || true; exit 1' INT TERM
+          rc=0; wait "$supervisor" || rc=$?
           exit "$rc"
 
       - name: Record the run
