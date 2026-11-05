@@ -44,7 +44,7 @@ def diagnose(directory, root, lock):
         jobs.append(pool.submit(capture, directory / 'host.txt', ['sh', '-c',
             'uptime; vm_stat; df -h "$PWD" /tmp; bun --version; '
             'echo "Bun cache locks (mtime and age in seconds):"; '
-            'find "$HOME/.bun/install/cache" -iname "*lock*" -exec stat -f "%m %N" {} + '
+            'find "$HOME/.bun/install/cache" -maxdepth 2 -iname "*lock*" -exec stat -f "%m %N" {} + '
             '| awk -v now="$(date +%s)" \'{print $0, "age=" now-$1}\'']))
         jobs.append(pool.submit(capture, directory / 'verify-lock.txt', ['sh', '-c',
             'echo "Lock: $1; own verify session: $2"; '
@@ -52,10 +52,10 @@ def diagnose(directory, root, lock):
             'else echo "lock held (compare holder PID with processes.txt)"; fi; '
             'lsof "$1"', 'sh', str(lock), str(root)]))
         for row in selected:
-            if any(name in row[7].lower() for name in ('bun', 'tsc', 'node')):
+            if Path(row[7].split()[0]).name in ('bun', 'tsc', 'node'):
                 pid = row[0]
                 jobs.append(pool.submit(capture, directory / f'sample-{pid}.txt',
-                                        ['sample', pid, '5', '-file', str(directory / f'stack-{pid}.txt')], 8))
+                                        ['sample', pid, '5', '-file', str(directory / f'stack-{pid}.txt')], 45))
                 jobs.append(pool.submit(capture, directory / f'lsof-{pid}.txt', ['lsof', '-p', pid], 8))
         for job in jobs:
             job.result()
