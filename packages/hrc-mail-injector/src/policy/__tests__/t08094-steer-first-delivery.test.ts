@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { ownerBinary } from '../../../../../scripts/lib/owner-binaries.js'
 
 import type { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
@@ -61,7 +62,7 @@ let context: MailKickerContext
 let session: HrcSessionRecord
 
 async function runWrkq(command: string, args: string[]): Promise<string> {
-  const child = Bun.spawn([command, ...args], { stdout: 'pipe', stderr: 'pipe' })
+  const child = Bun.spawn([ownerBinary(command), ...args], { stdout: 'pipe', stderr: 'pipe' })
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
@@ -1002,7 +1003,7 @@ describe('D3 — disposal is keyed by runtime and ledger sequence', () => {
         'agent:astra',
       ])
       process.env['HRC_WRKQ_DB'] = ledgerPath
-      realLedger = createWrkqLedger()
+      realLedger = createWrkqLedger(ownerBinary('wrkq'))
       context.ledger = realLedger
 
       for (const resolution of ['reply', 'defer', 'operator_ack'] as const) {

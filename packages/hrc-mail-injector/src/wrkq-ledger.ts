@@ -31,7 +31,7 @@ function wrkqAuthorityEnvironment(): Record<string, string | undefined> {
 }
 
 /** One lazy, initialized transport for this injector; failures reconnect on the next call. */
-export function createWrkqLedger(): MailKickerLedger & { close(): Promise<void> } {
+export function createWrkqLedger(command = 'wrkq'): MailKickerLedger & { close(): Promise<void> } {
   // The stdio forwarder is serial. A parked wait must never block delivery
   // reads/writes (or their shorter deadlines) on the ordinary connection.
   const delivery: { connection?: Promise<WorkClient> | undefined } = {}
@@ -69,7 +69,7 @@ export function createWrkqLedger(): MailKickerLedger & { close(): Promise<void> 
   const connect = async (): Promise<WorkClient> => {
     // Initialize explicitly so the handshake also has a deadline and cleanup.
     const client = await createClient({
-      command: 'wrkq',
+      command,
       env: { ...wrkqAuthorityEnvironment(), PRAESIDIUM_CALLER: 'hrc-mail-injector' },
       clientInfo: { name: 'hrc-mail-injector', version: '0.1.0' },
       autoInitialize: false,

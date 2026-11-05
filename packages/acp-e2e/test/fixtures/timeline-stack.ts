@@ -1,3 +1,4 @@
+import { ownerBinary } from '../../../../scripts/lib/owner-binaries.js'
 /**
  * Production-wire stack for the mobile timeline ordering E2E (T-07724).
  *
@@ -145,7 +146,7 @@ export async function createTimelineStack(): Promise<TimelineStack> {
     const existing = wrkqClients.get(principalRef)
     if (existing !== undefined) return existing
     const created = createClient({
-      command: process.env['WRKF_BIN'] ?? 'wrkf',
+      command: ownerBinary('wrkf'),
       dbLocator: wrkqDbPath,
       clientInfo: { name: 'acp-timeline-e2e', version: '0.1.0' },
       hookCatalogPath: EMPTY_HOOK_CATALOG,

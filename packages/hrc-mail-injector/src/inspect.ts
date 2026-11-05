@@ -31,6 +31,7 @@ type DriveDiagnosticRead = {
 export async function inspectMailEnvelope(input: {
   statePath: string
   envelopeId: string
+  command?: string
 }): Promise<Record<string, unknown>> {
   const envelopeId = input.envelopeId.trim().toUpperCase()
   if (!ENVELOPE_ID.test(envelopeId)) {
@@ -96,7 +97,7 @@ export async function inspectMailEnvelope(input: {
   }
 
   let ledger: LedgerRead
-  const client = createWrkqLedger()
+  const client = createWrkqLedger(input.command)
   try {
     ledger = { ok: true, envelope: await client.envelopeShow({ envelope: envelopeId }) }
   } catch (error) {

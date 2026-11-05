@@ -1,9 +1,10 @@
+import { ownerBinary } from '../../../scripts/lib/owner-binaries.js'
 /**
  * T-04784 Phase 2b — RED parity-characterization tests.
  *
  * These tests characterize the behavior that `createWrkqStoreAdapter` MUST
  * satisfy once implemented. They run against the REAL @wrkq/client binary
- * (WRKQ_BIN, or `wrkq` on PATH) and a fresh isolated temp DB provisioned by
+ * (the fixed WRKQ_BIN path from the justfile) and a fresh isolated temp DB provisioned by
  * wrkqadm init — the canonical ~/praesidium/var/db/wrkq.db is never touched.
  *
  * ALL tests in this file are RED until `src/adapter.ts` is created.
@@ -39,14 +40,11 @@ import type { WorkClient } from '@wrkq/client'
 import type { EvidenceItem, LoggedTransitionRecord } from 'acp-core'
 
 // ---------------------------------------------------------------------------
-// Binaries (override via env vars for CI)
+// Installed owner binary from the justfile; admin binary override for CI
 // ---------------------------------------------------------------------------
 
-// Bare names, resolved through PATH — the same default production code uses
-// (acp-server/src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded
-// one operator's layout: the binaries live in /usr/local/bin inside the devbox
-// container, so the tests ENOENT'd there even with wrkq/wrkqadm installed.
-const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
+// D2 fixes the installed owner path independently of the worker PATH.
+const WRKQ_BIN = ownerBinary('wrkq')
 const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 
 const DEMO_TEMPLATE_PATH = fileURLToPath(

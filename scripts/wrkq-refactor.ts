@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
+import { ownerBinary } from './lib/owner-binaries.ts'
 
 type CommandName = 'next' | 'start' | 'finish' | 'archive' | 'block' | 'publish'
 type SafetyStatus = 'ready' | 'review_required' | 'blocked'
@@ -324,7 +325,7 @@ function parseJson<T>(raw: string, label: string): T {
 }
 
 function readTask(taskId: string): WrkqTask {
-  const raw = runChecked('wrkq', ['cat', taskId, '--json'])
+  const raw = runChecked(ownerBinary('wrkq'), ['cat', taskId, '--json'])
   const parsed = parseJson<unknown>(raw, `wrkq cat ${taskId}`)
   const task = Array.isArray(parsed) ? parsed[0] : parsed
   if (!isTask(task)) {
@@ -361,7 +362,7 @@ export function normalizeRefactorTaskList(parsed: unknown): WrkqListTask[] {
 }
 
 function listOpenRefactorTasks(options: Options): WrkqListTask[] {
-  const raw = runChecked('wrkq', [
+  const raw = runChecked(ownerBinary('wrkq'), [
     'ls',
     '--project',
     options.project,
@@ -662,7 +663,7 @@ function runWrkqMutation(args: string[], dryRun: boolean): void {
     console.log(`DRY RUN: wrkq ${args.join(' ')}`)
     return
   }
-  process.stdout.write(runChecked('wrkq', args))
+  process.stdout.write(runChecked(ownerBinary('wrkq'), args))
 }
 
 function startTask(packet: WorkPacket, options: Options): void {

@@ -17,6 +17,8 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+readonly WRKQ_BIN="$(just --justfile "$ROOT/justfile" --evaluate WRKQ_BIN)"
+readonly WRKF_BIN="$(just --justfile "$ROOT/justfile" --evaluate WRKF_BIN)"
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/cap-acp-smoke-XXXXXX")"
 SOCK="$WORKDIR/catalogd.sock"
 CATLOG="$WORKDIR/catalogd.log"
@@ -599,7 +601,7 @@ seed_pbc_task() {
   local slug="$1"
   local title="$2"
   local out="$WORKDIR/wrkq-task.json"
-  wrkq --project "$WRKQ_PROJECT" touch "inbox/${slug}" --state open --priority 4 -t "$title" -d - >"$out" <<EOF
+  "$WRKQ_BIN" --project "$WRKQ_PROJECT" touch "inbox/${slug}" --state open --priority 4 -t "$title" -d - >"$out" <<EOF
 Throwaway real wrkq task for scripts/e2e/cap-acp/smoke.sh.
 
 SMOKE_ID: ${SMOKE_ID}
@@ -613,16 +615,16 @@ EOF
 seed_wrkf_task() {
   local task_id="$1"
   [ -n "$task_id" ] || return 1
-  wrkf --actor agent:smokey --role tester task attach "$task_id" --workflow wrkq-simple-task@1 --json >/dev/null
+  "$WRKF_BIN" --actor agent:smokey --role tester task attach "$task_id" --workflow wrkq-simple-task@1 --json >/dev/null
 }
 
 close_seeded_wrkq_task() {
   local task_id="$1"
   [ -n "$task_id" ] || return 0
-  command -v wrkq >/dev/null 2>&1 || return 0
+  command -v "$WRKQ_BIN" >/dev/null 2>&1 || return 0
 
-  wrkq --project "$WRKQ_PROJECT" comment add "$task_id" -m "cap-acp smoke cleanup: closing throwaway task ${SMOKE_ID}" >/dev/null 2>&1 || true
-  wrkq --project "$WRKQ_PROJECT" set "$task_id" --state completed --resolution done >/dev/null 2>&1 || true
+  "$WRKQ_BIN" --project "$WRKQ_PROJECT" comment add "$task_id" -m "cap-acp smoke cleanup: closing throwaway task ${SMOKE_ID}" >/dev/null 2>&1 || true
+  "$WRKQ_BIN" --project "$WRKQ_PROJECT" set "$task_id" --state completed --resolution done >/dev/null 2>&1 || true
 }
 
 close_seeded_wrkq_tasks() {
@@ -747,7 +749,7 @@ need cap
 need catalogd
 need python3
 need curl
-need wrkq
+need "$WRKQ_BIN"
 
 if ! curl -fsS "$ACP_BASE_URL/v1/mobile/health" >/dev/null 2>&1; then
   echo "FAIL: acp-server is not reachable at $ACP_BASE_URL"

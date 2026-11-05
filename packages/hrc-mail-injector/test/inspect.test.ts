@@ -1,6 +1,7 @@
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { ownerBinary } from '../../../scripts/lib/owner-binaries.js'
 
 import { describe, expect, test } from 'bun:test'
 import { openInjectorStateStore } from 'hrc-injector-core'
@@ -8,8 +9,14 @@ import { openInjectorStateStore } from 'hrc-injector-core'
 import { inspectMailEnvelope } from '../src/inspect.js'
 import { createWrkqLedger } from '../src/wrkq-ledger.js'
 
+const WRKQ_BIN = ownerBinary('wrkq')
+const WRKC_BIN = ownerBinary('wrkc')
+
 async function runWrkq(command: string, args: string[]): Promise<string> {
-  const child = Bun.spawn([command, ...args], { stdout: 'pipe', stderr: 'pipe' })
+  const child = Bun.spawn(
+    [command === 'wrkq' ? WRKQ_BIN : command === 'wrkc' ? WRKC_BIN : command, ...args],
+    { stdout: 'pipe', stderr: 'pipe' }
+  )
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
@@ -73,7 +80,11 @@ for await (const line of createInterface({ input: process.stdin })) {
       await chmod(fakeWrkq, 0o755)
       process.env['PATH'] = `${directory}:${originalPath ?? ''}`
 
-      const held = await inspectMailEnvelope({ statePath, envelopeId: 'EN-08642' })
+      const held = await inspectMailEnvelope({
+        statePath,
+        envelopeId: 'EN-08642',
+        command: fakeWrkq,
+      })
       expect(held).toMatchObject({
         ledger: { ok: true, state: 'presented', terminal: false },
         verdict: { code: 'held:awaiting_operator' },
@@ -89,7 +100,11 @@ for await (const line of createInterface({ input: process.stdin })) {
       })
 
       process.env['INSPECT_LEDGER_STATE'] = 'acked'
-      const resolved = await inspectMailEnvelope({ statePath, envelopeId: 'EN-08642' })
+      const resolved = await inspectMailEnvelope({
+        statePath,
+        envelopeId: 'EN-08642',
+        command: fakeWrkq,
+      })
       expect(resolved).toMatchObject({
         ledger: { ok: true, state: 'acked', terminal: true },
         verdict: { code: 'ledger_terminal' },
@@ -160,7 +175,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       ])
       expect(created.envelopes[0]?.id).toBe('EN-00001')
       process.env['HRC_WRKQ_DB'] = ledgerPath
-      ledger = createWrkqLedger()
+      ledger = createWrkqLedger(WRKQ_BIN)
       await ledger.present({
         envelope: 'EN-00001',
         memberRef: targetSessionRef,
@@ -190,7 +205,13 @@ for await (const line of createInterface({ input: process.stdin })) {
       // This is an actual `wrkq rpc` call from inspectMailEnvelope, against
       // the migrated SQLite ledger created above—not a response shaped by this
       // test. `reason` is top-level on the installed wrkq envelope wire.
-      expect(await inspectMailEnvelope({ statePath, envelopeId: 'EN-00001' })).toMatchObject({
+      expect(
+        await inspectMailEnvelope({
+          statePath,
+          envelopeId: 'EN-00001',
+          command: WRKQ_BIN,
+        })
+      ).toMatchObject({
         ledger: { ok: true, state: 'acked', terminal: true, terminalReason: 'reply' },
         verdict: { code: 'ledger_terminal', line: 'ledger terminal: reply' },
       })

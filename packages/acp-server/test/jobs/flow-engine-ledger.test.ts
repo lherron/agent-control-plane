@@ -3,6 +3,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type WorkClient, createClient } from '@wrkq/client'
+import { ownerBinary } from '../../../../scripts/lib/owner-binaries.js'
 import { createLedgerAgentDispatch } from '../../src/jobs/ledger-agent-dispatch.js'
 import { advanceCreatedFlow, withFlowHarness } from '../fixtures/flow-engine.js'
 
@@ -13,7 +14,7 @@ import { advanceCreatedFlow, withFlowHarness } from '../fixtures/flow-engine.js'
 // wrkq: a `wrkq rpc --stdio` child launched with no principal, over a throwaway
 // DB, never the live ledger.
 describe('advanceJobFlow native steps against real wrkq (T-10378)', () => {
-  const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
+  const WRKQ_BIN = ownerBinary('wrkq')
   const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
   const ACP_PRINCIPAL = 'agent:acp-server'
 

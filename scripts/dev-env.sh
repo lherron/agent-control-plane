@@ -36,6 +36,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly HRC_BIN="$(just --justfile "${REPO_ROOT}/justfile" --evaluate HRC_BIN)"
+readonly DAEMON_PATH_PREFIX="$(just --justfile "${REPO_ROOT}/justfile" --evaluate daemon_path_prefix)"
 
 # One root per checkout, so two worktrees do not fight over one daemon. Kept
 # out of the tree because the unix socket paths underneath it are subject to the
@@ -386,7 +388,7 @@ provision_wrkf_hook_catalog() {
 # self-healing.
 hrc_responds() {
   HRC_RUNTIME_DIR="${HRC_RUN_DIR}" HRC_STATE_DIR="${HRC_STATE}" \
-    hrc server status --json >/dev/null 2>&1
+    "${HRC_BIN}" server status --json >/dev/null 2>&1
 }
 
 # The native HRC (rusthrc) never creates or migrates a store: Bun owns
@@ -396,7 +398,7 @@ hrc_responds() {
 # which trails the fleet. A Bun `hrc` creates its own store.
 provision_hrc_store() {
   local bin release store_pkg
-  bin="$(readlink -f "$(command -v hrc)")"
+  bin="$(readlink -f "${HRC_BIN}")"
   [[ "$(basename "${bin}")" == rusthrc ]] || return 0
   release="$(cd "$(dirname "${bin}")/.." && pwd)"
   store_pkg="${release}/packages/hrc-store-sqlite/dist/index.js"
@@ -434,10 +436,10 @@ start_hrc() {
   log "starting ephemeral HRC daemon (hrc server serve) → ${HRC_LOG}"
   (
     cd "${REPO_ROOT}"
-    env "${SCRATCH_WRKQ_ENV[@]}" \
+    env "PATH=${DAEMON_PATH_PREFIX}:${PATH}" "${SCRATCH_WRKQ_ENV[@]}" \
     ACP_DEV_ENV_ROOT="${ROOT}" HRC_RUNTIME_DIR="${HRC_RUN_DIR}" HRC_STATE_DIR="${HRC_STATE}" ASP_AGENTS_ROOT="${AGENTS_DIR}" \
       nohup perl -MPOSIX -e 'POSIX::setsid() >= 0 or die "setsid: $!"; exec @ARGV or die "exec: $!"' \
-        hrc server serve >"${HRC_LOG}" 2>&1 &
+        "${HRC_BIN}" server serve >"${HRC_LOG}" 2>&1 &
     printf '%s\n' "$!" > "${HRC_PID_FILE}"
   )
   register_process hrc "$(cat "${HRC_PID_FILE}")"
@@ -610,7 +612,7 @@ EOF
 
 cmd_up() {
   require_bin bun 'image substrate'
-  require_bin hrc 'installed by install-praesidium.sh'
+  require_bin "${HRC_BIN}" 'installed by install-praesidium.sh'
   require_bin curl 'image substrate'
   require_bin "${WRKQADM_BIN:-wrkqadm}" 'devbox:base >= 286ecea0 bakes it at /usr/local/bin'
 

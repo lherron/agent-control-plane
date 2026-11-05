@@ -1,3 +1,4 @@
+import { ownerBinary } from '../../../../scripts/lib/owner-binaries.js'
 /**
  * Phase 2e (T-02589) — Non-PBC generic-runtime smoke test.
  *
@@ -26,9 +27,9 @@
  * with `wrkqadm init` (so the schema matches the binary). The acp server is
  * wired with that DB + the real wrkf port (mirrors test/fixtures/wired-server).
  *
- * Binaries (overridable), resolved through PATH by default:
- *   WRKF_BIN     default `wrkf`
- *   WRKQ_BIN     default `wrkq`
+ * Owner binaries from the justfile; admin binary overridable:
+ *   WRKF_BIN     fixed installed path from justfile
+ *   WRKQ_BIN     fixed installed path from justfile
  *   WRKQADM_BIN  default `wrkqadm`
  */
 
@@ -56,11 +57,9 @@ import type { AcpWrkfWorkflowPort } from '../wrkf/port.js'
 
 // ── Binaries ────────────────────────────────────────────────────────────────
 
-// Bare names, resolved through PATH — the same default production code uses
-// (src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded one
-// operator's layout and ENOENT'd anywhere else, including the devbox container.
-const WRKF_BIN = process.env['WRKF_BIN'] ?? 'wrkf'
-const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
+// D2 fixes the installed owner path independently of the worker PATH.
+const WRKF_BIN = ownerBinary('wrkf')
+const WRKQ_BIN = ownerBinary('wrkq')
 const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 
 const DEMO_TEMPLATE_PATH = fileURLToPath(

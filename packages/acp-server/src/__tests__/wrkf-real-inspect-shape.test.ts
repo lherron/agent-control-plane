@@ -1,3 +1,4 @@
+import { ownerBinary } from '../../../../scripts/lib/owner-binaries.js'
 /**
  * RED TESTS — W2a follow-up: wrkf real inspect shape vs handler fake-vs-real gap (T-01943)
  *
@@ -301,14 +302,12 @@ describe('W2a real inspect shape — handler must project body.task from flat in
 // exactly what we want: a CI gate that catches shape drift.
 //
 // Requires (resolved through PATH by default):
-//   - wrkf binary: `wrkf` (or $WRKF_BIN)
+//   - wrkf binary: fixed installed path from justfile
 //   - wrkqadm binary: `wrkqadm` (or $WRKQADM_BIN)
 // ═════════════════════════════════════════════════════════════════════════════
 
-// Bare names, resolved through PATH — the same default production code uses
-// (src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded one
-// operator's layout and ENOENT'd anywhere else, including the devbox container.
-const WRKF_BINARY = process.env['WRKF_BIN'] ?? 'wrkf'
+// D2 fixes the installed owner path independently of the worker PATH.
+const WRKF_BINARY = ownerBinary('wrkf')
 
 const WRKQADM_BINARY = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 

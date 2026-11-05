@@ -1,6 +1,15 @@
 # Agent Spaces v2 justfile
 # wrkp: run.settled
 
+# Worker recipes use installed owner tools by explicit path (T-12653 / D2).
+# Fixed declarations: ambient environment variables do not select owner binaries.
+export HRC_BIN := home_directory() / ".bun/bin/hrc"
+export WRKQ_BIN := home_directory() / ".local/bin/wrkq"
+export WRKC_BIN := home_directory() / ".local/bin/wrkc"
+export WRKF_BIN := home_directory() / ".local/bin/wrkf"
+# Only daemon spawn sites consume this prefix; never export it to worker shells.
+daemon_path_prefix := (home_directory() / ".local/bin") + ":" + (home_directory() / ".bun/bin")
+
 # Default recipe
 default:
     @just info

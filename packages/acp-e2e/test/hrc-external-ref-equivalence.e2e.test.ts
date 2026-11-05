@@ -1,3 +1,4 @@
+import { ownerBinary } from '../../../scripts/lib/owner-binaries.js'
 /**
  * E2E gate — Node Z, contract C-0009: cross-implementation equivalence between
  * wrkq's Go `normalizeExternalRunRef` and acp-core's shared TS
@@ -31,8 +32,8 @@
  *     formatHrcExternalRef('foo') === 'hrc:foo', and binding the already-prefixed
  *     'hrc:foo' through wrkf also stores 'hrc:foo' (idempotent) — same bytes.
  *
- * Binaries (overridable): WRKF_BIN / WRKQ_BIN / WRKQADM_BIN default to bare
- * names resolved through PATH.
+ * Owner binary paths are fixed by the justfile. WRKQADM_BIN remains
+ * overridable and defaults to `wrkqadm` on PATH.
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -49,11 +50,9 @@ import {
   createWrkfClientLifecycle,
 } from 'acp-server'
 
-// Bare names, resolved through PATH — the same default production code uses
-// (acp-server/src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded
-// one operator's layout and ENOENT'd anywhere else, devbox container included.
-const WRKF_BIN = process.env['WRKF_BIN'] ?? 'wrkf'
-const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
+// D2 fixes the installed owner path independently of the worker PATH.
+const WRKF_BIN = ownerBinary('wrkf')
+const WRKQ_BIN = ownerBinary('wrkq')
 const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 const EMPTY_HOOK_CATALOG_PATH = fileURLToPath(
   new URL('../../acp-server/test/fixtures/empty-wrkf-hook-catalog.json', import.meta.url)

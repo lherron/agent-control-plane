@@ -1,3 +1,4 @@
+import { ownerBinary } from '../../../scripts/lib/owner-binaries.js'
 /**
  * E2E gate — Node D, contract C-0004: ACP wrkf action launch/bind adapter.
  *
@@ -29,8 +30,8 @@
  *      — no relaunch, no second bind. wrkf binding-truth wins over the ACP
  *      operational orphan marker.
  *
- * Binaries (overridable): WRKF_BIN / WRKQ_BIN / WRKQADM_BIN default to bare
- * names resolved through PATH.
+ * Owner binary paths are fixed by the justfile. WRKQADM_BIN remains
+ * overridable and defaults to `wrkqadm` on PATH.
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -51,11 +52,9 @@ import {
 import type { AcpServerDeps } from 'acp-server'
 import type { SessionRef } from 'agent-scope'
 
-// Bare names, resolved through PATH — the same default production code uses
-// (acp-server/src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded
-// one operator's layout and ENOENT'd anywhere else, devbox container included.
-const WRKF_BIN = process.env['WRKF_BIN'] ?? 'wrkf'
-const WRKQ_BIN = process.env['WRKQ_BIN'] ?? 'wrkq'
+// D2 fixes the installed owner path independently of the worker PATH.
+const WRKF_BIN = ownerBinary('wrkf')
+const WRKQ_BIN = ownerBinary('wrkq')
 const WRKQADM_BIN = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 const EMPTY_HOOK_CATALOG_PATH = fileURLToPath(
   new URL('../../acp-server/test/fixtures/empty-wrkf-hook-catalog.json', import.meta.url)

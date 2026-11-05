@@ -1,3 +1,4 @@
+import { ownerBinary } from '../../../../scripts/lib/owner-binaries.js'
 /**
  * REAL-PROCESS shape guard — W5: wrkf effect payload shapes (T-01935)
  *
@@ -9,7 +10,7 @@
  * Pattern: W4b wrkf-real-inspect-shape.test.ts
  *
  * Requires (resolved through PATH by default):
- *   - wrkf binary: `wrkf` (or $WRKF_BIN)
+ *   - wrkf binary: fixed installed path from justfile
  *   - wrkqadm binary: `wrkqadm` (or $WRKQADM_BIN)
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -52,10 +53,8 @@ import { createWrkfClientLifecycle } from '../wrkf/client-lifecycle.js'
 
 // ─── Binary / isolated fixture paths ─────────────────────────────────────────
 
-// Bare names, resolved through PATH — the same default production code uses
-// (src/wrkf/client-lifecycle.ts). Hard-coding ~/.local/bin encoded one
-// operator's layout and ENOENT'd anywhere else, including the devbox container.
-const WRKF_BINARY = process.env['WRKF_BIN'] ?? 'wrkf'
+// D2 fixes the installed owner path independently of the worker PATH.
+const WRKF_BINARY = ownerBinary('wrkf')
 
 const WRKQADM_BINARY = process.env['WRKQADM_BIN'] ?? 'wrkqadm'
 
