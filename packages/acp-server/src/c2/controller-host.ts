@@ -15,6 +15,7 @@ import {
   Controller,
   PRODUCTION_VESTA,
   WIRE_VERSION,
+  handoffScope,
   online,
   toWire,
   validateRequest,
@@ -73,8 +74,8 @@ function log(event: string, data: Record<string, unknown>): void {
 }
 
 /**
- * T-12233 §4: whether a pending or acknowledged wrkq handoff for the agent@project
- * scope (`agent:<a>:project:<p>`) was created at/after `sinceIso`. wrkq lists
+ * T-12233 §4: whether a pending or acknowledged wrkq handoff for the seat's agent@project
+ * scope (`handoffScope`: `agent:<a>:project:<p>`) was created at/after `sinceIso`. wrkq lists
  * newest first and stamps whole seconds, so a handoff in the attention's own
  * second counts. Null without a wrkq client.
  */
@@ -83,7 +84,11 @@ export function wrkqHandoffSince(workClient: WorkClient | undefined) {
   return async (scopeRef: string, sinceIso: string): Promise<boolean | null> => {
     const since = Math.floor(Date.parse(sinceIso) / 1000) * 1000
     if (Number.isNaN(since)) return null
-    const page = await workClient.wrkq.handoff.listView({ scopeRef, status: 'all', limit: 5 })
+    const page = await workClient.wrkq.handoff.listView({
+      scopeRef: handoffScope(scopeRef),
+      status: 'all',
+      limit: 5,
+    })
     return page.items.some((h) => Date.parse(h.created_at) >= since)
   }
 }
@@ -91,8 +96,8 @@ export function wrkqHandoffSince(workClient: WorkClient | undefined) {
 type HandoffSince = (scopeRef: string, sinceIso: string) => Promise<boolean | null>
 
 /**
- * T-12715: the same question asked of HRC, where `prae seat handoff create` writes. HRC keys a handoff by
- * the full seat scope, so every seat of the agent in the project counts, as it does for wrkq. Undefined
+ * T-12715: the same question asked of HRC, where `prae seat handoff create` writes. An HRC handoff is the
+ * seat's own (full `scopeRef`), so a sibling seat of the agent in the project does not count. Undefined
  * when the client cannot list seat handoffs.
  */
 export function hrcHandoffSince(hrcClient: Pick<AcpHrcClient, 'listSeatHandoffs'>) {
@@ -101,15 +106,8 @@ export function hrcHandoffSince(hrcClient: Pick<AcpHrcClient, 'listSeatHandoffs'
   return async (scopeRef: string, sinceIso: string): Promise<boolean | null> => {
     const since = Date.parse(sinceIso)
     if (Number.isNaN(since)) return null
-    const project = /:project:([^:]+)$/.exec(scopeRef)?.[1]
-    const { handoffs } = await list(
-      project !== undefined ? { project, all: true } : { scopeRef, all: true }
-    )
-    return handoffs.some(
-      (h) =>
-        (h.scopeRef === scopeRef || h.scopeRef.startsWith(`${scopeRef}:`)) &&
-        Date.parse(h.createdAt) >= since
-    )
+    const { handoffs } = await list({ scopeRef, all: true })
+    return handoffs.some((h) => h.scopeRef === scopeRef && Date.parse(h.createdAt) >= since)
   }
 }
 

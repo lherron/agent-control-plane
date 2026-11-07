@@ -219,7 +219,7 @@ describe('the rotated line over ACP', () => {
             acp.fake.calls.some(
               (c) =>
                 c.path === '/v1/seat-handoffs' &&
-                c.query['project'] === 'c2' &&
+                c.query['scopeRef'] === SEAT &&
                 c.query['all'] === 'true'
             )
           ).toBe(true)
@@ -242,26 +242,29 @@ describe('the rotated line over ACP', () => {
       )
     })
 
-    test('a handoff of another agent or seat in the project does not count', async () => {
+    test('a handoff of another agent, project or sibling seat does not count', async () => {
       await withC2Acp(
         async (acp) => {
           await settle()
           acp.fake.handoffs.push(
-            ...['agent:clod:project:c2:task:primary', 'agent:smokey:project:c2x:task:primary'].map(
-              (scopeRef) => ({
-                id: `H-${scopeRef}`,
-                scopeRef,
-                laneRef: 'main',
-                title: '',
-                body: '',
-                state: 'pending' as const,
-                etag: 1,
-                createdAt: '2099-01-01T00:00:00.000Z',
-                acknowledgedAt: null,
-                note: null,
-                legacyScope: null,
-              })
-            )
+            ...[
+              'agent:clod:project:c2:task:primary',
+              'agent:smokey:project:c2x:task:primary',
+              // A sibling seat of the same agent and project (live T-12715: t12715a's suppressed t12715b's).
+              'agent:smokey:project:c2:task:c2fixture-other',
+            ].map((scopeRef) => ({
+              id: `H-${scopeRef}`,
+              scopeRef,
+              laneRef: 'main',
+              title: '',
+              body: '',
+              state: 'pending' as const,
+              etag: 1,
+              createdAt: '2099-01-01T00:00:00.000Z',
+              acknowledgedAt: null,
+              note: null,
+              legacyScope: null,
+            }))
           )
           selfRestart(acp)
           nudge(acp, 1)
