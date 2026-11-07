@@ -9,11 +9,11 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path'
 
 import type { WorkClient } from '@wrkq/client'
-import { HrcClient } from 'hrc-sdk'
 
 import { createAcpListenerHandlers } from '../../src/acp-listener.js'
 import type { AcpC2Config } from '../../src/c2/config.js'
 import { type AcpHrcClient, type AcpServerDeps, resolveAcpServerDeps } from '../../src/deps.js'
+import { AcpHrcSdkClient } from '../../src/hrc-client.js'
 import type { MobileAuthStore } from '../../src/mobile-auth/store.js'
 
 import { type WiredServerFixture, withWiredServer } from '../fixtures/wired-server.js'
@@ -204,7 +204,7 @@ export async function withC2Acp<T>(
 
   options.beforeBoot?.(fake)
   if (options.hrcDownAtBoot === true) await fake.stop()
-  const hrcClient: AcpHrcClient = new HrcClient({
+  const hrcClient: AcpHrcClient = new AcpHrcSdkClient({
     socketPath: fake.socketPath,
     userAgent: 'acp-c2-reds',
   })

@@ -88,6 +88,49 @@ export function wrkqHandoffSince(workClient: WorkClient | undefined) {
   }
 }
 
+type HandoffSince = (scopeRef: string, sinceIso: string) => Promise<boolean | null>
+
+/**
+ * T-12715: the same question asked of HRC, where `prae seat handoff create` writes. HRC keys a handoff by
+ * the full seat scope, so every seat of the agent in the project counts, as it does for wrkq. Undefined
+ * when the client cannot list seat handoffs.
+ */
+export function hrcHandoffSince(hrcClient: Pick<AcpHrcClient, 'listSeatHandoffs'>) {
+  const list = hrcClient.listSeatHandoffs?.bind(hrcClient)
+  if (list === undefined) return undefined
+  return async (scopeRef: string, sinceIso: string): Promise<boolean | null> => {
+    const since = Date.parse(sinceIso)
+    if (Number.isNaN(since)) return null
+    const project = /:project:([^:]+)$/.exec(scopeRef)?.[1]
+    const { handoffs } = await list(
+      project !== undefined ? { project, all: true } : { scopeRef, all: true }
+    )
+    return handoffs.some(
+      (h) =>
+        (h.scopeRef === scopeRef || h.scopeRef.startsWith(`${scopeRef}:`)) &&
+        Date.parse(h.createdAt) >= since
+    )
+  }
+}
+
+/**
+ * Either store's handoff counts (T-12715): true when one lookup finds one, false only when every lookup
+ * answered false. A failed lookup with no handoff found elsewhere throws, which reads `handoff=unknown`.
+ */
+export function eitherHandoffSince(
+  ...lookups: (HandoffSince | undefined)[]
+): HandoffSince | undefined {
+  const present = lookups.filter((l): l is HandoffSince => l !== undefined)
+  if (present.length === 0) return undefined
+  return async (scopeRef, sinceIso) => {
+    const results = await Promise.allSettled(present.map((l) => l(scopeRef, sinceIso)))
+    if (results.some((r) => r.status === 'fulfilled' && r.value === true)) return true
+    const failed = results.find((r) => r.status === 'rejected')
+    if (failed !== undefined) throw (failed as PromiseRejectedResult).reason
+    return results.every((r) => r.status === 'fulfilled' && r.value === false) ? false : null
+  }
+}
+
 export function createC2Service(
   config: AcpC2Config,
   hrcClient: AcpHrcClient,
@@ -103,7 +146,7 @@ export function createC2Service(
     node: config.node,
     ownsUnscoped: config.vestaSeat === PRODUCTION_VESTA,
     literalInputTimeoutMs: config.literalInputTimeoutMs ?? C2_DEFAULTS.literalInputTimeoutMs,
-    handoffSince: wrkqHandoffSince(workClient),
+    handoffSince: eitherHandoffSince(wrkqHandoffSince(workClient), hrcHandoffSince(hrcClient)),
     log: (line) => log('c2.host', { line }),
   })
   const controller = new Controller(host, {

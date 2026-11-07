@@ -23,7 +23,6 @@ import { type PbcContinuationJob, openAcpStateStore } from 'acp-state-store'
 import { type SessionRef, normalizeSessionRef, parseScopeRef } from 'agent-scope'
 import { openCoordinationStore } from 'coordination-substrate'
 import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
-import { HrcClient } from 'hrc-sdk'
 import { createAspcService } from 'spaces-aspc'
 import { type WrkqStoreAdapter, createCollaborationLedger } from 'wrkq-lib'
 import { createStaleOrphanReaper } from './integration/stale-orphan-reaper.js'
@@ -56,6 +55,7 @@ import {
   createAgentInspectionProjectRootResolver,
   loadWrkqProjectRegistry,
 } from './handlers/agent-inspection.js'
+import { AcpHrcSdkClient } from './hrc-client.js'
 import { InputAdmissionService } from './input-admission/input-admission-service.js'
 import { createInputQueueDispatcher } from './integration/input-queue-dispatcher.js'
 import {
@@ -613,7 +613,7 @@ export function resolveLauncherDeps(
     const createHrcClient =
       _options.createHrcClient ??
       ((socketPath: string) =>
-        new HrcClient({
+        new AcpHrcSdkClient({
           socketPath,
           userAgent: ACP_SERVER_USER_AGENT,
           caller: 'acp-server',

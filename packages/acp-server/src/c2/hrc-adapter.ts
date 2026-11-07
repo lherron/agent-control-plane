@@ -674,12 +674,26 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
           (r.statusChangedAt ?? r.updatedAt) > (a.statusChangedAt ?? a.updatedAt) ? r : a
         )
         const state = last.runtimeStateJson as { terminationReason?: unknown } | undefined
+        const recorded =
+          typeof state?.terminationReason === 'string' ? state.terminationReason : undefined
+        // T-12715: the runtime.terminated event names why (self-restart); the record's lifecycle reason is
+        // HRC's generic process-exit. Two explicit reasons that differ are both reported.
+        // An unreadable event leaves the record's reason, as before.
+        const terminated = await client
+          .tailEvents({ limit: 1, runtimeId: last.runtimeId, eventKind: 'runtime.terminated' })
+          .catch((error: unknown) => {
+            log(`c2: runtime.terminated ${last.runtimeId} unreadable: ${String(error)}`)
+            return undefined
+          })
+        const reason = (terminated?.events.at(-1)?.payload as { reason?: unknown } | undefined)
+          ?.reason
+        const announced = typeof reason === 'string' && reason !== '' ? reason : undefined
         const value = {
           runtimeId: last.runtimeId,
           terminatedReason:
-            typeof state?.terminationReason === 'string'
-              ? state.terminationReason
-              : (last.lifecycleTerminalReason ?? null),
+            announced !== undefined && recorded !== undefined && announced !== recorded
+              ? `${announced}/${recorded}`
+              : (announced ?? recorded ?? last.lifecycleTerminalReason ?? null),
         }
         entry.value = value
         return value

@@ -1,7 +1,8 @@
 /**
  * The rotated line through ACP (card contract rev 4 §6, §7: rotation is a non-event for rows). ACP's C2Host
- * answers `runtimeEnd` from the HRC runtime record (`GET /v1/runtimes?hostSessionId=…&all=true`,
- * `runtimeStateJson.terminationReason`) and `handoffSince` from its wrkq client. A quit at the prompt of a seat
+ * answers `runtimeEnd` from the HRC runtime record (`GET /v1/runtimes?hostSessionId=…&all=true`) and the
+ * runtime's `runtime.terminated` event (`GET /v1/events/tail?runtimeId=…`, T-12715), and `handoffSince` from
+ * HRC's seat handoffs (`GET /v1/seat-handoffs?project=…&all=true`) and its wrkq client. A quit at the prompt of a seat
  * with an open row sends Vesta exactly one `[c2] rotated …` line, claimed once on `c2.ping{id: rotated}`, and
  * changes nothing on the asks record.
  */
@@ -43,6 +44,59 @@ function quit(acp: C2Acp, record = true): void {
   const seat = acp.fake.seats.get(SEAT)!
   seat.runtimeLive = false
   acp.fake.touch(SEAT, 'runtime.state')
+}
+
+/**
+ * A prae self-restart as max3 HRC recorded mable@hrc-runtime:primary gen 97→98 on 2026-11-07 (T-12715): the
+ * runtime record ends `lifecycleTerminalReason: process-exit` with no `runtimeStateJson.terminationReason`, the
+ * `runtime.terminated` event carries `{reason: self-restart, transport: hrcpty}`, and a new generation starts on a
+ * new host session. `recordReason` adds an explicit record reason, as a quit at the prompt writes one.
+ */
+function selfRestart(acp: C2Acp, recordReason?: string): void {
+  acp.fake.runtimes.push({
+    runtimeId: 'rt-c2fixture-acp',
+    hostSessionId: 'hsid-c2fixture-acp',
+    scopeRef: SEAT,
+    laneRef: 'main',
+    generation: 2,
+    status: 'terminated',
+    statusChangedAt: '2026-11-07T14:13:59.977Z',
+    lifecycleTerminalReason: 'process-exit',
+    runtimeStateJson: recordReason === undefined ? {} : { terminationReason: recordReason },
+    createdAt: '2026-11-07T13:51:00.000Z',
+    updatedAt: '2026-11-07T14:13:59.977Z',
+  })
+  acp.fake.emit({
+    eventKind: 'runtime.terminated',
+    scopeRef: SEAT,
+    hostSessionId: 'hsid-c2fixture-acp',
+    generation: 2,
+    runtimeId: 'rt-c2fixture-acp',
+    payload: { transport: 'hrcpty', reason: 'self-restart' },
+  })
+  const seat = acp.fake.seats.get(SEAT)!
+  seat.generation = 3
+  seat.hostSessionId = 'hsid-c2fixture-acp-3'
+  seat.runtimeId = 'rt-c2fixture-acp-3'
+  seat.runtimeLive = true
+  acp.fake.touch(SEAT, 'session.created')
+}
+
+/** An HRC seat handoff, keyed by the full seat scope as `prae seat handoff create` writes it. */
+function hrcHandoff(acp: C2Acp, createdAt: string): void {
+  acp.fake.handoffs.push({
+    id: 'H-c2fixture-acp',
+    scopeRef: SEAT,
+    laneRef: 'main',
+    title: 'Restart for context',
+    body: '# Handoff',
+    state: 'acknowledged',
+    etag: 2,
+    createdAt,
+    acknowledgedAt: createdAt,
+    note: null,
+    legacyScope: null,
+  })
 }
 
 /** Any observable HRC change, so the controller ticks now instead of in 15 s. */
@@ -93,7 +147,7 @@ describe('the rotated line over ACP', () => {
         quit(acp)
         nudge(acp, 2)
         await settle()
-        expect(rotatedLines(acp)).toEqual([`${LINE} handoff=unknown`])
+        expect(rotatedLines(acp)).toEqual([`${LINE} handoff=no`])
         expect(acp.record()).toEqual(record)
         expect(acp.fake.find(SEAT, 'ping', 'rotated', null)?.body).toMatchObject({
           detector: 'rotated',
@@ -115,7 +169,7 @@ describe('the rotated line over ACP', () => {
         acp.fake.touch(SEAT, 'runtime.state')
         nudge(acp, 3)
         await settle()
-        expect(rotatedLines(acp)).toEqual([`${LINE} handoff=unknown`])
+        expect(rotatedLines(acp)).toEqual([`${LINE} handoff=no`])
         expect(acp.record()).toEqual(record)
       },
       { config: { settleMs: 0 } }
@@ -147,5 +201,104 @@ describe('the rotated line over ACP', () => {
       },
       { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
     )
+  })
+
+  describe('a prae self-restart (T-12715)', () => {
+    const RESTART = `[c2] rotated ${SEAT} gen 2\u21923 reason=self-restart prior=rt-c2fixture-acp rows=ship`
+
+    test('an HRC handoff since the record suppresses the line, with no wrkq handoff', async () => {
+      await withC2Acp(
+        async (acp) => {
+          await settle()
+          hrcHandoff(acp, '2099-01-01T00:00:00.000Z')
+          selfRestart(acp)
+          nudge(acp, 1)
+          await settle()
+          expect(rotatedLines(acp)).toEqual([])
+          expect(
+            acp.fake.calls.some(
+              (c) =>
+                c.path === '/v1/seat-handoffs' &&
+                c.query['project'] === 'c2' &&
+                c.query['all'] === 'true'
+            )
+          ).toBe(true)
+        },
+        { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
+      )
+    })
+
+    test('an older HRC handoff reads handoff=no and the reason is the runtime.terminated event', async () => {
+      await withC2Acp(
+        async (acp) => {
+          await settle()
+          hrcHandoff(acp, '2000-01-01T00:00:00.000Z')
+          selfRestart(acp)
+          nudge(acp, 1)
+          await settle()
+          expect(rotatedLines(acp)).toEqual([`${RESTART} handoff=no`])
+        },
+        { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
+      )
+    })
+
+    test('a handoff of another agent or seat in the project does not count', async () => {
+      await withC2Acp(
+        async (acp) => {
+          await settle()
+          acp.fake.handoffs.push(
+            ...['agent:clod:project:c2:task:primary', 'agent:smokey:project:c2x:task:primary'].map(
+              (scopeRef) => ({
+                id: `H-${scopeRef}`,
+                scopeRef,
+                laneRef: 'main',
+                title: '',
+                body: '',
+                state: 'pending' as const,
+                etag: 1,
+                createdAt: '2099-01-01T00:00:00.000Z',
+                acknowledgedAt: null,
+                note: null,
+                legacyScope: null,
+              })
+            )
+          )
+          selfRestart(acp)
+          nudge(acp, 1)
+          await settle()
+          expect(rotatedLines(acp)).toEqual([`${RESTART} handoff=no`])
+        },
+        { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
+      )
+    })
+
+    test('an HRC handoff read that fails reads handoff=unknown when wrkq found none', async () => {
+      await withC2Acp(
+        async (acp) => {
+          await settle()
+          acp.fake.handoffsRefuse = { status: 503, code: 'session_home_pending' }
+          selfRestart(acp)
+          nudge(acp, 1)
+          await settle()
+          expect(rotatedLines(acp)).toEqual([`${RESTART} handoff=unknown`])
+        },
+        { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
+      )
+    })
+
+    test('an explicit record reason that differs from the event is reported with it', async () => {
+      await withC2Acp(
+        async (acp) => {
+          await settle()
+          selfRestart(acp, 'user_initiated_session_end')
+          nudge(acp, 1)
+          await settle()
+          expect(rotatedLines(acp)).toEqual([
+            `[c2] rotated ${SEAT} gen 2\u21923 reason=self-restart/user_initiated_session_end prior=rt-c2fixture-acp rows=ship handoff=no`,
+          ])
+        },
+        { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
+      )
+    })
   })
 })

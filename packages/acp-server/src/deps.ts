@@ -45,6 +45,7 @@ import {
 } from './domain/input-admission-stores.js'
 import { InMemoryInputAttemptStore, type InputAttemptStore } from './domain/input-attempt-store.js'
 import { InMemoryRunStore, type RunStore, type StoredRun } from './domain/run-store.js'
+import type { AcpHrcSdkClient } from './hrc-client.js'
 import type { JobExecPolicy } from './jobs/exec-policy.js'
 import { type MobileAuthStore, resolveMobileAuthStore } from './mobile-auth/store.js'
 import { acpStateDir } from './state-dir.js'
@@ -225,6 +226,8 @@ export type AcpHrcClient = Pick<
   getSessionFacets?: HrcClient['getSessionFacets']
   listFederationPeerHealth?: HrcClient['listFederationPeerHealth']
   listFederatedRuntimes?: HrcClient['listFederatedRuntimes']
+  /** T-12715: HRC seat handoffs, for the c2 rotated line (`AcpHrcSdkClient`). */
+  listSeatHandoffs?: AcpHrcSdkClient['listSeatHandoffs']
   probe?(request: Readonly<Record<string, unknown>>): Promise<{ outcome: 'idle' | 'work' }>
   submitActiveRunContribution(
     request: HrcActiveRunContributionRequest

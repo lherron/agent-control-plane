@@ -78,10 +78,31 @@ export type FakeLedgerEvent = {
     | 'runtime.state'
     | 'session.created'
     | 'session.archived'
+    | 'runtime.terminated'
   scopeRef: string
   hostSessionId: string
   generation: number | null
+  runtimeId?: string
   payload: Record<string, unknown>
+}
+
+/**
+ * A seat handoff as `GET /v1/seat-handoffs` lists it (T-12715, checked against max3 HRC 57000d0a on
+ * 2026-11-07: `{handoffs: [...]}`, newest first, keyed by the full seat `scopeRef`; `project=` matches the
+ * seat's project; pending only unless `all=true`).
+ */
+export type FakeHandoff = {
+  id: string
+  scopeRef: string
+  laneRef: string
+  title: string
+  body: string
+  state: 'pending' | 'acknowledged'
+  etag: number
+  createdAt: string
+  acknowledgedAt: string | null
+  note: string | null
+  legacyScope: null
 }
 
 /** A runtime record as `GET /v1/runtimes` returns it (the fields the C2 host reads). */
@@ -94,6 +115,8 @@ export type FakeRuntime = {
   status: string
   statusChangedAt?: string
   runtimeStateJson?: Record<string, unknown>
+  /** HRC's generic end (`process-exit` on a self-restart, T-12715); the event carries the real reason. */
+  lifecycleTerminalReason?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -109,6 +132,12 @@ export type FakeHrc = {
   ledger: FakeLedgerEvent[]
   /** Runtime records (`GET /v1/runtimes`); tests add terminated ones. */
   runtimes: FakeRuntime[]
+  /** Seat handoffs (`GET /v1/seat-handoffs`); tests add them. */
+  handoffs: FakeHandoff[]
+  /** The seat-handoffs list answers this HRC error. */
+  handoffsRefuse?: { status: number; code: string } | undefined
+  /** Append a ledger event as HRC does, e.g. `runtime.terminated` with `{reason}` on a runtime. */
+  emit(event: Omit<FakeLedgerEvent, 'hrcSeq'>): void
   /** `refuse`: seats whose literal input answers 409 stale_context. */
   literalInput: { mode: LiteralInputMode; refuse: Set<string> }
   /**
@@ -205,6 +234,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       scopeRef: event.scopeRef,
       laneRef: 'main',
       generation: event.generation ?? 0,
+      ...(event.runtimeId !== undefined ? { runtimeId: event.runtimeId } : {}),
       category: event.eventKind.split('.')[0],
       eventKind: event.eventKind,
       eventJson: event.payload,
@@ -213,6 +243,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
   }
   const controls = new Set<(value: Record<string, unknown>) => void>()
   const runtimes: FakeRuntime[] = []
+  const handoffs: FakeHandoff[] = []
   const literalInput: { mode: LiteralInputMode; refuse: Set<string> } = {
     mode: 'accept',
     refuse: new Set(),
@@ -606,11 +637,19 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     if (!fake.events.enabled) return hrcError(404, 'not_found', { path: url.pathname })
     if (url.pathname === '/v1/events/tail') {
       const limit = Number(url.searchParams.get('limit') ?? '100')
+      // HRC filters the tail by these fields (hrc-sdk eventFilterParams).
+      const runtimeId = url.searchParams.get('runtimeId')
+      const eventKind = url.searchParams.get('eventKind')
+      const matched = ledger.filter(
+        (e) =>
+          (runtimeId === null || e.runtimeId === runtimeId) &&
+          (eventKind === null || e.eventKind === eventKind)
+      )
       return Response.json({
-        events: ledger.slice(-limit).map(wireEvent),
+        events: matched.slice(-limit).map(wireEvent),
         ledgerIncarnationId: fake.events.incarnation,
         headHrcSeq: seq,
-        truncated: ledger.length > limit,
+        truncated: matched.length > limit,
       })
     }
     const bounded = url.pathname === '/v1/events/bounded-stream'
@@ -749,6 +788,24 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
         )
         return Response.json(structuredClone(rows))
       }
+      if (request.method === 'GET' && url.pathname === '/v1/seat-handoffs') {
+        if (fake.handoffsRefuse !== undefined)
+          return hrcError(fake.handoffsRefuse.status, fake.handoffsRefuse.code)
+        const scopeRef = url.searchParams.get('scopeRef')
+        const project = url.searchParams.get('project')
+        if (scopeRef === null && project === null)
+          return hrcError(400, 'invalid_request', { reason: 'scopeRef or project is required' })
+        const all = url.searchParams.get('all') === 'true'
+        const rows = handoffs
+          .filter(
+            (h) =>
+              (scopeRef === null || h.scopeRef === scopeRef) &&
+              (project === null || /:project:([^:]+)/.exec(h.scopeRef)?.[1] === project) &&
+              (all || h.state === 'pending')
+          )
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        return Response.json({ handoffs: structuredClone(rows) })
+      }
       if (url.pathname.startsWith('/v1/sessions/annotations')) {
         return annotationRoute(request, url, call)
       }
@@ -773,6 +830,10 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     calls,
     ledger,
     runtimes,
+    handoffs,
+    emit(event) {
+      append({ ...event, hrcSeq: ++seq })
+    },
     literalInput,
     start,
     seatErrors,
