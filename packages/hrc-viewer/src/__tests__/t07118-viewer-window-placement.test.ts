@@ -18,7 +18,8 @@ import { fixtureIdentity } from './session-identity-fixture.js'
 
 import { describe, expect, it } from 'bun:test'
 
-import { DEFAULT_HEADLESS_WINDOW_KEY, GhostmuxManager, normalizeWindowKey } from '../ghostmux'
+import { GhostmuxManager } from '../ghostmux'
+import { DEFAULT_HEADLESS_WINDOW_KEY, normalizeWindowKey } from '../ghostmux-identity'
 
 type Surf = {
   surfaceMeta: Record<string, unknown>

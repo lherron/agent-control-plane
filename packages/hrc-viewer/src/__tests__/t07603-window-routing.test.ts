@@ -16,14 +16,14 @@ import { fixtureIdentity } from './session-identity-fixture.js'
 
 import { describe, expect, it } from 'bun:test'
 
+import { GhostmuxManager } from '../ghostmux'
 import {
   CHIEF_WINDOW_KEY,
   DEFAULT_HEADLESS_WINDOW_KEY,
-  GhostmuxManager,
   INTERACTIVE_WINDOW_KEY,
   defaultWindowKeyForTab,
   deriveHeadlessTabIdentity,
-} from '../ghostmux'
+} from '../ghostmux-identity'
 
 describe('T-07603 scope-shape routing', () => {
   it('sends an UNPARSEABLE scope to the headless window, never the operator’s', () => {

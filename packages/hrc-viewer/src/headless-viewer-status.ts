@@ -15,7 +15,10 @@
 import { laneIdFromRef, normalizeLaneRef } from 'agent-scope'
 
 import { sessionTheme } from './agent-theme.js'
-import type { GhostmuxSecondaryStatusBarSpec, GhostmuxStatusBarSpec } from './ghostmux.js'
+import type {
+  GhostmuxSecondaryStatusBarSpec,
+  GhostmuxStatusBarSpec,
+} from './ghostmux-presentation.js'
 import { shortenProjectId } from './project-prefix.js'
 import type { TaskSlugResolver } from './wrkq-task-label.js'
 

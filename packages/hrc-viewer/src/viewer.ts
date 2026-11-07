@@ -1,14 +1,11 @@
 import type { HrcClient, HrcEventTail } from 'hrc-sdk'
 
-import {
-  type GhostmuxSecondaryStatusBarSpec,
-  type GhostmuxStatusBarSpec,
-  type HeadlessReapResult,
-  type HeadlessViewerPane,
-  type HeadlessViewerResult,
-  defaultHeadlessPaneTitle,
-  deriveHeadlessSessionIdentity,
-} from './ghostmux.js'
+import { defaultHeadlessPaneTitle, deriveHeadlessSessionIdentity } from './ghostmux-identity.js'
+import type {
+  GhostmuxSecondaryStatusBarSpec,
+  GhostmuxStatusBarSpec,
+} from './ghostmux-presentation.js'
+import type { HeadlessReapResult, HeadlessViewerPane, HeadlessViewerResult } from './ghostmux.js'
 import {
   HeadlessViewerStatusProjector,
   type ViewerIdentity,
