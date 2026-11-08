@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
-import { resolveLauncherDeps } from '../src/cli.js'
 import type { AcpHrcClient } from '../src/index.js'
+import { resolveLauncherDeps } from '../src/launcher-deps.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 function createHrcClientDouble(overrides: Partial<AcpHrcClient> = {}): AcpHrcClient {

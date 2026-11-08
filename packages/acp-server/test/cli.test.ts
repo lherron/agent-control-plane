@@ -2,6 +2,12 @@ import { describe, expect, mock, test } from 'bun:test'
 
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import {
+  resolveLauncherDeps,
+  resolveRealLauncherAgentRoot,
+  resolveRealLauncherPlacement,
+} from '../src/launcher-deps.js'
+import type { FetchPlacementResolution } from '../src/placement-resolution.js'
+import {
   bindAcpHostListeners,
   formatStartupConfig,
   isEnabledEnvFlag,
@@ -9,11 +15,7 @@ import {
   resolveAttachmentBaseUrl,
   resolveBindHosts,
   resolveCliOptions,
-  resolveLauncherDeps,
-  resolveRealLauncherAgentRoot,
-  resolveRealLauncherPlacement,
-} from '../src/cli.js'
-import type { FetchPlacementResolution } from '../src/placement-resolution.js'
+} from '../src/server-config.js'
 
 describe('acp-server cli helpers', () => {
   test('resolves defaults from environment', () => {

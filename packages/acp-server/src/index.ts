@@ -4,9 +4,9 @@ export {
   parseCliArgs,
   renderHelp as renderAcpServerHelp,
   resolveCliOptions,
-  startAcpServeBin,
   type AcpServerCliOptions,
-} from './cli.js'
+} from './server-config.js'
+export { startAcpServeBin } from './serve-runtime.js'
 export type {
   AcpHrcClient,
   AcpRuntimePlacement,

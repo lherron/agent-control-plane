@@ -6,10 +6,10 @@ import { parseScopeRef } from 'agent-scope'
 
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import type { StartRuntimeRequest, StartRuntimeResponse } from 'hrc-sdk'
-import { resolveLauncherDeps } from '../src/cli.js'
 import type { AcpRuntimePlacement } from '../src/deps.js'
 import type { AcpHrcClient } from '../src/deps.js'
 import { deriveMobileSessionIdempotencyKey } from '../src/handlers/mobile-sessions-create.js'
+import { resolveLauncherDeps } from '../src/launcher-deps.js'
 
 import { withWiredServer } from './fixtures/wired-server.js'
 
