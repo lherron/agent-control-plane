@@ -13,7 +13,7 @@ import {
   type RunFinalOutputDeps,
   getRunFinalAssistantText,
 } from '../../src/jobs/run-final-output.js'
-import { readCompletedAssistantMessageFromHrcEvents } from '../../src/real-launcher.js'
+import { readCompletedAssistantMessageFromHrcEvents } from '../../src/launcher-assistant-evidence.js'
 
 const tempDirs: string[] = []
 

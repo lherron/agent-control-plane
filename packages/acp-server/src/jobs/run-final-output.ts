@@ -7,7 +7,7 @@ import {
   readAssistantMessageAfterSeq,
   readCompletedAssistantMessageFromHrcEvents,
   readLatestAssistantMessageSeq,
-} from '../real-launcher.js'
+} from '../launcher-assistant-evidence.js'
 
 // ---------------------------------------------------------------------------
 // Dependencies — narrow interface so callers can inject fakes

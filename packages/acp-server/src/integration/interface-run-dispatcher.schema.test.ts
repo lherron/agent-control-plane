@@ -12,7 +12,7 @@ import {
   isoAgo,
   makeRun,
 } from '../../test/fixtures/interface-run-dispatcher.js'
-import { readCompletedAssistantMessageAfterSeq } from '../real-launcher.js'
+import { readCompletedAssistantMessageAfterSeq } from '../launcher-assistant-evidence.js'
 import { lastObservedActivityMs } from './interface-run-dispatcher.js'
 import * as dispatcherModule from './interface-run-dispatcher.js'
 

@@ -11,7 +11,7 @@ import {
 } from '../internal/read-helpers.js'
 import { getRunFinalAssistantText } from '../jobs/run-final-output.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
-import { readRunStatus } from '../real-launcher.js'
+import { readRunStatus } from '../launcher-run-evidence.js'
 import type { AcpServerCliOptions } from '../server-config.js'
 import { type PbcContinuationWorkerPort, runPbcContinuationWorker } from './worker.js'
 

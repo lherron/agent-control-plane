@@ -7,6 +7,7 @@ import { createRealLauncher } from '../src/real-launcher.js'
 async function captureDispatchOrigin(input: {
   actor: { kind: 'human' | 'agent' | 'system'; id: string }
   metadata?: Readonly<Record<string, unknown>> | undefined
+  missingAttempt?: boolean
 }): Promise<HrcDispatchOrigin | undefined> {
   const inputAttemptStore = new InMemoryInputAttemptStore()
   const runStore = new InMemoryRunStore()
@@ -22,7 +23,10 @@ async function captureDispatchOrigin(input: {
   }).inputAttempt
   const acpRun = runStore.createRun({
     sessionRef,
-    actor: { kind: 'system', id: 'wrong-fallback-must-not-win' },
+    actor: input.missingAttempt
+      ? input.actor
+      : { kind: 'system', id: 'wrong-fallback-must-not-win' },
+    metadata: { meta: input.metadata },
     status: 'pending',
   })
   let origin: HrcDispatchOrigin | undefined
@@ -64,7 +68,7 @@ async function captureDispatchOrigin(input: {
       initialPrompt: 'origin test',
     },
     acpRunId: acpRun.runId,
-    inputAttemptId: attempt.inputAttemptId,
+    inputAttemptId: input.missingAttempt ? 'missing' : attempt.inputAttemptId,
     runStore,
     waitForCompletion: false,
   })
@@ -103,6 +107,16 @@ describe('real launcher dispatch metadata', () => {
         actor: { kind: 'agent', id: 'agent:already-canonical' },
       })
     ).toEqual({ actor: 'agent:already-canonical', kind: 'agent' })
+  })
+
+  test('missing durable attempt falls back to run actor and nested job source', async () => {
+    expect(
+      await captureDispatchOrigin({
+        missingAttempt: true,
+        actor: { kind: 'system', id: 'system:scheduler' },
+        metadata: { source: { kind: 'job', jobRunId: 'jrun_fallback' } },
+      })
+    ).toEqual({ actor: 'system:scheduler', kind: 'system', causationRef: 'jrun_fallback' })
   })
 
   describe('first-turn timeout override passthrough', () => {

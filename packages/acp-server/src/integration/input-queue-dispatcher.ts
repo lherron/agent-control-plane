@@ -28,7 +28,7 @@ import {
   hasInFlightHrcRunSince as defaultHasInFlightHrcRunSince,
   hasRecentlyCompletedHrcRunSince as defaultHasRecentlyCompletedHrcRunSince,
   launchCorrelationUntilIso,
-} from '../real-launcher.js'
+} from '../launcher-run-evidence.js'
 import {
   hasActiveTerminalCorrelationGrace,
   hasExpiredTerminalCorrelationGrace,

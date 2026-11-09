@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
-import { createRealLauncher, readAssistantMessageAfterSeq } from '../src/real-launcher.js'
+import { readAssistantMessageAfterSeq } from '../src/launcher-assistant-evidence.js'
+import { createRealLauncher } from '../src/real-launcher.js'
 import { createLauncherRuntimeTables } from './fixtures/launcher-schema.js'
 
 type RetainedLauncherStore = {

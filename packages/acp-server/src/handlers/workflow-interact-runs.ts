@@ -2,8 +2,8 @@ import { formatSessionRef } from 'agent-scope'
 
 import { badRequest, json } from '../http.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
+import { normalizeRealLauncherIntent } from '../launcher-placement.js'
 import { parseJsonBody, readOptionalTrimmedStringField, requireRecord } from '../parsers/body.js'
-import { normalizeRealLauncherIntent } from '../real-launcher.js'
 import type { RouteHandler } from '../routing/route-context.js'
 import { parseSessionRefField } from './shared.js'
 

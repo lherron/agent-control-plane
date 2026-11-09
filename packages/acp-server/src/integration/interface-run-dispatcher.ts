@@ -23,15 +23,17 @@ import {
 import { readHrcEvidence } from '../hrc-evidence-origin.js'
 import { readOptionalTrimmedRawString as readString } from '../internal/read-helpers.js'
 import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
-import { isRecord } from '../parsers/body.js'
+import {
+  readCompletedAssistantMessageAfterSeq,
+  readCompletedAssistantMessageFromHrcEvents,
+} from '../launcher-assistant-evidence.js'
+import { mapHrcRunTerminalStatus } from '../launcher-completion.js'
 import {
   hasInFlightHrcRunForSessionSince,
   launchCorrelationUntilIso,
-  mapHrcRunTerminalStatus,
-  readCompletedAssistantMessageAfterSeq,
-  readCompletedAssistantMessageFromHrcEvents,
   readRunStatus,
-} from '../real-launcher.js'
+} from '../launcher-run-evidence.js'
+import { isRecord } from '../parsers/body.js'
 import {
   hasExpiredTerminalCorrelationGrace,
   protectWithTerminalCorrelationGrace,

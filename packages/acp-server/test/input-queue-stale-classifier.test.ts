@@ -10,7 +10,7 @@ import {
 } from '../src/index.js'
 import * as inputQueueDispatcherModule from '../src/integration/input-queue-dispatcher.js'
 import { createInputQueueDispatcher } from '../src/integration/input-queue-dispatcher.js'
-import { LAUNCH_CORRELATION_WINDOW_MS } from '../src/real-launcher.js'
+import { LAUNCH_CORRELATION_WINDOW_MS } from '../src/launcher-run-evidence.js'
 
 type DispatcherDeps = Parameters<typeof createInputQueueDispatcher>[0]
 type DispatcherTestHooks = {

@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createInterfaceRunDispatcher } from '../src/integration/interface-run-dispatcher.js'
-import { LAUNCH_CORRELATION_WINDOW_MS, createRealLauncher } from '../src/real-launcher.js'
+import { LAUNCH_CORRELATION_WINDOW_MS } from '../src/launcher-run-evidence.js'
+import { createRealLauncher } from '../src/real-launcher.js'
 
 import { type WiredServerFixture, withWiredServer } from './fixtures/wired-server.js'
 
