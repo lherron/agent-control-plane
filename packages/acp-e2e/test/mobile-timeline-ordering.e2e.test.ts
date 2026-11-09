@@ -14,9 +14,11 @@
  *
  * It spawns a real HRC daemon, a real `wrkf` RPC process and the production
  * `acp-server`, binds an ephemeral port on a non-loopback interface, and needs
- * the `wrkf`/`wrkqadm` binaries on PATH — the same environment the other
- * `*.e2e.test.ts` suites in this package already require. Run it on its own
- * with:
+ * the `wrkf`/`wrkqadm` binaries on PATH. Native live arrivals additionally need
+ * python3, installed hrc-pty beside rusthrc, and the hrc-runtime checkout's
+ * FakeAspd/stub broker with self-contained fixtures/aspc-codex templates.
+ * The realhrc action-launch suite needs only the installed HRC release.
+ * Run this suite on its own with:
  *
  *     bun run test:acceptance            # from the repository root
  *
@@ -28,6 +30,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import type { HrcLifecycleEvent } from 'hrc-core'
 
 import {
   BULK_EVENT_COUNT,
@@ -62,7 +65,7 @@ import {
   type TimelineStack,
   appendHrcHistory,
   authorizedHeaders,
-  createLiveHrcIngest,
+  createLiveHrcDriver,
   createTimelineStack,
   historyUrl,
   insertHrcSession,
@@ -82,7 +85,7 @@ const HISTORY_PAGE_LIMIT = 100
 const MAX_HISTORY_PAGES = 600
 const COLLABORATION_BATCHES = 7
 const COLLABORATION_PER_BATCH = 90
-const LIVE_HRC_BURST = 120
+const LIVE_HRC_BURST = 36
 const LIVE_WRKQ_BURST = 560
 const SNAPSHOT_RACE_WRKQ = 12
 const MID_WALK_WRKQ = 24
@@ -412,6 +415,9 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
       }))
 
       mark('seed_hrc_history')
+      await current.start()
+      const driver = await createLiveHrcDriver(current, TIMELINE_HOST_SESSION_ID)
+      const decoyDriver = await createLiveHrcDriver(current, DECOY_HOST_SESSION_ID)
       const head = await current.hrc.client.tailEvents({
         limit: 1,
         hostSessionId: TIMELINE_HOST_SESSION_ID,
@@ -423,6 +429,13 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
       const expectedHrcAtomIds = seededTarget
         .filter((entry) => entry.spec.projects)
         .map((entry) => hrcAtomId(hrcIncarnation, entry.hrcSeq))
+      const projectableIds = (events: readonly HrcLifecycleEvent[]): string[] =>
+        events
+          .filter(
+            (event) => event.eventKind === 'turn.user_prompt' || event.eventKind === 'turn.message'
+          )
+          .map((event) => hrcAtomId(hrcIncarnation, event.hrcSeq))
+      expectedHrcAtomIds.push(...projectableIds(driver.warmup))
       const expectedWrkqAtomIds = ledger.envelopes.map((envelope) =>
         wrkqAtomId(ledger.ledgerIncarnation, envelope.messageId, envelope.messageSeq)
       )
@@ -454,7 +467,6 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
       await wrongToken.body?.cancel()
 
       // ── 5. Snapshot, with arrivals racing the snapshot read ────────────
-      const ingest = createLiveHrcIngest(current, 'acp-timeline-e2e-live')
       const socket = openTimelineSocket(current, TIMELINE_HOST_SESSION_ID)
 
       const raceBodies = Array.from(
@@ -503,47 +515,26 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
       })
       report.live.dedupSuppressedEnvelopeId = dedupEnvelope?.messageId ?? null
       await Bun.sleep(1_500)
-      await ingest.post([
-        {
-          ts: new Date().toISOString(),
-          hostSessionId: TIMELINE_HOST_SESSION_ID,
-          scopeRef: TIMELINE_SCOPE_REF,
-          laneRef: TIMELINE_LANE_REF,
-          generation: TIMELINE_GENERATION,
-          runId: 'run-live',
-          category: 'turn',
-          eventKind: 'turn.user_prompt',
-          payload: { text: dedupBody },
-        },
-      ])
-      report.seeded.liveHrcInjected += 1
+      const dedupEvents = await driver.submit(TIMELINE_SESSION_REF, dedupBody)
+      const liveHrcExpectedIds = projectableIds(dedupEvents)
+      report.seeded.liveHrcInjected += dedupEvents.length
 
-      // 6b. A live HRC burst larger than one snapshot page.
-      const liveHrcEvents = Array.from({ length: LIVE_HRC_BURST }, (_unused, index) => ({
-        ts: new Date(Date.now() + index).toISOString(),
-        hostSessionId: TIMELINE_HOST_SESSION_ID,
-        scopeRef: TIMELINE_SCOPE_REF,
-        laneRef: TIMELINE_LANE_REF,
-        generation: TIMELINE_GENERATION,
-        runId: 'run-live',
-        category: 'turn' as const,
-        eventKind: index % 4 === 3 ? 'turn.completed' : 'turn.message',
-        payload: index % 4 === 3 ? { ok: true } : { text: `live assistant message ${index}` },
-      }))
-      // Decoy live arrivals on the sibling generation and the foreign session.
-      const liveDecoyEvents = Array.from({ length: 40 }, (_unused, index) => ({
-        ts: new Date(Date.now() + index).toISOString(),
-        hostSessionId: index % 2 === 0 ? TIMELINE_HOST_SESSION_ID : DECOY_HOST_SESSION_ID,
-        scopeRef: index % 2 === 0 ? TIMELINE_SCOPE_REF : DECOY_SCOPE_REF,
-        laneRef: TIMELINE_LANE_REF,
-        generation: index % 2 === 0 ? SIBLING_GENERATION : TIMELINE_GENERATION,
-        runId: 'run-live-decoy',
-        category: 'turn' as const,
-        eventKind: 'turn.message',
-        payload: { text: `live assistant message ${index}` },
-      }))
-      await ingest.post([...liveHrcEvents, ...liveDecoyEvents])
-      report.seeded.liveHrcInjected += liveHrcEvents.length
+      // Real prompt admission and stub-broker completion on the same native
+      // seat. The producer's run IDs and hrcSeq distinguish the fixed-text
+      // assistant replies; neither text nor a test-generated ID is the oracle.
+      for (let index = 0; index < LIVE_HRC_BURST; index++) {
+        const events = await driver.submit(TIMELINE_SESSION_REF, `live prompt ${index}`)
+        liveHrcExpectedIds.push(...projectableIds(events))
+        report.seeded.liveHrcInjected += events.length
+      }
+      const liveDecoyIds = new Set<string>()
+      for (let index = 0; index < 6; index++) {
+        const events = await decoyDriver.submit(
+          `${DECOY_SCOPE_REF}/lane:main`,
+          `foreign prompt ${index}`
+        )
+        for (const id of projectableIds(events)) liveDecoyIds.add(id)
+      }
 
       // 6c. A live collaboration burst larger than one wrkq producer page.
       const liveWrkq = await seedCollaborationEnvelopes(current, {
@@ -557,11 +548,6 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
       })
       report.seeded.liveWrkqInjected = liveWrkq.length
 
-      const liveHrcExpected = new Set(
-        Array.from({ length: LIVE_HRC_BURST }, (_unused, index) => index)
-          .filter((index) => index % 4 !== 3)
-          .map((index) => `live assistant message ${index}`)
-      )
       const liveWrkqExpectedIds = new Set(liveWrkq.map((envelope) => envelope.messageId))
       const drained = await socket.waitFor(() => {
         const wrkqSeen = new Set(
@@ -569,13 +555,11 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
             .filter((atom) => atom.sourceKind === 'wrkq')
             .map((atom) => atom.atomId.split(':')[2] as string)
         )
-        let hrcSeen = 0
-        for (const atom of socket.atoms) {
-          if (atom.sourceKind !== 'hrc') continue
-          hrcSeen += 1
-        }
+        const hrcSeen = new Set(
+          socket.atoms.filter((atom) => atom.sourceKind === 'hrc').map((atom) => atom.atomId)
+        )
         return (
-          hrcSeen >= liveHrcExpected.size &&
+          liveHrcExpectedIds.every((id) => hrcSeen.has(id)) &&
           [...liveWrkqExpectedIds].every((id) => wrkqSeen.has(id))
         )
       }, 180_000)
@@ -589,6 +573,15 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
       mark('live_drain')
       const liveAtoms = [...socket.atoms]
       report.live.atomsDelivered = liveAtoms.length
+      const observedLiveHrc = liveAtoms
+        .filter((atom) => atom.sourceKind === 'hrc')
+        .map((atom) => atom.atomId)
+      report.gates['live_hrc_exactly_once_ordered'] = {
+        ok:
+          JSON.stringify(observedLiveHrc) === JSON.stringify(liveHrcExpectedIds) &&
+          !liveAtoms.some((atom) => liveDecoyIds.has(atom.atomId)),
+        detail: `${observedLiveHrc.length}/${liveHrcExpectedIds.length} canonical native HRC atoms, in producer order; foreign IDs excluded`,
+      }
       const liveCounts = new Map<string, number>()
       for (const atom of liveAtoms) {
         liveCounts.set(atom.atomId, (liveCounts.get(atom.atomId) ?? 0) + 1)
@@ -620,7 +613,7 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
           dedupCarrier !== undefined &&
           !liveAtoms.some(
             (atom) =>
-              atom.sourceKind === 'wrkq' && atom.atomId.includes(dedupEnvelope?.messageId ?? ' ')
+              atom.sourceKind === 'wrkq' && atom.atomId.includes(dedupEnvelope?.messageId ?? '\0')
           ),
         detail: `carrier=${dedupCarrier?.atomId ?? 'none'} suppressed=${dedupEnvelope?.messageId ?? 'none'}`,
       }
@@ -664,7 +657,7 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
       let pageIndex = 0
       let injectedMidWalk = false
       const midWalkWrkqIds: string[] = []
-      const midWalkHrcTexts: string[] = []
+      const midWalkHrcAtomIds: string[] = []
 
       while (cursor !== null && pageIndex < MAX_HISTORY_PAGES) {
         const response = await readHistory(current, {
@@ -723,22 +716,10 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
             ),
           })
           for (const envelope of midWrkq) midWalkWrkqIds.push(envelope.messageId)
-          const midHrc = Array.from({ length: MID_WALK_HRC }, (_unused, index) => {
-            const text = `mid-walk assistant message ${index}`
-            midWalkHrcTexts.push(text)
-            return {
-              ts: new Date(Date.now() + index).toISOString(),
-              hostSessionId: TIMELINE_HOST_SESSION_ID,
-              scopeRef: TIMELINE_SCOPE_REF,
-              laneRef: TIMELINE_LANE_REF,
-              generation: TIMELINE_GENERATION,
-              runId: 'run-mid-walk',
-              category: 'turn' as const,
-              eventKind: 'turn.message',
-              payload: { text },
-            }
-          })
-          await ingest.post(midHrc)
+          for (let index = 0; index < MID_WALK_HRC; index++) {
+            const events = await driver.submit(TIMELINE_SESSION_REF, `mid-walk prompt ${index}`)
+            midWalkHrcAtomIds.push(...projectableIds(events))
+          }
         }
 
         cursor = response.body.olderCursor
@@ -786,7 +767,7 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
           !expectedHrcAtomIds.includes(atom.atomId) &&
           !expectedWrkqAtomIds.includes(atom.atomId) &&
           !midWalkWrkqIds.some((id) => atom.atomId.includes(id)) &&
-          !midWalkHrcTexts.some((text) => JSON.stringify(atom.payload).includes(text)) &&
+          !midWalkHrcAtomIds.includes(atom.atomId) &&
           !racedIds.includes(atom.atomId)
       )
       report.gates['exact_identity_isolation'] = {
@@ -947,8 +928,43 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
         detail: `sibling generation returned ${siblingIds.size} atoms, none shared with generation ${TIMELINE_GENERATION}`,
       }
 
+      // A real rotation and successor runtime generate live events for another
+      // generation of this exact scope. None may enter the old generation's
+      // open stream or subsequent exact-generation history reads.
+      const oldGenerationSocket = openTimelineSocket(current, TIMELINE_HOST_SESSION_ID)
+      await oldGenerationSocket.waitForSnapshot(60_000)
+      const rotated = await current.hrc.client.clearContext({
+        hostSessionId: TIMELINE_HOST_SESSION_ID,
+        relaunch: false,
+      })
+      current.runtimeIds.delete(driver.runtimeId) // clearContext already terminated this runtime
+      const rotatedDriver = await createLiveHrcDriver(current, rotated.hostSessionId)
+      const rotatedIds = new Set(projectableIds(rotatedDriver.warmup))
+      for (let index = 0; index < 3; index++) {
+        for (const id of projectableIds(
+          await rotatedDriver.submit(TIMELINE_SESSION_REF, `rotated prompt ${index}`)
+        ))
+          rotatedIds.add(id)
+      }
+      await Bun.sleep(500)
+      const oldGenerationHistory = await readHistory(current, {
+        sessionRef: TIMELINE_SESSION_REF,
+        hostSessionId: TIMELINE_HOST_SESSION_ID,
+        generation: TIMELINE_GENERATION,
+        limit: HISTORY_PAGE_LIMIT,
+      })
+      report.gates['live_rotated_generation_isolation'] = {
+        ok:
+          oldGenerationHistory.status === 200 &&
+          ![...oldGenerationSocket.atoms, ...oldGenerationHistory.body.atoms].some((atom) =>
+            rotatedIds.has(atom.atomId)
+          ),
+        detail: `${rotatedIds.size} real successor-generation atoms excluded from the prior generation's stream and history`,
+      }
+      oldGenerationSocket.close()
+
       // ── 10. Producer ledger replacement (destructive; runs last) ───────
-      replaceHrcLedgerIncarnation(current)
+      await replaceHrcLedgerIncarnation(current)
       const afterHrcReplacement = await readHistory(current, {
         sessionRef: TIMELINE_SESSION_REF,
         hostSessionId: TIMELINE_HOST_SESSION_ID,
@@ -1052,6 +1068,7 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
     const report = evidenceOrThrow()
     expect(report.gates['exact_identity_isolation']?.ok).toBe(true)
     expect(report.gates['sibling_generation_disjoint']?.ok).toBe(true)
+    expect(report.gates['live_rotated_generation_isolation']?.ok).toBe(true)
   })
 
   test('non-contiguous contributions to one response stay independently ordered', () => {
@@ -1063,6 +1080,7 @@ describe('T-07724 production-wire mobile timeline ordering', () => {
   test('live bursts and snapshot-race arrivals drain completely and exactly once', () => {
     const report = evidenceOrThrow()
     expect(report.gates['live_burst_drained']?.ok).toBe(true)
+    expect(report.gates['live_hrc_exactly_once_ordered']?.ok).toBe(true)
     expect(report.live.duplicateAtomIds).toEqual([])
     expect(report.gates['snapshot_race_exactly_once']?.ok).toBe(true)
     expect(report.gates['live_collaboration_dedup']?.ok).toBe(true)

@@ -4,10 +4,10 @@ import { ownerBinary } from '../../../../scripts/lib/owner-binaries.js'
  *
  * Every seam here is the real one:
  *
- *  - HRC is a real `hrc-server` daemon on an isolated runtime/state root, and
- *    its lifecycle ledger is written through the real
- *    `HrcLifecycleEventRepository` (history) and the daemon's own ingest
- *    listener (`POST /v1/ingest`, live fan-out through `followSubscribers`).
+ *  - HRC is a spawned installed `rusthrc` daemon on an isolated runtime/state root, and
+ *    history is seeded through its release's store package while stopped.
+ *    Live events come from native admission and broker projection using HRC's
+ *    own FakeAspd/stub-broker substrate; no side writer runs with the daemon.
  *  - wrkq is a real store (`wrkqadm init`) driven by the real `wrkf` RPC
  *    process through `@wrkq/client`; envelopes are minted with `wrkq.room.say`.
  *  - ACP is the production `acp-server` CLI, spawned as its own process with
@@ -21,15 +21,21 @@ import { ownerBinary } from '../../../../scripts/lib/owner-binaries.js'
  */
 
 import { Database } from 'bun:sqlite'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
-import { networkInterfaces, tmpdir } from 'node:os'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { homedir, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 
 import { type WorkClient, createClient } from '@wrkq/client'
 import type { HrcLifecycleEvent, HrcSessionRecord } from 'hrc-core'
-import { type HrcLifecycleEventInput, openHrcDatabase } from 'hrc-store-sqlite'
+import type { HrcLifecycleEventInput } from 'hrc-store-sqlite'
 
-import { type ScratchHrcDaemon, createScratchHrcDaemon } from './scratch-hrc.js'
+import {
+  type ScratchHrcDaemon,
+  createScratchHrcDaemon,
+  loadInstalledHrcStore,
+  runAllTeardownSteps,
+} from './scratch-hrc.js'
 
 const REPO_ROOT = new URL('../../../../', import.meta.url).pathname.replace(/\/$/, '')
 const ACP_SERVER_ENTRY = join(REPO_ROOT, 'packages/acp-server/src/cli.ts')
@@ -41,6 +47,9 @@ const EMPTY_HOOK_CATALOG = join(
 export type TimelineStack = {
   root: string
   hrc: ScratchHrcDaemon
+  runtimeIds: Set<string>
+  projectRoot: string
+  hrcStore: Awaited<ReturnType<typeof loadInstalledHrcStore>>
   wrkqDbPath: string
   /**
    * Real `wrkf` RPC clients, pooled by caller principal.
@@ -68,6 +77,7 @@ export type TimelineStack = {
   /** True when `apiBase` is non-loopback, i.e. the bearer is load-bearing. */
   bearerEnforcedOnApiBase: boolean
   serverOutput(): string
+  start(): Promise<void>
   close(): Promise<void>
 }
 
@@ -115,196 +125,277 @@ async function pickFreePort(): Promise<number> {
 }
 
 export async function createTimelineStack(): Promise<TimelineStack> {
-  const root = mkdtempSync(join(tmpdir(), 'acp-timeline-e2e-'))
-  const acpDir = join(root, 'acp')
-  mkdirSync(acpDir, { recursive: true })
-
-  const wrkqDbPath = join(root, 'wrkq.db')
-  const initialized = Bun.spawnSync(['wrkqadm', '--db', wrkqDbPath, 'init'], { cwd: root })
-  if (initialized.exitCode !== 0) {
-    rmSync(root, { recursive: true, force: true })
-    throw new Error(`wrkqadm init failed: ${initialized.stderr.toString()}`)
-  }
-
-  const hrc = await createScratchHrcDaemon('acp-timeline-e2e-hrc-')
-  const teardown: Array<() => void | Promise<void>> = [() => hrc.close()]
-
+  const root = mkdtempSync(join('/tmp', 'acp-tl-'))
+  const teardown: Array<() => void | Promise<void>> = []
+  let closed = false
   const finish = async (error: unknown): Promise<never> => {
-    for (const step of teardown.reverse()) {
-      try {
-        await step()
-      } catch {
-        // Teardown of a failed startup is best-effort.
-      }
+    closed = true
+    try {
+      await runAllTeardownSteps([
+        ...[...teardown].reverse(),
+        () => rmSync(root, { recursive: true, force: true }),
+      ])
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'timeline startup and teardown failed')
     }
-    rmSync(root, { recursive: true, force: true })
     throw error
   }
-
-  const wrkqClients = new Map<string, Promise<WorkClient>>()
-  const wrkqAs = (principalRef: string): Promise<WorkClient> => {
-    const existing = wrkqClients.get(principalRef)
-    if (existing !== undefined) return existing
-    const created = createClient({
-      command: ownerBinary('wrkf'),
-      dbLocator: wrkqDbPath,
-      clientInfo: { name: 'acp-timeline-e2e', version: '0.1.0' },
-      hookCatalogPath: EMPTY_HOOK_CATALOG,
-      principalRef,
-      autoInitialize: true,
-    })
-    wrkqClients.set(principalRef, created)
-    return created
-  }
-  teardown.push(async () => {
-    const settled = await Promise.allSettled(wrkqClients.values())
-    for (const result of settled) {
-      if (result.status === 'fulfilled') await result.value.close?.()
-    }
-    wrkqClients.clear()
-  })
-
-  let wrkq: WorkClient
   try {
-    wrkq = await wrkqAs('agent:acp-timeline-e2e')
+    const acpDir = join(root, 'acp')
+    mkdirSync(acpDir, { recursive: true })
+
+    const wrkqDbPath = join(root, 'wrkq.db')
+    const initialized = Bun.spawnSync(['wrkqadm', '--db', wrkqDbPath, 'init'], { cwd: root })
+    if (initialized.exitCode !== 0) {
+      rmSync(root, { recursive: true, force: true })
+      throw new Error(`wrkqadm init failed: ${initialized.stderr.toString()}`)
+    }
+
+    const checkout = join(homedir(), 'praesidium/hrc-runtime')
+    for (const file of ['hrcpty_substrate.py', 'hrcpty_stub_broker.py']) {
+      const path = join(checkout, 'crates/hrc-native/e2e', file)
+      if (!existsSync(path)) {
+        rmSync(root, { recursive: true, force: true })
+        throw new Error(`timeline acceptance requires HRC checkout substrate: ${path}`)
+      }
+    }
+    const pty = join(realpathSync(ownerBinary('hrc')), '../hrc-pty')
+    if (!existsSync(pty)) {
+      rmSync(root, { recursive: true, force: true })
+      throw new Error(`installed rusthrc release ships no hrc-pty: ${pty}`)
+    }
+    const projectRoot = join(root, 'tlproj')
+    mkdirSync(projectRoot)
+    execFileSync('git', ['init', '-q'], { cwd: projectRoot })
+    const aspd = Bun.spawn(
+      [
+        'python3',
+        join(import.meta.dir, 'timeline-aspd.py'),
+        '--checkout',
+        checkout,
+        '--root',
+        root,
+      ],
+      {
+        cwd: checkout,
+        stdout: 'pipe',
+        stderr: 'pipe',
+      }
+    )
+    teardown.push(async () => {
+      aspd.kill()
+      await aspd.exited
+    })
+    const aspdErrors = new Response(aspd.stderr).text()
+    const aspdSocket = join(root, 'aspd.sock')
+    for (let i = 0; i < 100 && !existsSync(aspdSocket) && aspd.exitCode === null; i++)
+      await Bun.sleep(100)
+    if (!existsSync(aspdSocket)) {
+      aspd.kill()
+      await aspd.exited
+      const errors = await aspdErrors
+      rmSync(root, { recursive: true, force: true })
+      throw new Error(`HRC FakeAspd launcher did not start: ${errors}`)
+    }
+    const hrcStore = await loadInstalledHrcStore()
+    const hrc = await createScratchHrcDaemon('acp-timeline-e2e-hrc-', {
+      start: false,
+      env: {
+        HRC_ASPD_SOCKET: aspdSocket,
+        ASP_PROJECT_ROOT_OVERRIDE: projectRoot,
+        HRC_PROJECT_SEARCH_ROOTS: projectRoot,
+        HRC_BROKER_DURABLE_IPC_ENABLED: '1',
+        ASP_HOME: join(root, 'asp-home'),
+      },
+    })
+    const runtimeIds = new Set<string>()
+    teardown.push(
+      () => hrc.close(),
+      async () => {
+        if (!hrc.running) return
+        await runAllTeardownSteps(
+          [...runtimeIds].map(
+            (runtimeId) => () => hrc.client.terminate(runtimeId).then(() => undefined)
+          )
+        )
+      }
+    )
+
+    const wrkqClients = new Map<string, Promise<WorkClient>>()
+    const wrkqAs = (principalRef: string): Promise<WorkClient> => {
+      const existing = wrkqClients.get(principalRef)
+      if (existing !== undefined) return existing
+      const created = createClient({
+        command: ownerBinary('wrkf'),
+        dbLocator: wrkqDbPath,
+        clientInfo: { name: 'acp-timeline-e2e', version: '0.1.0' },
+        hookCatalogPath: EMPTY_HOOK_CATALOG,
+        principalRef,
+        autoInitialize: true,
+      })
+      wrkqClients.set(principalRef, created)
+      return created
+    }
+    teardown.push(async () => {
+      const settled = await Promise.allSettled(wrkqClients.values())
+      for (const result of settled) {
+        if (result.status === 'fulfilled') await result.value.close?.()
+      }
+      wrkqClients.clear()
+    })
+
+    let wrkq: WorkClient
+    try {
+      wrkq = await wrkqAs('agent:acp-timeline-e2e')
+    } catch (error) {
+      return finish(error)
+    }
+
+    const port = await pickFreePort()
+    const remoteHost = firstNonLoopbackIpv4()
+    const hosts = remoteHost === undefined ? '127.0.0.1' : `127.0.0.1,${remoteHost}`
+
+    const loopbackBase = `http://127.0.0.1:${port}`
+    const remoteBase = remoteHost === undefined ? undefined : `http://${remoteHost}:${port}`
+    const output: string[] = []
+    let bearerToken = ''
+    let started = false
+    const start = async (): Promise<void> => {
+      if (closed) throw new Error('timeline stack is closed')
+      if (started) throw new Error('timeline stack is already started')
+      await hrc.start()
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          ACP_SERVER_ENTRY,
+          '--wrkq-db',
+          wrkqDbPath,
+          '--coord-db-path',
+          join(acpDir, 'coordination.db'),
+          '--interface-db-path',
+          join(acpDir, 'interface.db'),
+          '--state-db-path',
+          join(acpDir, 'state.db'),
+          '--admin-db-path',
+          join(acpDir, 'admin.db'),
+          '--jobs-db-path',
+          join(acpDir, 'jobs.db'),
+          '--conversation-db-path',
+          join(acpDir, 'conversation.db'),
+          '--agent-assets-dir',
+          join(acpDir, 'agent-assets'),
+          '--host',
+          hosts,
+          '--port',
+          String(port),
+          '--actor',
+          'acp-timeline-e2e',
+        ],
+        {
+          cwd: REPO_ROOT,
+          env: {
+            ...process.env,
+            HRC_RUNTIME_DIR: hrc.runtimeRoot,
+            HRC_STATE_DIR: hrc.stateRoot,
+            ACP_REAL_HRC_LAUNCHER: '1',
+            ACP_MOBILE_AUTH_PATH: join(acpDir, 'mobile-auth.json'),
+            ACP_RUNTIME_DIR: join(acpDir, 'run'),
+            ACP_CAP_SOCKET_PATH: join(acpDir, 'cap.sock'),
+            ACP_CAP_CATALOG_STATE_DIR: join(acpDir, 'cap-catalog'),
+            ACP_MEDIA_STATE_DIR: acpDir,
+            WRKF_HOOK_CATALOG: EMPTY_HOOK_CATALOG,
+            NODE_ENV: 'test',
+          },
+          stdout: 'pipe',
+          stderr: 'pipe',
+        }
+      )
+      const decoder = new TextDecoder()
+      const drain = async (stream: ReadableStream<Uint8Array>): Promise<void> => {
+        for await (const chunk of stream) output.push(decoder.decode(chunk))
+      }
+      void drain(child.stdout).catch(() => undefined)
+      void drain(child.stderr).catch(() => undefined)
+      teardown.push(async () => {
+        child.kill()
+        await child.exited
+      })
+
+      try {
+        await waitForHealth(loopbackBase, 45_000)
+        if (remoteBase !== undefined) await waitForHealth(remoteBase, 15_000)
+      } catch (error) {
+        return finish(new Error(`${String(error)}\n--- acp-server output ---\n${output.join('')}`))
+      }
+
+      // Production bearer issuance: mint on the loopback admin route, redeem on the
+      // route that actually issues tokens, then arm enforcement.
+      try {
+        const minted = (await (
+          await fetch(`${loopbackBase}/v1/mobile/auth/pairing-code`, { method: 'POST' })
+        ).json()) as { ok?: boolean; code?: string }
+        if (minted.ok !== true || typeof minted.code !== 'string') {
+          throw new Error(`pairing-code mint failed: ${JSON.stringify(minted)}`)
+        }
+        const paired = (await (
+          await fetch(`${remoteBase ?? loopbackBase}/v1/mobile/pair`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ pairingCode: minted.code, deviceName: 'acp-timeline-e2e' }),
+          })
+        ).json()) as { token?: string }
+        if (typeof paired.token !== 'string' || paired.token.length === 0) {
+          throw new Error(`pairing redemption returned no token: ${JSON.stringify(paired)}`)
+        }
+        bearerToken = paired.token
+        const armed = (await (
+          await fetch(`${loopbackBase}/v1/mobile/auth/enforce`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ enforce: true }),
+          })
+        ).json()) as { ok?: boolean; enforce?: boolean }
+        if (armed.ok !== true || armed.enforce !== true) {
+          throw new Error(`arming mobile bearer enforcement failed: ${JSON.stringify(armed)}`)
+        }
+      } catch (error) {
+        return finish(new Error(`${String(error)}\n--- acp-server output ---\n${output.join('')}`))
+      }
+
+      started = true
+    }
+
+    const apiBase = remoteBase ?? loopbackBase
+    return {
+      root,
+      hrc,
+      hrcStore,
+      runtimeIds,
+      projectRoot,
+      wrkqDbPath,
+      wrkqAs,
+      wrkq,
+      port,
+      loopbackBase,
+      remoteBase,
+      apiBase,
+      get bearerToken() {
+        return bearerToken
+      },
+      start,
+      bearerEnforcedOnApiBase: remoteBase !== undefined,
+      serverOutput: () => output.join(''),
+      async close(): Promise<void> {
+        if (closed) return
+        closed = true
+        await runAllTeardownSteps([
+          ...[...teardown].reverse(),
+          () => rmSync(root, { recursive: true, force: true }),
+        ])
+      },
+    }
   } catch (error) {
     return finish(error)
-  }
-
-  const port = await pickFreePort()
-  const remoteHost = firstNonLoopbackIpv4()
-  const hosts = remoteHost === undefined ? '127.0.0.1' : `127.0.0.1,${remoteHost}`
-
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      ACP_SERVER_ENTRY,
-      '--wrkq-db',
-      wrkqDbPath,
-      '--coord-db-path',
-      join(acpDir, 'coordination.db'),
-      '--interface-db-path',
-      join(acpDir, 'interface.db'),
-      '--state-db-path',
-      join(acpDir, 'state.db'),
-      '--admin-db-path',
-      join(acpDir, 'admin.db'),
-      '--jobs-db-path',
-      join(acpDir, 'jobs.db'),
-      '--conversation-db-path',
-      join(acpDir, 'conversation.db'),
-      '--agent-assets-dir',
-      join(acpDir, 'agent-assets'),
-      '--host',
-      hosts,
-      '--port',
-      String(port),
-      '--actor',
-      'acp-timeline-e2e',
-    ],
-    {
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        HRC_RUNTIME_DIR: hrc.runtimeRoot,
-        HRC_STATE_DIR: hrc.stateRoot,
-        ACP_REAL_HRC_LAUNCHER: '1',
-        ACP_MOBILE_AUTH_PATH: join(acpDir, 'mobile-auth.json'),
-        ACP_RUNTIME_DIR: join(acpDir, 'run'),
-        ACP_CAP_SOCKET_PATH: join(acpDir, 'cap.sock'),
-        ACP_CAP_CATALOG_STATE_DIR: join(acpDir, 'cap-catalog'),
-        ACP_MEDIA_STATE_DIR: acpDir,
-        WRKF_HOOK_CATALOG: EMPTY_HOOK_CATALOG,
-        NODE_ENV: 'test',
-      },
-      stdout: 'pipe',
-      stderr: 'pipe',
-    }
-  )
-  const output: string[] = []
-  const decoder = new TextDecoder()
-  const drain = async (stream: ReadableStream<Uint8Array>): Promise<void> => {
-    for await (const chunk of stream) output.push(decoder.decode(chunk))
-  }
-  void drain(child.stdout).catch(() => undefined)
-  void drain(child.stderr).catch(() => undefined)
-  teardown.push(async () => {
-    child.kill()
-    await child.exited
-  })
-
-  const loopbackBase = `http://127.0.0.1:${port}`
-  const remoteBase = remoteHost === undefined ? undefined : `http://${remoteHost}:${port}`
-
-  try {
-    await waitForHealth(loopbackBase, 45_000)
-    if (remoteBase !== undefined) await waitForHealth(remoteBase, 15_000)
-  } catch (error) {
-    return finish(new Error(`${String(error)}\n--- acp-server output ---\n${output.join('')}`))
-  }
-
-  // Production bearer issuance: mint on the loopback admin route, redeem on the
-  // route that actually issues tokens, then arm enforcement.
-  let bearerToken: string
-  try {
-    const minted = (await (
-      await fetch(`${loopbackBase}/v1/mobile/auth/pairing-code`, { method: 'POST' })
-    ).json()) as { ok?: boolean; code?: string }
-    if (minted.ok !== true || typeof minted.code !== 'string') {
-      throw new Error(`pairing-code mint failed: ${JSON.stringify(minted)}`)
-    }
-    const paired = (await (
-      await fetch(`${remoteBase ?? loopbackBase}/v1/mobile/pair`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ pairingCode: minted.code, deviceName: 'acp-timeline-e2e' }),
-      })
-    ).json()) as { token?: string }
-    if (typeof paired.token !== 'string' || paired.token.length === 0) {
-      throw new Error(`pairing redemption returned no token: ${JSON.stringify(paired)}`)
-    }
-    bearerToken = paired.token
-    const armed = (await (
-      await fetch(`${loopbackBase}/v1/mobile/auth/enforce`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ enforce: true }),
-      })
-    ).json()) as { ok?: boolean; enforce?: boolean }
-    if (armed.ok !== true || armed.enforce !== true) {
-      throw new Error(`arming mobile bearer enforcement failed: ${JSON.stringify(armed)}`)
-    }
-  } catch (error) {
-    return finish(new Error(`${String(error)}\n--- acp-server output ---\n${output.join('')}`))
-  }
-
-  const apiBase = remoteBase ?? loopbackBase
-  let closed = false
-  return {
-    root,
-    hrc,
-    wrkqDbPath,
-    wrkqAs,
-    wrkq,
-    port,
-    loopbackBase,
-    remoteBase,
-    apiBase,
-    bearerToken,
-    bearerEnforcedOnApiBase: remoteBase !== undefined,
-    serverOutput: () => output.join(''),
-    async close(): Promise<void> {
-      if (closed) return
-      closed = true
-      for (const step of teardown.reverse()) {
-        try {
-          await step()
-        } catch {
-          // Best-effort teardown; the scratch root is removed regardless.
-        }
-      }
-      rmSync(root, { recursive: true, force: true })
-    },
   }
 }
 
@@ -378,7 +469,8 @@ export async function readHistory(
 // ── HRC seeding ─────────────────────────────────────────────────────────────
 
 export function insertHrcSession(stack: TimelineStack, record: HrcSessionRecord): void {
-  const db = openHrcDatabase(join(stack.hrc.stateRoot, 'state.sqlite'))
+  if (stack.hrc.running) throw new Error('HRC seeding requires a stopped daemon')
+  const db = stack.hrcStore.openHrcDatabase(join(stack.hrc.stateRoot, 'state.sqlite'))
   try {
     db.sessions.insert(record)
     db.continuities.upsert({
@@ -397,8 +489,9 @@ export function insertHrcSession(stack: TimelineStack, record: HrcSessionRecord)
  * presents to consumers. Both producers publish their incarnation from a
  * singleton metadata row; rewriting it is the observable replacement event.
  */
-export function replaceHrcLedgerIncarnation(stack: TimelineStack): string {
-  const db = openHrcDatabase(join(stack.hrc.stateRoot, 'state.sqlite'))
+export async function replaceHrcLedgerIncarnation(stack: TimelineStack): Promise<string> {
+  await stack.hrc.stop()
+  const db = stack.hrcStore.openHrcDatabase(join(stack.hrc.stateRoot, 'state.sqlite'))
   try {
     const replacement = `replaced${Date.now().toString(16)}`
     db.sqlite
@@ -407,6 +500,7 @@ export function replaceHrcLedgerIncarnation(stack: TimelineStack): string {
     return db.hrcEvents.ledgerIncarnationId()
   } finally {
     db.close()
+    await stack.hrc.start()
   }
 }
 
@@ -425,15 +519,15 @@ export function replaceCollaborationLedgerIncarnation(stack: TimelineStack): str
 
 /**
  * Append history through the real lifecycle-event repository — the same append
- * the daemon itself calls. Written on a second connection to the daemon's own
- * SQLite file, so the daemon reads these rows back through its ordinary
- * `tailEvents` / replay queries.
+ * the daemon itself calls, before the daemon starts. Native has exclusive write
+ * ownership once it is running; history is read through its normal API afterwards.
  */
 export function appendHrcHistory(
   stack: TimelineStack,
   events: readonly HrcLifecycleEventInput[]
 ): HrcLifecycleEvent[] {
-  const db = openHrcDatabase(join(stack.hrc.stateRoot, 'state.sqlite'))
+  if (stack.hrc.running) throw new Error('HRC seeding requires a stopped daemon')
+  const db = stack.hrcStore.openHrcDatabase(join(stack.hrc.stateRoot, 'state.sqlite'))
   try {
     const appended: HrcLifecycleEvent[] = []
     for (const event of events) appended.push(db.hrcEvents.append(event))
@@ -443,49 +537,62 @@ export function appendHrcHistory(
   }
 }
 
-export type LiveHrcIngest = {
-  post(events: readonly HrcLifecycleEventInput[]): Promise<number>
+export type LiveHrcDriver = {
+  runtimeId: string
+  warmup: HrcLifecycleEvent[]
+  submit(sessionRef: string, body: string): Promise<HrcLifecycleEvent[]>
 }
 
-/**
- * Live lifecycle arrivals through the daemon's real ingest listener. This is the
- * only path that reaches `followSubscribers`, so it is the only way to make the
- * production bounded-event stream deliver an arrival to an already-open mobile
- * timeline WebSocket.
- */
-export function createLiveHrcIngest(stack: TimelineStack, sourceRef: string): LiveHrcIngest {
-  const socketPath = join(stack.hrc.runtimeRoot, 'ingest', 'events.sock')
-  let originSeq = 0
-  return {
-    async post(events): Promise<number> {
-      let posted = 0
-      for (let index = 0; index < events.length; index += 50) {
-        const batch = events.slice(index, index + 50).map((event) => {
-          originSeq += 1
-          return {
-            originSeq,
-            event: {
-              ...event,
-              hrcSeq: 0,
-              streamSeq: 0,
-              replayed: event.replayed ?? false,
-              payload: event.payload ?? {},
-            },
-          }
-        })
-        const response = await fetch('http://ingest.invalid/v1/ingest', {
-          method: 'POST',
-          unix: socketPath,
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ version: 1, sourceRef, feed: 'hrc_events', events: batch }),
-        })
-        const body = (await response.json()) as { ok?: boolean; message?: string }
-        if (!response.ok || body.ok !== true) {
-          throw new Error(`hrc ingest rejected batch: ${response.status} ${JSON.stringify(body)}`)
-        }
-        posted += batch.length
+/** Real native admission and broker projection, using HRC's stub substrate. */
+export async function createLiveHrcDriver(
+  stack: TimelineStack,
+  hostSessionId: string
+): Promise<LiveHrcDriver> {
+  const waitForRun = async (runId: string): Promise<HrcLifecycleEvent[]> => {
+    for (let i = 0; i < 300; i++) {
+      const run = await stack.hrc.client.getRun(runId)
+      if (run?.status === 'completed') {
+        const page = await stack.hrc.client.tailEvents({ runId, limit: 100 })
+        if (page.events.some((event) => event.eventKind === 'turn.message')) return page.events
       }
-      return posted
+      if (run && ['failed', 'cancelled'].includes(run.status))
+        throw new Error(`stub run ${runId}: ${run.status}`)
+      await Bun.sleep(100)
+    }
+    throw new Error(`stub run ${runId} did not complete`)
+  }
+  const started = await stack.hrc.client.dispatchTurn({
+    hostSessionId,
+    prompt: 'timeline bootstrap',
+    waitForCompletion: false,
+    runtimeIntent: {
+      placement: {
+        agentRoot: stack.projectRoot,
+        projectRoot: stack.projectRoot,
+        cwd: stack.projectRoot,
+        runMode: 'task',
+        bundle: { kind: 'compose', compose: [] },
+        dryRun: false,
+      },
+      harness: { provider: 'openai', interactive: true },
+    },
+  })
+  if (!started.runtimeId || !started.runId)
+    throw new Error(`stub bootstrap returned no runtime/run: ${JSON.stringify(started)}`)
+  stack.runtimeIds.add(started.runtimeId)
+  const warmup = await waitForRun(started.runId)
+  return {
+    runtimeId: started.runtimeId,
+    warmup,
+    async submit(sessionRef, body) {
+      const admitted = await stack.hrc.client.steer({
+        target: sessionRef,
+        body,
+        origin: { principalRef: 'agent:acp-timeline-e2e' },
+      })
+      if (!('runId' in admitted) || !admitted.runId)
+        throw new Error(`stub submission returned no runId: ${JSON.stringify(admitted)}`)
+      return waitForRun(admitted.runId)
     },
   }
 }

@@ -21,10 +21,10 @@ import type { HrcLifecycleEventInput } from 'hrc-store-sqlite'
 
 export const TIMELINE_AGENT_ID = 'tlagent'
 export const TIMELINE_PROJECT_ID = 'tlproj'
-export const TIMELINE_SCOPE_REF = `agent:${TIMELINE_AGENT_ID}:project:${TIMELINE_PROJECT_ID}`
+export const TIMELINE_SCOPE_REF = `agent:${TIMELINE_AGENT_ID}:project:${TIMELINE_PROJECT_ID}:task:codex-timeline`
 export const TIMELINE_LANE_REF = 'main'
 export const TIMELINE_SESSION_REF = `${TIMELINE_SCOPE_REF}/lane:${TIMELINE_LANE_REF}`
-export const TIMELINE_MEMBER_HANDLE = `${TIMELINE_AGENT_ID}@${TIMELINE_PROJECT_ID}`
+export const TIMELINE_MEMBER_HANDLE = `${TIMELINE_AGENT_ID}@${TIMELINE_PROJECT_ID}:codex-timeline`
 export const TIMELINE_SENDER_HANDLE = `tlsender@${TIMELINE_PROJECT_ID}`
 export const TIMELINE_HOST_SESSION_ID = 'hs-timeline-e2e'
 export const TIMELINE_GENERATION = 7
@@ -32,9 +32,9 @@ export const SIBLING_GENERATION = 6
 
 /** A deliberately similar-looking second session; it must never leak or page. */
 export const DECOY_AGENT_ID = 'tldecoy'
-export const DECOY_SCOPE_REF = `agent:${DECOY_AGENT_ID}:project:${TIMELINE_PROJECT_ID}`
+export const DECOY_SCOPE_REF = `agent:${DECOY_AGENT_ID}:project:${TIMELINE_PROJECT_ID}:task:codex-decoy`
 export const DECOY_SESSION_REF = `${DECOY_SCOPE_REF}/lane:${TIMELINE_LANE_REF}`
-export const DECOY_MEMBER_HANDLE = `${DECOY_AGENT_ID}@${TIMELINE_PROJECT_ID}`
+export const DECOY_MEMBER_HANDLE = `${DECOY_AGENT_ID}@${TIMELINE_PROJECT_ID}:codex-decoy`
 export const DECOY_HOST_SESSION_ID = 'hs-timeline-e2e-decoy'
 
 export const FRAME_RUN_ID = 'run-noncontiguous'

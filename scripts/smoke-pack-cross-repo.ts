@@ -29,7 +29,6 @@ const PACKAGES = [
   'packages/hrc-core',
   'packages/hrc-sdk',
   'packages/hrc-frame-render',
-  'packages/hrc-server',
   'packages/hrc-events',
   'packages/hrc-store-sqlite',
 ] as const

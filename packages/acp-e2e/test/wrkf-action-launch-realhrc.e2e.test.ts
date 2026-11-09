@@ -42,7 +42,7 @@ import { ownerBinary } from '../../../scripts/lib/owner-binaries.js'
  *
  * Owner binary paths are fixed by the justfile. WRKQADM_BIN remains
  * overridable and defaults to `wrkqadm` on PATH.
- * HRC: real daemon booted through public `hrc-server` under a scratch support root.
+ * HRC: installed `rusthrc server serve` spawned under a scratch support root.
  */
 
 import { Database } from 'bun:sqlite'

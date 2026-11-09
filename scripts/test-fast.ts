@@ -16,8 +16,6 @@ const fastSuiteArgs = [
   'packages/runtime',
   'packages/cli/src/index.test.ts',
   'packages/cli/src/commands/agent/__tests__/build-bundle-ref-agent-project.test.ts',
-  'packages/hrc-server/src/__tests__/cli-adapter.execution-mode.test.ts',
-  'packages/hrc-server/src/__tests__/server-parsers.runtime-intent.test.ts',
 ]
 
 const cleanEnv = { ...process.env }

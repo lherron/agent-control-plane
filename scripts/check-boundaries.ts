@@ -55,7 +55,6 @@ const hrcPackages = [
   'hrc-core',
   'hrc-events',
   'hrc-store-sqlite',
-  'hrc-server',
   'hrc-sdk',
   'hrc-cli',
   'hrcchat-cli',
