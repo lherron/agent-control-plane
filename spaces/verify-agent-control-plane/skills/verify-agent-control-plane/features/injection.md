@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-Socket injection boundary, standalone mail delivery, retries, ACK/cursor behavior, delegated reserve/start/stall reconciliation.
+Socket injection boundary, standalone mail delivery, retries and deferral backoff, ACK/cursor behavior, refusal handling, the wake model (wrkq commit waits, HRC lifecycle rings and deadline clocks in place of idle polling, T-12512/T-12549), delegated reserve/start/stall reconciliation.
 
 Source anchors (repo-relative): packages/hrc-injector-core/src; packages/hrc-mail-injector/src; packages/acp-reconciler/src. Exact tracked surface inventory follows; a mapping is not a behavioral assertion.
 
@@ -16,7 +16,7 @@ Use package source/README and `bun scripts/discover-acp.ts packages injector`. I
 
 ## Driving it
 
-Inspect isolated package integration suites through `just verify`. Delivery, ACK/cursor, birth and reconciler drives are **undriven by design** under the owner constraint (T-11680): no fake-recipient harness, PATH shim, placement-bind engineering or live recipient substitute may be built or used to drive them. T-11920 drove the standalone injector, booting it against a scratch HRC and a scratch ledger. It showed admission, import, tail, boot reconcile and `inspect`. A scratch envelope to a homeless recipient stayed `pending`, because the kicker wakes only seated, placement-bound or unborn-designated targets on its node. That partial drive does not make this map driven.
+Inspect isolated package integration suites through `just verify`. Delivery, ACK/cursor, retry/backoff, birth/refusal, stall, wake and acp-reconciler drives are **undriven by design** under the owner constraint (T-11680): no fake-recipient harness, PATH shim, placement-bind engineering or live recipient substitute may be built or used to drive them. T-11920 drove the standalone injector, booting it against a scratch HRC and a scratch ledger. It showed admission, import, tail, boot reconcile and `inspect`. A scratch envelope to a homeless recipient stayed `pending`, because the kicker wakes only seated, placement-bound or unborn-designated targets on its node. That partial drive does not make this map driven.
 
 ## Gotchas
 

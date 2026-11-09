@@ -114,7 +114,7 @@ Use `acp --help` and `acp project --help` for installed syntax. The scratch help
 
 Run `bun scripts/verify-acp-scratch.ts` inside the owned environment (see SKILL.md). Inspect `wire-shapes`, `project-create`, `project-show`, `project-conflict`, and missing-project HTTP records. The helper exercises source CLI over real HTTP; separately run installed `acp --help` to establish installed surface availability.
 
-Request-marker maintenance has separate [operator and recovery instructions](../../../../../packages/acp-reconciler/README.md#request-marker-migration-maintenance). Source tests cover fixed routes and actual lifecycle cache binding; isolated owner scratch covers historical cursors, partial failures and keyed replay. Do not call the production host plan/apply as a generic scratch drive: operator admission, consumed-host provenance and exact-manifest release remain separate gates.
+The one-shot request-marker backfill and its hosted plan/apply routes were retired in 9889b66 ([completed migration](../../../../../packages/acp-reconciler/README.md#completed-request-marker-migration)); there is nothing left to drive. Historical evidence stays on T-12366.
 
 ## Gotchas
 

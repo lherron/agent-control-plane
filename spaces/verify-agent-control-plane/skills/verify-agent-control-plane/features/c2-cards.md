@@ -2,15 +2,16 @@
 
 ## Sub-features
 
-ACP hosts the always-on C2 controller (`@praesidium/c2-core` 0.2.0, pinned exactly) and the phone's transport for seat questions (c2 `docs/card-contract.md` rev 4.1; wire law §12 "Mobile wire", version 2). A seat's open questions are rows in its own HRC record `{subject: seat, ns: hrc, kind: asks, id: open}` (hrc-runtime seat-asks r1.3). The controller reads those rows and does the following:
+ACP hosts the always-on C2 controller (`@praesidium/c2-core` 0.3.5, pinned exactly) and the phone's transport for seat questions (c2 `docs/card-contract.md` rev 5, the timeline feed; wire law §12 "Mobile wire", still version 2). A seat's open questions are rows in its own HRC record `{subject: seat, ns: hrc, kind: asks, id: open}` (hrc-runtime seat-asks r1.3). The controller reads those rows and does the following:
 - runs the turn-end backstop (one `[c2]` line to a seat that ended a lit turn with no open row, on a `c2.ping`);
 - wakes Vesta to review rows;
-- sends the rotated line;
-- delivers answers under per-row claims with receipts;
+- sends the rotated line, which a fresh handoff for that same seat (in wrkq or HRC) suppresses (T-12715);
+- writes the seat-scoped `c2.item` feed copies, as their only writer (rev 5, T-12642);
+- delivers answers under per-row claims with receipts. An `answer` or `compose` to a seat that has a row but no live runtime first starts it with HRC's keyed summon (key = `requestId`), then sends (§6b, T-12645);
 - recovers and prunes.
 
 The transport is:
-- the v2 snapshot and long poll;
+- the v2 snapshot and long poll; the snapshot carries `feed` beside the unchanged `entries`;
 - actions with receipts and replay;
 - read-only reconciliation;
 - row explanations (`c2.detail` HTML);
@@ -62,8 +63,9 @@ Read-only live checks:
 
 Actions run only against C2-owner-provided disposable fixture seats (the 18471 fixture instance, or a fixture seat the C2 owner has cleared in production scope), never against a real seat's rows.
 
-Scratch-only driving is narrow. acp-server hosts the controller only when `ACP_REAL_HRC_LAUNCHER=1` wires an HRC client, and dev-env does not set that flag. A dev-env acp-server therefore has no C2 service. Even with `ACP_C2_VESTA_SEAT` set to a fixture Vesta, it answers as follows (T-12334):
+Scratch-only driving is narrow. acp-server hosts the controller only when `ACP_REAL_HRC_LAUNCHER=1` wires an HRC client, and dev-env does not set that flag. A dev-env acp-server therefore has no C2 service. Even with `ACP_C2_VESTA_SEAT` set to a fixture Vesta, it answers as follows (T-12334; T-12767 for the last three v2 routes):
 - `GET /v1/mobile/c2/v2/snapshot`: 503 `home_unavailable` within 0 ms;
+- `POST /v1/mobile/c2/v2/actions`, `GET /v1/mobile/c2/v2/actions/:requestId` and `GET /v1/mobile/c2/v2/artifacts/:id`: 503 `home_unavailable`, with nothing executed;
 - `GET /v1/mobile/c2/cards` and `POST /v1/mobile/c2/actions`: 410 `wire_version_unsupported` with `wire: 2`;
 - `acp c2 scope show --vesta-seat <fixture>` against the scratch HRC: `unknown_host_session` (exit 1), because a fixture seat with no home has no host session.
 
@@ -72,8 +74,8 @@ A positive scratch snapshot or action needs the real launcher and a homed fixtur
 ## Gotchas
 
 **Real seats**
-- Never answer real rows. A POST to production 18470 delivers literal input to a real seat, stamps `sent` on its HRC record and records ledger acts.
-- With rev 4 live, the controller also sends lines to seats on its own:
+- Never answer real rows. A POST to production 18470 delivers literal input to a real seat, stamps `sent` on its HRC record and records ledger acts. If that seat has no live runtime, the answer first starts it (§6b), which is a real provider birth.
+- Since rev 4, the controller also sends lines to seats on its own:
   - the backstop line to a seat in scope that ends a lit turn without an open row;
   - the review wake and the rotated line to Vesta.
 
@@ -99,3 +101,5 @@ Installed proof is owner-driven and recorded on c2 T-12239. It covers card contr
 - one `session.annotation.action` per answered row with `requestId`.
 
 It also needs the backstop's single ping and its re-arm, and a rotation that changes no asks record. The phone's half is the §12.7 gates (hrc-ios T-12259). A snapshot alone proves nothing about actions.
+
+The rev 5 additions (feed items, start-on-answer, handoff-suppressed rotation) are source-tested in `packages/acp-server/test/c2`; their installed acceptance belongs to the C2 owner (T-12642, T-12645, T-12715). This map claims no installed proof for them.
