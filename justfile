@@ -321,3 +321,7 @@ cp-test prompt="List skills available. Use only what is in your context, no tool
         --target-dir /Users/lherron/praesidium/rex-home \
         --model claude/sonnet \
         "{{prompt}}"
+
+# Read-only mail delivery shadow policy and scoring tests (opt-in, outside verify).
+test-mail-delivery:
+    cd programs/mail-delivery && python3 -m unittest
