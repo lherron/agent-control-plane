@@ -249,6 +249,8 @@ def _decide(e, s, r, now):
 
 
 def _after_delivery(p, now):
+    if p.status == 'none':
+        return Decision('hold', 'no_due_reminder')
     if not fact(p.runtime_matches, 'presentation.runtime_matches'):
         return Decision('hold', 'presentation_superseded')
     if fact(p.operator_held, 'presentation.operator_held'):

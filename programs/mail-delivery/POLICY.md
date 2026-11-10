@@ -1,4 +1,31 @@
-# Policy readback and missing-field draft
+# Policy readback and adapter facts
+
+T-13270 update, 2026-11-10: Lance ruled this is a **port**, retaining the
+injector database and existing HRC/wrkq reads. The historical inventory below
+is a list of input fields, not requests for new owner APIs. `port_inputs.py`
+now supplies store-backed facts and native HRC probes; `memos.py` supplies
+process-local outcomes from the injector log and observes broker movement.
+No section 5 redesign is enabled. An input gap is a shadow defect, not an ask
+against HRC or wrkq.
+
+The first installed run found legacy EN-00738: wrkq has a presentation receipt
+without runtimeId and max3 has no local presentation row. The injector's
+`readActionableEnvelopes` excludes it because there is no due local reminder.
+The port now uses confirmed `Presentation(status='none')` and returns
+`hold/no_due_reminder`, rather than calling that a missing owner field.
+
+The HRC terminal classification includes stopped, failed, disposed and exited,
+as well as terminated, crashed, dead and stale. The adapter uses the complete
+`hrc-core/monitor/status-levels.ts` set and excludes detached for seat selection.
+Durable launch exhaustion precedes process-local pacing, as in target-driver.
+
+Live comparison additionally joins injector JSON-log decisions. A missing
+same-state decision stays pending_evidence. Daily gate counts use envelopes
+created that UTC day, with older backlog alongside. No full-body admission is
+compared to a presented/intent-held observation. Log-fed memo dependencies and
+broker movement are tagged. See README for exact reads and time windows.
+
+The remaining text is the T-13192 source readback and input inventory:
 
 T-13192, read against the canonical injector source on 2026-11-10. This is the
 first owner-field inventory, not a claim that a kernel read was performed. The

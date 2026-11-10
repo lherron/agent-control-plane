@@ -39,6 +39,7 @@ Source anchors (repo-relative): justfile; .githooks; .github/workflows; launchd.
 - Surface: `recipe:install`
 - Surface: `recipe:install-hrc-viewer-launchd`
 - Surface: `recipe:install-log-rotation`
+- Surface: `recipe:install-mail-delivery-shadow`
 - Surface: `recipe:launchd-install`
 - Surface: `recipe:launchd-uninstall`
 - Surface: `recipe:lint`
@@ -54,6 +55,7 @@ Source anchors (repo-relative): justfile; .githooks; .github/workflows; launchd.
 - Surface: `recipe:test-integration`
 - Surface: `recipe:test-mail-delivery`
 - Surface: `recipe:typecheck`
+- Surface: `recipe:uninstall-mail-delivery-shadow`
 - Surface: `recipe:verify`
 - Surface: `recipe:verify-feature-map`
 - Surface: `recipe:wrkq-refactor`
@@ -66,7 +68,7 @@ Use `just --list`, `git config --get core.hooksPath`, and source plist/workflow 
 
 Run `just verify-feature-map` (structural check) and `bun scripts/verify-feature-map.ts --self-test` (isolated missing-feature/invalid-map rejection). Run `ASP_PROJECT=agent-control-plane just verify` for the full owned gate; preserve existing gate order and normal git hooks. Installed `acp --help` is read-only surface evidence.
 
-Run `just test-mail-delivery` for the opt-in standard-library Python policy and scoring tests in `programs/mail-delivery/tests`. This recipe runs `python3 -m unittest` from the program directory and stays outside `just verify`; it proves source behavior with fixtures, not live mail delivery or installed service behavior. The read-only scoring operator command and real-store acceptance limits are documented in [the program README](../../../../../programs/mail-delivery/README.md).
+Run `just test-mail-delivery` for the opt-in standard-library Python policy and scoring tests in `programs/mail-delivery/tests`. Install/uninstall the local read-only kernel program with `just install-mail-delivery-shadow` and `just uninstall-mail-delivery-shadow`; installation copies only the manifest and package Python sources and needs no daemon restart. This recipe runs `python3 -m unittest` from the program directory and stays outside `just verify`; it proves source behavior with fixtures, not live mail delivery or installed service behavior. The read-only scoring operator command and real-store acceptance limits are documented in [the program README](../../../../../programs/mail-delivery/README.md).
 
 ## Gotchas
 

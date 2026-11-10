@@ -1,1 +1,1 @@
-"""Pure mail policy and read-only scoring. No service loop or delivery client."""
+"""Pure injector policy, read-only live shadow and state-aware scoring."""

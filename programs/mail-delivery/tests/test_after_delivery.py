@@ -3,6 +3,12 @@ from tests.common import *
 
 
 class AfterDelivery(Rules):
+    def test_presented_legacy_mail_without_local_reminder_row_is_not_actionable(self):
+        # drive/presentation.ts:readActionableEnvelopes subtracts presented
+        # mail without a due reminder; EN-00738 live has no local presentation.
+        self.check('hold', 'no_due_reminder', e=envelope(state='presented',
+                   presentation=Presentation(status='none')))
+
     def presented(self, **kw):
         return envelope(state='presented', presented_before=True,
                         presentation=Presentation(status='landed', runtime_matches=True,

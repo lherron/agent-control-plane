@@ -325,3 +325,11 @@ cp-test prompt="List skills available. Use only what is in your context, no tool
 # Read-only mail delivery shadow policy and scoring tests (opt-in, outside verify).
 test-mail-delivery:
     cd programs/mail-delivery && python3 -m unittest
+
+# Install only the read-only program sources on the executing node.
+install-mail-delivery-shadow:
+    python3 programs/mail-delivery/mail_delivery/install.py
+
+# Remove the local kernel-hosted mail delivery shadow.
+uninstall-mail-delivery-shadow:
+    python3 programs/mail-delivery/mail_delivery/install.py --uninstall

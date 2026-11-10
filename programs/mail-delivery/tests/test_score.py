@@ -39,7 +39,8 @@ class Scoring(TestCase):
 
     def row(self, n, action='steer', **kw):
         return dict(envelope_id=f'EN-{n}', appeared_at='2026-11-10T12:00:00Z',
-                    decided_at='2026-11-10T12:00:01Z', decision={'action': action, 'reason': 'test'}, **kw)
+                    decided_at='2026-11-10T12:00:01Z', decision={'action': action, 'reason': 'test'},
+                    kernel_socket=str(Path.home()/'praesidium/var/run/praesidium/kernel.sock'), pid=999, **kw)
 
     def run_score(self, rows):
         log = self.root / 'shadow.jsonl'
@@ -60,8 +61,50 @@ class Scoring(TestCase):
         self.assertEqual(report['rows'][2]['missing_field'], 'seat.steer_capable')
         self.assertEqual(report['rows'][0]['injector_intent']['door'], 'steer')
         write_report(report, self.root / 'out')
-        self.assertTrue((self.root / 'out/2026-11-10.md').is_file())
-        self.assertEqual(json.loads((self.root / 'out/2026-11-10.json').read_text()), report)
+        self.assertTrue((self.root / 'out/score-2026-11-10.md').is_file())
+        self.assertEqual(json.loads((self.root / 'out/score-2026-11-10.json').read_text()), report)
+
+    def test_kernel_log_wrap_daily_missing_inventory_and_early_injector_flag(self):
+        observed = self.row(1)
+        observed['decided_at'] = '2026-11-10T11:55:00Z'
+        observed['appeared_at'] = '2026-11-10T11:54:59Z'
+        observed['missing_fields'] = ['seat.home', 'envelope.intent']
+        maintenance = dict(ts='2026-11-10T12:00:00Z', event='envelope.expired',
+                           data={'actor': 'agent:mail-delivery', 'envelope_id': 'EN-9',
+                                 'kernel_socket': observed['kernel_socket']})
+        report = self.run_score([maintenance, dict(ts=observed['decided_at'],
+                    event='shadow.decision', data=observed),
+                    dict(ts=observed['decided_at'], event='shadow.started', data={})])
+        self.assertEqual(report['envelopes'], 1)
+        self.assertEqual(report['excluded_read_maintenance'], 1)
+        self.assertEqual(report['missing_fields'], ['envelope.intent', 'seat.home'])
+        self.assertTrue(report['rows'][0]['shadow_well_before_injector'])
+        self.assertEqual(report['early_injector_count'], 1)
+        md, _ = write_report(report, self.root / 'out')
+        self.assertIn('seat.home', md.read_text())
+
+    def test_first_hour_window_excludes_later_decisions(self):
+        later = self.row(2)
+        later['decided_at'] = '2026-11-10T13:00:00Z'
+        log = self.root / 'shadow.jsonl'
+        log.write_text('\n'.join(json.dumps(r) for r in [self.row(1), later]))
+        report = score(log, self.db, '2026-11-10',
+                       since='2026-11-10T12:00:00Z', until='2026-11-10T13:00:00Z')
+        self.assertEqual(report['envelopes'], 1)
+
+    def test_live_log_partial_final_line_is_left_for_next_run(self):
+        log = self.root / 'shadow.jsonl'
+        log.write_text(json.dumps(self.row(1))+'\n{"event":')
+        self.assertEqual(score(log, self.db, '2026-11-10')['envelopes'], 1)
+
+    def test_only_canonical_kernel_socket_can_contribute_a_score(self):
+        good = self.row(1)
+        stray = dict(self.row(2), kernel_socket='/tmp/test-kernel.sock')
+        unstamped = self.row(3)
+        unstamped.pop('kernel_socket')
+        report = self.run_score([good, stray, unstamped])
+        self.assertEqual(report['envelopes'], 1)
+        self.assertEqual(report['excluded_kernel_sources'], 2)
 
     def test_read_only_connection_refuses_writes_and_missing_store(self):
         with open_injector(self.db) as c:

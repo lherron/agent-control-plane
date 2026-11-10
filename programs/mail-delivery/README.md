@@ -1,74 +1,93 @@
-# Mail delivery shadow policy
+# Mail delivery shadow
 
-Python 3.14, standard library only. Importable policy and scoring modules; no
-service entry point, client, private store, scheduler, or delivery operations.
-The kernel will pin the interpreter and own program lifecycle in a later task.
+A Python 3.14 standard-library port of the injector decision policy, hosted as
+kernel program `mail-delivery`. This step only observes and logs; it never
+submits, starts, presents, fails, defers, withdraws or declares a subscriber.
 
-Run tests from the ACP checkout:
+From the canonical ACP checkout, on the local node:
 
 ```sh
 just test-mail-delivery
+just install-mail-delivery-shadow
+prae node get max3
 ```
 
-This runs `cd programs/mail-delivery && python3 -m unittest`. It is deliberately
-outside `just verify`. To select Python 3.14 explicitly, run
-`python3.14 -m unittest` from this directory.
+The installer copies only `program.json` and `mail_delivery/*.py` into
+`~/.local/lib/praesidium-kernel/programs/mail-delivery/`, rejecting symlinks.
+It stages a complete tree and renames it into place. The kernel starts or
+replaces it after two stable scans; no service restart is needed.
+`just uninstall-mail-delivery-shadow` removes that local tree. Neither recipe
+contacts another node. T-13270 authorizes installation on max3 only.
 
-Run the operator scoring tool from this directory:
+The kernel pins the interpreter and supplies program identity/configuration.
+`Client(program)` watches `room.mail`, `seat` and `runtime`; each reset replaces
+the corresponding view. Owner detail/task reads go through that read-only
+client, using explicit selectors. No `pendingView` call is made: it re-pends
+wrkq deferrals. Scope-less interface mail belongs to ACP gateways and is
+excluded from agent-seat decisions.
+
+The adapter reads the injector's existing SQLite store with `mode=ro` and
+`query_only=ON`, closes each short batch transaction before network I/O, and
+never uses `immutable`. HRC reads use its Unix socket, caller label
+`mail-delivery-shadow`, and an exact method/path allowlist in `hrc_read.py`.
+The only POST reads are runtime inspect, declaration resolve, and the explicitly
+authorized `/v1/submissions/preempt/admission`; every submission door is refused
+locally. Anonymous broker replay uses runtime, invocation and generation fences,
+without subscriber declarations or receipts. The injector's `mail` consumer
+is never used.
+
+`Memos` is one reducer with two feeders: `InjectorLogFeeder` replays existing
+injector outcomes for shadow comparison; `OwnOutcomeFeeder` is the same entry
+for future acting-port outcomes. Replay anchors at the injector's latest
+`mail_injector.started`, and re-anchors at a subsequent start. A missing anchor
+or unlogged required fact remains unknown. Partial log lines wait for the next
+poll. Broker movement clears quiet holds according to the existing injector
+rules. Everything can be reconstructed after a shadow restart.
+
+Decisions are deduplicated by envelope observation, normalized policy inputs,
+seat state and crossed policy deadlines. Tool previews/activity timestamps do
+not create new decisions. The loop checks new log outcomes each second, runs
+30-second reminder/evidence sweeps (also within the 300-second recovery bound),
+and uses only kernel waits while idle. Logs are flushed through `client.log` to
+`~/praesidium/var/logs/agent-control-plane/mail-delivery.log`. Each decision
+includes state/state-transition time, target, broker state, action/reason,
+missing input if any, creation/decision times and log-memo/movement provenance.
+
+Run the operator report from `programs/mail-delivery`:
 
 ```sh
 python3 -m mail_delivery.score \
-  --shadow-log /path/to/shadow.jsonl \
   --injector-db "$HOME/praesidium/var/state/acp/hrc-mail-injector.sqlite" \
-  --day 2026-11-10 --out /path/to/report
+  --day 2026-11-10 \
+  --out "$HOME/praesidium/var/wrkq-artifacts/T-13270"
 ```
 
-Outputs are `<day>.md` and `<day>.json`. Day boundaries are UTC. SQLite uses
-`mode=ro`, `query_only=ON`, parameterized envelope lookups, and one read
-transaction across both evidence tables. A missing database is never created.
-Only the requested output directory is written.
+Shadow and injector log paths default to their installed locations. Optional
+`--since` and `--until` ISO timestamps select a bounded acceptance interval.
+Output is `score-YYYY-MM-DD.md` plus JSON, one pair per UTC day. Only the report
+directory is written. The scorer joins both latest-per-envelope SQLite evidence
+tables and injector log drives/phases/intents/hold/skip/seat-not-ready records.
+It retains every observation, comparison and selected raw evidence line.
 
-`mail_delivery.decision.decide(envelope, seat, runtime, now)` accepts frozen
-plain dataclasses. All policy timestamps and `now` are epoch milliseconds.
-`None` means an unknown fact; explicit records with `status='none'` or
-`kind='none'` mean confirmed absence. Relevant missing facts produce
-`cannot_decide` and a dotted `missing_fact`. Inputs are normalized observations:
-`state='terminal'` means the owner confirmed terminality; `runtime_live` refers
-to the presentation receipt's runtime; `runtime_matches` compares the latest
-receipt to that presentation, not necessarily the currently selected seat.
-No adapter or owner reads are implemented here. `Decision.form` distinguishes
-full body, defer-retry pointer, reminder, and digest member. Digest members
-must later be grouped into one submission per target. `Decision.effects` names
-auxiliary work such as arm_reminder, withdraw, stalled logging, or preserving
-TTL uncertainty; it performs no work. Hold/defer can therefore represent
-reconciliation without adding unsupported delivery doors.
+A live row requires evidence after its observed state-transition time, before
+the next known transition. Explicit-envelope evidence must be within 300 s of
+the shadow observation; target-only evidence within 30 s. Presented mail cannot
+match an old full-body admission, and intent/reminder holds cannot match a
+previous delivery door. No suitable injector decision is `pending_evidence`,
+neither agreement nor defect. Unmapped injector evidence is separated from a
+`shadow_input_gap` beneath `cannot_decide`; only the latter is a port defect.
+Every bucket separates today's new envelopes from older backlog; the gate is
+judged on new traffic. Timing flags a shadow decision at least 60 s before the
+injector, without asserting that the injector missed an insert. Read-triggered
+wrkq maintenance attributed to `agent:mail-delivery` is excluded, not counted as
+a shadow write.
 
-Shadow log format (one observation per line):
+`decide(envelope, seat, runtime, now)` remains pure. `None` means unknown;
+explicit `status='none'` / `kind='none'` confirms absence. `Decision.effects`
+describes work but performs none. No intentional policy changes are enabled.
+Explicitly stamped flat fixture logs remain readable for T-13192 scoring tests; they lack
+state boundaries and are not evidence for installed live agreement.
 
-```json
-{"envelope_id":"EN-123","appeared_at":"2026-11-10T12:00:00Z","decided_at":"2026-11-10T12:00:01Z","decision":{"action":"steer","reason":"steer_capable"}}
-```
-
-Timestamps require a timezone. A `cannot_decide` decision must include
-`missing_fact`. A disagreement is a defect unless its observation explicitly
-includes `difference: {"kind":"design","reason":"approved-change-id"}` or
-`difference: {"kind":"missing_data","field":"seat.steer_capable"}`. Those
-annotations are explanations supplied by the caller/operator, not inferred by
-the scorer. No design changes are enabled by this package. Synthetic logs
-should carry `fixture: true` so the JSON retains that provenance.
-
-The summary classifies the latest shadow observation of each envelope that day.
-The injector tables contain only their latest row per envelope, not history.
-The scorer retains every shadow observation in shadow_history and both injector rows, and selects the timestamp closest to the shadow
-decision. `admitted` needs a same-runtime intent to identify the door. Birth
-`invoke` and `launch` both map to `launch`. Unknown values are reported, never
-inferred from their names. Timing is relative to the shadow's `appeared_at`;
-negative durations and evidence outside the selected day remain visible for
-investigation. The report cannot prove historical agreement after injector
-rows have been overwritten.
-
-[Policy notes](POLICY.md) list the first missing-field draft, code/brief
-reconciliations, and scoring evidence limits. Acceptance evidence for T-13192
-is in `~/praesidium/var/wrkq-artifacts/T-13192/`: red test runs, a repeatable
-read-only acceptance script, its explicitly synthetic shadow log, and reports
-joined to real max3 rows. There is no installed service to activate in this step.
+[POLICY.md](POLICY.md) records the source rules and historical qualifications.
+Live acceptance and first-hour score evidence are in the T-13270 artifact dir.
+Python tests remain opt-in, outside the repository's `just verify` gate.
