@@ -238,3 +238,27 @@ class Dedup(TestCase):
         self.assertEqual(calls,['EN-1'])
         self.assertEqual(len([r for e,r in self.client.logs if e=='shadow.first_delivery']),1)
         self.assertEqual(self.decisions(),[])
+
+    def test_owner_only_admission_maps_handle_to_canonical_intent_identity(self):
+        from mail_delivery.memos import Memos
+        from mail_delivery.port_inputs import ms
+        memos=Memos();memos.accept(dict(event='mail_injector.started',ts='2026-11-10T11:00:00Z'))
+        memos.accept(dict(event='wrkq.kicker.delivery_intent',ts='2026-11-10T12:00:01Z',data=dict(envelope='EN-1',runtimeId='rt-1',door='steer',targetSessionRef=TARGET+'/lane:main')))
+        memos.accept(dict(event='wrkq.kicker.delivery_admitted',ts='2026-11-10T12:00:02Z',data=dict(envelope='EN-1',runtimeId='rt-1',door='steer')))
+        self.shadow.started_at=ms('2026-11-10T12:00:00Z');self.shadow.source.memos=memos
+        self.shadow.apply('room.mail',change(reset=True))
+        self.shadow.history.rows['room.mail'].clear()
+        self.client.read=lambda op,**args: dict(result=dict(id='EN-1',state='acked',createdAt='2026-11-10T12:00:00Z',to=dict(scopeRef='cody@agent-control-plane:T-13270')))
+        calls=[]
+        def reconstruct(mail,detail,store,admission,history,now):
+            calls.append(mail['to']['scopeRef'])
+            return dict(basis='reconstructed',at=admission['at'],runtime_id='rt-1',capability_source='port_probe',decision=dict(action='steer',reason='steer_capable'),missing_fields=[])
+        self.shadow.source.first_from_intent=reconstruct
+        self.shadow.process_first_deliveries(ms('2026-11-10T12:00:03Z'))
+        self.assertEqual(calls,[TARGET])
+
+    def test_first_comparison_metadata_does_not_repeat_unchanged_observation(self):
+        self.sweep()
+        self.shadow.first_deliveries['EN-1']=dict(basis='reconstructed',at='2026-11-10T12:00:00Z',decision=dict(action='steer',reason='steer_capable'))
+        self.shadow.sweep(1794312001000,force=True)
+        self.assertEqual(len(self.decisions()),1)

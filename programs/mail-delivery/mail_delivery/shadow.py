@@ -230,7 +230,7 @@ class Shadow:
                 if first_delivery is not None:
                     self.first_deliveries[identifier] = first_delivery
                 key = json.dumps((mail, seat_state, asdict(envelope), asdict(observed), asdict(context),
-                                  temporal_state(envelope, observed, decided_now), first_delivery), sort_keys=True)
+                                  temporal_state(envelope, observed, decided_now)), sort_keys=True)
                 self.signals[identifier] = signal
                 self.refresh.discard(identifier)
                 if self.last.get(identifier) == key:
@@ -294,6 +294,12 @@ class Shadow:
                     mail = detail
                 if not mail or not mail.get('to', {}).get('scopeRef'):
                     continue  # scope-less interface mail is not an injector target
+                # Owner envelope detail uses public handles; watches/HRC use
+                # canonical scope refs. The intent carries the resolved target
+                # identity the injector actually read, so no resolution/read is
+                # needed and no caller identity changes.
+                if target:
+                    mail = dict(mail, to=dict(mail['to'], scopeRef=target))
                 snapshot = self.first_deliveries.get(identifier)
                 if snapshot is None or snapshot.get('basis') != 'observed':
                     store = self.store([mail])[identifier]
