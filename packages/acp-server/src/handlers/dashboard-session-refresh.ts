@@ -122,7 +122,10 @@ export type DashboardSessionRefresher = {
 export function createDashboardSessionRefresher(input: {
   reads: DashboardSessionReads
   signal: AbortSignal
-  onRefresh(latest: HrcLifecycleEvent, inputs: DashboardSessionInputs | undefined): void
+  onRefresh(
+    latest: HrcLifecycleEvent,
+    inputs: DashboardSessionInputs | undefined
+  ): void | Promise<void>
   onError(error: unknown): void
   coalesceMs?: number | undefined
   now?: (() => number) | undefined
@@ -141,7 +144,7 @@ export function createDashboardSessionRefresher(input: {
     try {
       const inputs = await input.reads.read(pending.event, pending.receivedAt)
       if (failed || input.signal.aborted) return
-      input.onRefresh(pending.event, inputs)
+      await input.onRefresh(pending.event, inputs)
     } catch (error) {
       if (failed || input.signal.aborted) return
       failed = true

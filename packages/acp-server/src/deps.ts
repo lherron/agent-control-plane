@@ -180,6 +180,8 @@ export type AcpHrcClient = Pick<
   | 'getStatus'
   | 'getAttachDescriptor'
   | 'getSession'
+  // T-13191: a record-built mobile summary reads the parked disposition here.
+  | 'getSessionByContinuity'
   | 'listLatestEventBySession'
   | 'listMessages'
   | 'listRuns'

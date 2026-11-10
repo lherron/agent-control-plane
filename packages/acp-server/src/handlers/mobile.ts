@@ -59,6 +59,7 @@ import {
   sendMobileErrorEnvelope,
   sendMobileJsonEnvelope,
 } from './mobile-ws.js'
+import { pageItemDisposition, recordDisposition } from './session-disposition.js'
 
 const GATEWAY_ID = 'acp-local'
 const API_VERSION = 'v1'
@@ -914,12 +915,6 @@ function peerProjectionState(
 ): MobileSessionSummary['projectionState'] {
   if (status === undefined || status.state === 'healthy') return 'answered'
   return status.state === 'invalid-response' ? 'invalid_response' : status.state
-}
-
-function pageItemDisposition(
-  item: SessionPageItem
-): Pick<MobileSessionSummary, 'disposition' | 'dispositionAt'> {
-  return { disposition: item.disposition ?? null, dispositionAt: item.dispositionAt ?? null }
 }
 
 function projectThinIndexedSession(input: {
@@ -2021,20 +2016,23 @@ async function openMobileDashboardWebSocket(
   const refresher = createDashboardSessionRefresher({
     reads: sharedDashboardSessionReads(hrcClient),
     signal: abortController.signal,
-    onRefresh: (latest, inputs) => {
+    onRefresh: async (latest, inputs) => {
       if (inputs === undefined) return
+      const runtime = latestRuntimeForSession(inputs.record, inputs.runtimes)
+      const session = projectSession({
+        record: inputs.record,
+        runtime,
+        run: inputs.run ?? undefined,
+        lastEvent: inputs.lastEvent ?? latest,
+        raw,
+        includeSessionDetails,
+      })
+      const disposition = await recordDisposition(hrcClient, inputs.record, session, runtime)
       sendMobileJsonEnvelope(ws, {
         type: 'session_updated',
         generatedAt: new Date().toISOString(),
         hrcSeq: latest.hrcSeq,
-        session: projectSession({
-          record: inputs.record,
-          runtime: latestRuntimeForSession(inputs.record, inputs.runtimes),
-          run: inputs.run ?? undefined,
-          lastEvent: inputs.lastEvent ?? latest,
-          raw,
-          includeSessionDetails,
-        }),
+        session: { ...session, ...disposition },
       })
     },
     onError: (error) => {
@@ -2856,7 +2854,7 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
             generation: record.generation,
           }),
         ])
-    const session = projectSession({
+    const projectedSession = projectSession({
       record,
       runtime,
       run: latestRun ?? undefined,
@@ -2864,6 +2862,13 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
       raw,
       includeSessionDetails,
     })
+    const session = {
+      ...projectedSession,
+      // HRC's continuity get answers for this node; a remote record carries null.
+      ...(resolved.remote
+        ? { disposition: null, dispositionAt: null }
+        : await recordDisposition(hrcClient, record, projectedSession, runtime)),
+    }
     if (deps.stateStore === undefined || deps.collaborationLedger === undefined) {
       sendMobileErrorEnvelope(ws, 'timeline_unavailable', 'timeline projection is not configured')
       ws.close(1011, 'timeline unavailable')
