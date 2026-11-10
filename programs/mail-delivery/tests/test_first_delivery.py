@@ -129,8 +129,7 @@ class FirstDelivery(TestCase):
         e,s,r,_=self.port.gather(self.mail,self.detail,self.store,self.now)
         value=self.port.first_delivery(self.mail,self.detail,self.store,e,s,r,self.now,history=WatchHistory())
         self.assertEqual(value['decision']['action'],'cannot_decide')
-        self.assertIn('first_delivery.runtime_history_before_admission',value['missing_fields'])
-        self.assertIn('first_delivery.seat_history_before_admission',value['missing_fields'])
+        self.assertIn('history_cold',value['missing_fields'])
 
     def test_later_intent_row_cannot_prove_first_invocation_capability(self):
         self.store['intent']['submitted_at']='2026-11-10T12:00:02Z'
@@ -147,3 +146,56 @@ class FirstDelivery(TestCase):
         value=self.port.first_delivery(self.mail,self.detail,self.store,e,s,r,self.now,history=h)
         self.assertIn('first_delivery.runtime_watch_lag',value['missing_fields'])
         self.assertEqual(value['history_status_lag_ms'],1500)
+
+    def test_cold_home_uses_existing_get_and_labels_after_admission_with_proof(self):
+        from mail_delivery.shadow import WatchHistory
+        h=WatchHistory();at=ms('2026-11-10T12:00:00Z')
+        h.record('seat',dict(scopeRef=TARGET,activeRuntimeId='rt-1'),at)
+        h.record('runtime',dict(runtimeId='rt-1',status='ready'),at)
+        admission=self.memos.deliveries.first_admission('EN-1')
+        value=self.port.first_from_intent(self.mail,self.detail,self.store,admission,h,self.now)
+        self.assertEqual(self.calls,['/v1/federation/locate'])
+        self.assertEqual(value['home_source'],'read_after_admission')
+        self.assertTrue(value['home_binding_predates_admission'])
+        self.assertNotIn('first_delivery.home_at_admission',value['missing_fields'])
+
+    def test_cached_home_before_admission_keeps_source_and_does_not_read_again(self):
+        from mail_delivery.shadow import WatchHistory
+        self.port.gather(self.mail,self.detail,self.store,self.now)
+        key=('/v1/federation/locate',(('scopeRef',TARGET),))
+        self.port.cache_read_at[key]=ms('2026-11-10T12:00:00Z')
+        h=WatchHistory();h.record('seat',dict(scopeRef=TARGET,activeRuntimeId='rt-1'),ms('2026-11-10T12:00:00Z'))
+        h.record('runtime',dict(runtimeId='rt-1',status='ready'),ms('2026-11-10T12:00:00Z'))
+        before=list(self.calls)
+        value=self.port.first_from_intent(self.mail,self.detail,self.store,self.memos.deliveries.first_admission('EN-1'),h,self.now)
+        self.assertEqual(self.calls,before)
+        self.assertEqual(value['home_source'],'cached_before_admission')
+        self.assertEqual(value['decision']['action'],'steer')
+
+    def test_ready_watch_with_no_scope_proves_absence_and_launch(self):
+        from mail_delivery.shadow import WatchHistory
+        h=WatchHistory();h.ready_at['seat']=ms('2026-11-10T11:59:00Z')
+        self.store['diagnostic']['observed_seat_state']='absent'
+        self.intent['data'].update(door='launch',runtimeId=None,observedSeatState='absent')
+        self.memos.deliveries.intents['EN-1'][0]['row']['data'].update(door='launch',runtimeId=None,observedSeatState='absent')
+        admission=dict(self.memos.deliveries.first_admission('EN-1') or {},at=self.intent['ts'],runtime_id='rt-born',admitted_at='2026-11-10T12:00:02Z',intent=self.intent,memo=self.memos.deliveries.intents['EN-1'][0]['memo'])
+        value=self.port.first_from_intent(self.mail,dict(self.detail,delivery='hold'),dict(self.store,intent=None),admission,h,self.now)
+        self.assertEqual(value['decision']['action'],'launch')
+        self.assertEqual(value['seat_state_source'],'watch_absence')
+        self.assertFalse(value['inputs']['seat']['session_exists'])
+        self.assertNotIn('first_delivery.preempt_admission_at_admission',value['missing_fields'])
+
+    def test_history_cold_is_named_and_reconstruction_never_calls_preempt_admission(self):
+        from mail_delivery.shadow import WatchHistory
+        self.port.hrc.post=lambda *a,**kw: self.fail('reconstruction must not POST')
+        admission=self.memos.deliveries.first_admission('EN-1')
+        value=self.port.first_from_intent(self.mail,dict(self.detail,delivery='hold'),self.store,admission,WatchHistory(),self.now)
+        self.assertIn('history_cold',value['missing_fields'])
+        self.assertIn('first_delivery.preempt_admission_at_admission',value['missing_fields'])
+        self.assertEqual(self.calls,['/v1/federation/locate'])
+
+    def test_unready_absent_scope_reports_history_cold_as_the_root_gap(self):
+        from mail_delivery.shadow import WatchHistory
+        self.store['diagnostic']['observed_seat_state']='absent'
+        value=self.port.first_from_intent(self.mail,self.detail,self.store,self.memos.deliveries.first_admission('EN-1'),WatchHistory(),self.now)
+        self.assertEqual(value['missing_fields'],['history_cold'])

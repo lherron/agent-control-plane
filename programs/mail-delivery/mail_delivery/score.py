@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 import json
 from pathlib import Path
 import sqlite3
+import time
 
 
 def open_injector(path: Path | str) -> sqlite3.Connection:
@@ -199,6 +200,8 @@ def first_delivery_comparison(identifier, observations, deliveries, required=Fal
         return None
     base = dict(comparison_kind='first_delivery', decided_at=snapshot['at'] if snapshot else observations[0]['decided_at'],
         basis=snapshot.get('basis') if snapshot else 'missing', capability_source=snapshot.get('capability_source', 'unavailable') if snapshot else 'unavailable',
+        home_source=snapshot.get('home_source', 'not_recorded') if snapshot else 'not_recorded',
+        home_binding_predates_admission=snapshot.get('home_binding_predates_admission') if snapshot else None,
         capability_differed=False, missing_field=None, cannot_decide_kind=None, evidence=None,
         injector_log_evidence=[], injector_decision=None, shadow_snapshot=snapshot)
     if intent is None:
@@ -217,6 +220,10 @@ def first_delivery_comparison(identifier, observations, deliveries, required=Fal
     if not reconstructed and epoch_ms(snapshot['at']) > epoch_ms(boundary):
         return dict(base, classification='cannot_decide', cannot_decide_kind='shadow_input_gap',
                     missing_field='first_delivery.snapshot_missing')
+    if base['home_source'] == 'not_recorded' and snapshot.get('home_read_at') is not None:
+        base['home_source'] = ('cached_before_admission' if snapshot['home_read_at'] <= epoch_ms(chosen['ts']) else 'read_after_admission')
+        changed = snapshot.get('home_binding_changed_at')
+        base['home_binding_predates_admission'] = changed <= epoch_ms(chosen['ts']) if changed is not None else None
     actual = _door(chosen['data'].get('door'))
     decision = snapshot['decision']
     own = snapshot.get('port_capability')
@@ -240,16 +247,24 @@ def first_delivery_comparison(identifier, observations, deliveries, required=Fal
 
 
 def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=None, until=None,
-          injector_log=None) -> dict:
+          injector_log=None, preview=False) -> dict:
     from .evidence import InjectorEvidence
-    log_evidence = InjectorEvidence(injector_log)
     start = datetime.combine(date.fromisoformat(day), datetime.min.time(), timezone.utc)
     begin = int(start.timestamp() * 1000)
     end = int((start + timedelta(days=1)).timestamp() * 1000)
-    begin = max(begin, epoch_ms(since)) if since else begin
-    end = min(end, epoch_ms(until)) if until else end
+    day_begin, day_end = begin, end
+    if preview:
+        if not since or not until:
+            raise ValueError('preview requires bounded since and until timestamps')
+        begin, end = epoch_ms(since), epoch_ms(until)
+    else:
+        begin = max(begin, epoch_ms(since)) if since else begin
+        end = min(end, epoch_ms(until)) if until else end
+    cohort_begin, cohort_end = (begin, end) if preview else (day_begin, day_end)
     if end <= begin:
         raise ValueError('empty scoring window')
+    cutoff = epoch_ms(until) if until else int(time.time()*1000)
+    log_evidence = InjectorEvidence(injector_log, cutoff=cutoff)
     latest = {}
     observations = 0
     history = {}
@@ -277,7 +292,7 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
                     if begin <= epoch_ms(row['ts']) < end:
                         data = dict(row['data'], ts=row['ts'])
                         appeared = data.get('appeared_at')
-                        data['cohort'] = ('new' if appeared[:10] == day else 'backlog') if appeared else 'unknown'
+                        data['cohort'] = ('new' if cohort_begin <= epoch_ms(appeared) < cohort_end else 'backlog') if appeared else 'unknown'
                         failures.append(data)
                     continue
                 if row['event'] not in ('shadow.decision', 'shadow.first_delivery'):
@@ -336,11 +351,11 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
                     if not other.get('comparison_only') and other.get('envelope_state') != observation.get('envelope_state')), None)
                 scored = comparison(observation, intent, diagnostic,
                     _evidence(connection, identifier, epoch_ms(observation['decided_at']), log_evidence)[2],
-                    log_evidence, next_state, cutoff=end,
+                    log_evidence, next_state, cutoff=cutoff,
                     observation_until=next((r['decided_at'] for r in ordered[index+1:] if not r.get('comparison_only')), None))
                 observation_scores.append(dict(decided_at=observation['decided_at'],
                     decision=observation['decision'], **scored))
-            cohort = 'new' if start <= datetime.fromisoformat(shadow['appeared_at'].replace('Z', '+00:00')) < start + timedelta(days=1) else 'backlog'
+            cohort = 'new' if cohort_begin <= appeared < cohort_end else 'backlog'
             first = first_delivery_comparison(identifier, ordered, log_evidence.deliveries,
                 required=cohort == 'new' and identifier in log_evidence.deliveries.delivered_envelopes())
             if first is not None:
@@ -413,6 +428,8 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
             for r in new_rows if r['injector_delivered'] and (not r['first_delivery_comparison'] or r['first_delivery_comparison']['classification'] == 'cannot_decide')],
         new_uncompared=len(uncompared),
         new_uncompared_share=len(uncompared)/len(new_rows) if new_rows else 0.0,
+        home_sources=dict(Counter(r['first_delivery_comparison']['home_source'] for r in compared)),
+        home_bindings_proven_before_admission=sum(r['first_delivery_comparison'].get('home_binding_predates_admission') is True for r in compared),
         uncompared=uncompared, capability_sources=dict(Counter(r['first_delivery_comparison']['capability_source'] for r in compared)),
         capability_differences=[r['envelope_id'] for r in rows if r['first_delivery_comparison'] and
             r['first_delivery_comparison'].get('capability_differed')])
@@ -428,7 +445,9 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
         'envelopes': len(rows), 'counts': dict(sorted(Counter(r['classification'] for r in rows).items())),
         'counts_by_cohort': {cohort: dict(Counter(r['classification'] for r in rows if r['cohort'] == cohort))
                              for cohort in ('new', 'backlog')},
-        'gate_cohort': 'new',
+        'gate_cohort': 'created_in_preview_window' if preview else 'new',
+        'score_kind': 'preview' if preview else 'daily',
+        'evidence_cutoff': datetime.fromtimestamp(cutoff/1000, timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
         'decision_failed_count': len(failures),
         'decision_failed_envelopes': sorted({f['envelope_id'] for f in failures}),
         'decision_failed_counts_by_cohort': {cohort: sum(f['cohort'] == cohort for f in failures)
@@ -476,14 +495,16 @@ def write_report(report: dict, out: Path | str) -> tuple[Path, Path]:
              f"New injector-delivered: {gate['new_injector_delivered']}; compared and agreed: {gate['new_compared_and_agreed']}.", '',
              f"New left uncompared: {gate['new_uncompared']}/{gate['new_envelopes']} ({gate['new_uncompared_share']:.1%}).", '',
              'Compared capability sources: ' + json.dumps(gate['capability_sources'], sort_keys=True), '',
+             'Compared home sources: ' + json.dumps(gate['home_sources'], sort_keys=True) + '; binding predates admission proven: ' + str(gate['home_bindings_proven_before_admission']), '',
              'Capability derivation differences: ' + (', '.join(gate['capability_differences']) or 'none'), '',
              'First-delivery missing facts (envelopes per named fact): ' + json.dumps(report['first_delivery_missing_fact_counts'], sort_keys=True), '',
              f"First-delivery fields recorded in this log window: {report['first_delivery_field_observations']}.", '',
 
              f"Inaction agreements: {report['agreed_by_inaction_observations']} observations; compared observation agreements: {report['compared_agreement_observations']} (first delivery counted separately above).", '',
              f"{report['envelopes']} envelopes; {report['shadow_observations']} shadow observations.", '',
-             'The gate uses envelopes created this UTC day; older backlog is shown separately.', '',
-             '| Classification | New today | Older backlog | Total |', '| --- | ---: | ---: | ---: |']
+             ('Preview cohort: envelopes created in this bounded interval; older backlog is separate. This is not a gate day.' if report.get('score_kind') == 'preview' else
+              'The gate uses envelopes created this UTC day; older backlog is shown separately.'), '',
+             ('| Classification | New during preview | Older backlog | Total |' if report.get('score_kind') == 'preview' else '| Classification | New today | Older backlog | Total |'), '| --- | ---: | ---: | ---: |']
     for category in ('agreed', 'differed_by_design', 'differed_missing_data', 'differed_defect', 'cannot_decide', 'pending_evidence'):
         lines.append(f"| {category} | {report['counts_by_cohort']['new'].get(category, 0)} | "
                      f"{report['counts_by_cohort']['backlog'].get(category, 0)} | {report['counts'].get(category, 0)} |")
@@ -522,6 +543,7 @@ def main():
                         default=Path.home() / 'praesidium/var/logs/hrc-runtime/hrc-mail-injector.log')
     parser.add_argument('--day', required=True)
     parser.add_argument('--out', required=True, type=Path)
+    parser.add_argument('--preview', action='store_true', help='bounded preview may span UTC dates; cohort is created within since/until')
     parser.add_argument('--program-commit', required=True, help='commit of the installed program that wrote these records')
     parser.add_argument('--scorer-commit', help='explicit scorer commit; defaults to this canonical checkout HEAD')
     parser.add_argument('--since', help='inclusive ISO UTC window start, e.g. first program start')
@@ -532,7 +554,7 @@ def main():
     subprocess.run([sys.executable, '-m', 'unittest', 'tests.test_live_score_regression'],
                    cwd=Path(__file__).resolve().parents[1], check=True)
     report = score(args.shadow_log, args.injector_db, args.day,
-                   since=args.since, until=args.until, injector_log=args.injector_log)
+                   since=args.since, until=args.until, injector_log=args.injector_log, preview=args.preview)
     report.update(installed_program_commit=args.program_commit,
         scorer_source_commit=args.scorer_commit or subprocess.check_output(
             ['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).resolve().parents[3], text=True).strip())

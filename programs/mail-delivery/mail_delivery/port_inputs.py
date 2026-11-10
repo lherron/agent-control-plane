@@ -112,22 +112,25 @@ class PortInputs:
         self.cache = {}
         self.broker_cursors = {}
         self.retained_cache = {}
+        self.cache_read_at = {}
 
     def retain(self):
         now = int(time.time() * 1000)
         for key, value in self.cache.items():
-            self.retained_cache[key] = (now, deepcopy(value))
+            self.retained_cache[key] = (self.cache_read_at.get(key, now), deepcopy(value))
         self.retained_cache = {k: v for k, v in self.retained_cache.items() if now-v[0] <= 900000}
 
     def begin(self):
         self.retain()
         self.cache.clear()
+        self.cache_read_at.clear()
 
     def get(self, route, **params):
         self.alive()
         key = (route, tuple(sorted(params.items())))
         if key not in self.cache:
             self.cache[key] = self.hrc.get(route, **params)
+            self.cache_read_at[key] = int(time.time()*1000)
         self.alive()
         return self.cache[key]
 
@@ -241,6 +244,10 @@ class PortInputs:
             retry_at=ms(detail.get('retryAt')))
         seat, runtime, session = self.target(scope, check_federation=(
             state == 'pending' and store['intent'] is None))
+        home_key = ('/v1/federation/locate', (('scopeRef', scope),))
+        tags['home_read_at'] = self.cache_read_at.get(home_key)
+        home_reply = self.cache.get(home_key) or {}
+        tags['home_binding_changed_at'] = ms(((home_reply.get('authority') or {}).get('record') or {}).get('updatedAt'))
         context = Runtime(id=runtime.get('runtimeId'), status=runtime.get('status'),
                           created_at=ms(runtime.get('createdAt')))
         if seat.home == 'foreign' or seat.live_elsewhere:
@@ -301,16 +308,16 @@ class PortInputs:
         return envelope, seat, context, tags
 
     def first_from_intent(self, mail, detail, store, admission, history, now):
-        # The trigger moves existing envelope/store reads, not HRC probes.
-        # All HRC facts below were already read by the ordinary loop.
+        # Reuse ordinary envelope/store inputs and probes. Only a missing
+        # home reply may make the existing locate GET; never preempt admission.
         self.retain()
         envelope = Envelope(id=mail['id'], obligation=detail.get('obligation', mail.get('obligation')),
             delivery=detail.get('delivery'), created_at=ms(detail.get('createdAt', mail.get('createdAt'))), kind='envelope')
         return self.first_delivery(mail, detail, store, envelope, Seat(), Runtime(), now,
-            history=history, admission=admission)
+            history=history, admission=admission, allow_home_read=True)
 
-    def first_delivery(self, mail, detail, store, envelope, seat, runtime, now, *, history=None, admission=None):
-        """Reconstruct from already-read facts only; no I/O or door-as-input."""
+    def first_delivery(self, mail, detail, store, envelope, seat, runtime, now, *, history=None, admission=None, allow_home_read=False):
+        """Historical facts, with only the explicitly allowed missing-home GET."""
         diagnostic = store.get('diagnostic')
         deliveries = self.memos.deliveries
         if admission is None:
@@ -335,10 +342,20 @@ class PortInputs:
         raw = next((r for key, rows in cache.items() if key[0] == 'runtimes'
                     for r in rows if r.get('runtimeId') == identifier), {})
         probe = cache.get(('/v1/runtimes/' + str(identifier) + '/seat', ()), {})
-        location = cache.get(('/v1/federation/locate', (('scopeRef', mail['to']['scopeRef']),)), {})
-        authority = location.get('authority') or {}
+        home_key = ('/v1/federation/locate', (('scopeRef', mail['to']['scopeRef']),))
+        location = cache.get(home_key, {})
+        authority = location.get('authority')
+        if not authority and allow_home_read:
+            # Same existing ordinary-gather GET; no extra route or probe.
+            location = self.get('/v1/federation/locate', scopeRef=mail['to']['scopeRef'])
+            authority = location['authority']
+        authority = authority or {}
+        read_at = self.cache_read_at.get(home_key, (self.retained_cache.get(home_key) or (None,))[0])
+        home_source = ('cached_before_admission' if read_at is not None and read_at <= at else
+                       'read_after_admission' if authority else 'unavailable')
         changed = ms((authority.get('record') or {}).get('updatedAt'))
-        if changed is None or changed > at:
+        home_proven = changed <= at if changed is not None else None
+        if not authority:
             missing.append('first_delivery.home_at_admission')
         memo = admission['memo']
         if not memo or not memo['anchored'] or envelope.created_at is None or ms(memo['anchor']) > envelope.created_at:
@@ -347,10 +364,15 @@ class PortInputs:
         # activity. Never reuse a status that changed after the injector read.
         historical = {}
         status_lag = None
+        absence_known = False
         if history is not None:
             seat_entry = history.as_of('seat', mail['to']['scopeRef'], at)
             runtime_entry = history.as_of('runtime', identifier, at)
+            ready_at = history.ready_at['seat']
+            absence_known = seat_entry is None and ready_at is not None and ready_at <= at
             historical = dict(seat=seat_entry, runtime=runtime_entry)
+            if absence_known:
+                state = 'absent'
             late = [entry for entry in history.rows['runtime'].get(identifier, [])
                 if entry['payload'] is not None and entry['changed_field'] == 'statusChangedAt'
                 and entry['changed_at'] is not None and entry['changed_at'] <= at < entry['received_at']
@@ -358,10 +380,15 @@ class PortInputs:
             if late:
                 status_lag = max(entry['received_at']-entry['changed_at'] for entry in late)
                 missing.append('first_delivery.runtime_watch_lag')
-            if seat_entry is None:
-                missing.append('first_delivery.seat_history_before_admission')
+            if seat_entry is None and not absence_known:
+                missing.append('history_cold')
             if runtime_entry is None and state != 'absent':
-                missing.append('first_delivery.runtime_history_before_admission')
+                runtime_ready = history.ready_at['runtime']
+                if runtime_ready is None or runtime_ready > at:
+                    if 'history_cold' not in missing:
+                        missing.append('history_cold')
+                else:
+                    missing.append('first_delivery.runtime_history_before_admission')
             if seat_entry and state != 'absent' and seat_entry['payload'].get('activeRuntimeId') != identifier:
                 missing.append('first_delivery.seat_runtime_history_mismatch')
             # Runtime state JSON remains from an existing probe, solely for
@@ -393,7 +420,7 @@ class PortInputs:
             source = 'not_needed'
         elif capable is None:
             missing.append('first_delivery.steer_capable')
-        if state == 'absent':
+        if state == 'absent' and not absence_known and 'history_cold' not in missing:
             missing.append('first_delivery.session_exists_at_admission')
         form = data.get('form')
         if form not in ('full', 'defer-retry', 'digest'):
@@ -415,15 +442,19 @@ class PortInputs:
             missing.append('first_delivery.non_landing_strikes_at_admission')
         if store.get('launch'):
             missing.append('first_delivery.launch_failures_at_admission')
-        if envelope.delivery == 'hold':
+        if envelope.delivery == 'hold' and not absence_known and form != 'digest':
             missing.append('first_delivery.preempt_admission_at_admission')
         reconstructed = replace(envelope, state='pending', presented_before=form != 'full',
             intent=Intent(status='none'), presentation=Presentation(status='none'), non_landing_strikes=strikes)
-        observed = replace(seat, home=('local' if authority.get('state') == 'bound' and authority.get('isLocal') else seat.home),
-            live_elsewhere=False if authority.get('isLocal') else seat.live_elsewhere,
-            federation_complete=True if authority.get('isLocal') else seat.federation_complete, state=state, session_exists=True if state != 'absent' else None,
-            steer_capable=capable, awaiting_input=raw.get('status') == 'awaiting_input')
-        context = Runtime(id=identifier, status=raw.get('status'), created_at=ms(raw.get('createdAt')))
+        home = ('foreign' if authority.get('state') == 'bound' and not authority.get('isLocal') else
+                'local' if authority.get('state') == 'bound' else 'unbound' if authority else seat.home)
+        observed = replace(seat, home=home,
+            live_elsewhere=False if home in ('local', 'unbound') else seat.live_elsewhere,
+            federation_complete=True if home in ('local', 'unbound') else seat.federation_complete,
+            state=state, session_exists=False if absence_known else True if state != 'absent' else None,
+            steer_capable=capable, awaiting_input=(raw['status'] == 'awaiting_input' if raw.get('status') is not None else None))
+        context = Runtime(id=None if absence_known else identifier, status=raw.get('status'),
+            created_at=None if absence_known else ms(raw.get('createdAt')))
         if memo:
             from types import SimpleNamespace
             reconstructed, observed = apply_memo_facts(reconstructed, observed,
@@ -441,7 +472,11 @@ class PortInputs:
             for kind, entry in historical.items()}
         return dict(basis='reconstructed', at=admission['at'], runtime_id=identifier,
             diagnostic_at=diagnostic['created_at'] if matching_diagnostic else None, admitted_at=admission['admitted_at'],
-            history=historical, history_status_lag_ms=status_lag, seat_state_source='injector_diagnostic' if matching_diagnostic else 'injector_intent',
+            history=historical, history_status_lag_ms=status_lag,
+            seat_watch_ready_at=history.ready_at['seat'] if history is not None else None,
+            seat_state_source='watch_absence' if absence_known else 'injector_diagnostic' if matching_diagnostic else 'injector_intent',
+            home_source=home_source, home_read_at=read_at, home_binding_predates_admission=home_proven,
+            home_binding_changed_at=changed,
             capability_source=source, port_capability=own, injector_capability=logged_capability,
             capability_differed=own is not None and isinstance(logged_capability, bool) and own != logged_capability,
             decision=asdict(decision), missing_fields=missing,

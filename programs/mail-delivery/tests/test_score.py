@@ -181,3 +181,17 @@ class Scoring(TestCase):
         md,_=write_report(report,self.root/'out')
         self.assertIn('Installed program commit: program-revision',md.read_text())
         self.assertIn('Scorer commit: scorer-revision',md.read_text())
+
+    def test_bounded_preview_spans_midnight_and_uses_creation_window_cohort(self):
+        rows=[]
+        for n,created,decided in ((1,'2026-11-10T23:59:40Z','2026-11-10T23:59:50Z'),
+                (2,'2026-11-11T00:00:20Z','2026-11-11T00:00:21Z'),
+                (3,'2026-11-10T12:00:00Z','2026-11-10T23:59:55Z')):
+            r=self.row(n,'cannot_decide');r.update(appeared_at=created,decided_at=decided)
+            r['decision']['missing_fact']='seat.state';rows.append(r)
+        log=self.root/'shadow.jsonl';log.write_text(''.join(json.dumps(r)+'\n' for r in rows))
+        r=score(log,self.db,'2026-11-10',since='2026-11-10T23:59:00Z',until='2026-11-11T00:02:00Z',preview=True)
+        self.assertEqual(r['envelopes'],3)
+        self.assertEqual(r['gate']['new_envelopes'],2)
+        self.assertEqual(r['counts_by_cohort']['backlog'],{'cannot_decide':1})
+        self.assertEqual(r['gate_cohort'],'created_in_preview_window')

@@ -237,3 +237,26 @@ class StateScoring(TestCase):
         first=self.run_state_score([observed],events)['rows'][0]['first_delivery_comparison']
         self.assertEqual(first['classification'],'agreed')
         self.assertEqual(first['injector_decision'],'steer')
+
+    def test_home_sources_are_counted_separately_beside_capability(self):
+        observed=self.observation('hold');observed.update(envelope_state='pending',runtime_id='rt-1')
+        observed['decision']['reason']='intent_open'
+        observed['first_delivery']=dict(basis='reconstructed',at='2026-11-10T12:00:01Z',runtime_id='rt-1',
+            decision=dict(action='steer',reason='steer_capable'),capability_source='port_probe',
+            home_source='read_after_admission',home_binding_predates_admission=True)
+        events=[self.event('delivery_intent',at='2026-11-10T12:00:01Z',envelope='EN-1',runtimeId='rt-1',door='steer'),
+                self.event('delivery_admitted',at='2026-11-10T12:00:02Z',envelope='EN-1',runtimeId='rt-1',door='steer')]
+        report=self.run_state_score([observed],events)
+        self.assertEqual(report['gate']['home_sources'],{'read_after_admission':1})
+        self.assertEqual(report['gate']['home_bindings_proven_before_admission'],1)
+
+    def test_admission_after_report_cutoff_does_not_inflate_delivered_or_hide_open_window(self):
+        observed=self.observation('hold');observed.update(envelope_state='pending')
+        observed['decision']['reason']='intent_open'
+        events=[self.event('delivery_intent',at='2026-11-10T12:00:59Z',envelope='EN-1',runtimeId='rt-1',door='steer'),
+                self.event('delivery_admitted',at='2026-11-10T12:01:20Z',envelope='EN-1',runtimeId='rt-1',door='steer')]
+        log=self.root/'shadow.jsonl';log.write_text(json.dumps(observed)+'\n')
+        injector=self.root/'injector.log';injector.write_text(''.join(json.dumps(e)+'\n' for e in events))
+        r=score(log,self.db,'2026-11-10',until='2026-11-10T12:01:10Z',injector_log=injector)
+        self.assertEqual(r['gate']['new_injector_delivered'],0)
+        self.assertEqual(r['rows'][0]['classification'],'pending_evidence')

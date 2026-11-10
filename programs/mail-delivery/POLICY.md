@@ -142,3 +142,8 @@ alone. The scorer lists any unknown value and returns cannot_decide rather than
 inventing a mapping. Admitted timestamps are diagnostic observation times when
 selected; intent submitted_at remains separately available as admission time.
 Historical decisions overwritten by later drives cannot be recovered here.
+
+EN-50915 reconstruction input ruling: a ready watch's missing scope is known
+absence; an unready history is `history_cold`. Missing home evidence may use
+the same existing locate GET, labelled before/after admission with timestamp
+proof recorded. No reconstruction preempt-admission probe is permitted.

@@ -96,7 +96,7 @@ class DeliveryHistory:
 
 
 class InjectorEvidence:
-    def __init__(self, path):
+    def __init__(self, path, *, cutoff=None):
         self.deliveries = DeliveryHistory()
         self.by_envelope = defaultdict(list)
         self.by_target = defaultdict(list)
@@ -111,6 +111,8 @@ class InjectorEvidence:
                 except ValueError:
                     continue
                 if not isinstance(row, dict):
+                    continue
+                if cutoff is not None and row.get('ts') and epoch_ms(row['ts']) >= cutoff:
                     continue
                 self.deliveries.accept(row)
                 name = row.get('event', '').removeprefix('wrkq.kicker.')

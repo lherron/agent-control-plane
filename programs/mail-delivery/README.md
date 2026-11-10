@@ -143,3 +143,22 @@ live evidence. API/monitor callers must run
 scorer. Versioned inputs preserve the accepted hour's two known agreements, six
 cache defects, and EN-50888's drive-phase boundary. No installed-program restart
 is required by an operator scorer change.
+
+EN-50915: a missing cached home reply may use the ordinary allowlisted
+`GET /v1/federation/locate`. Comparisons label `home_source` as
+`cached_before_admission` or `read_after_admission`, retain the reply's binding
+time and whether it proves the binding predates admission, and report counts
+beside capability sources. Binding changes immediately after admission are
+outside this comparison's supported model. Reconstruction never calls
+`POST /v1/submissions/preempt/admission`; dependent hold decisions name that gap.
+
+A seat watch ready before the intent, with no scope entry as of that time,
+proves absence and permits the launch comparison. Only an unready watch without
+a prior entry is `history_cold`. Snapshot resets record their receipt time;
+positive as-of entries retain their own source and receipt clocks.
+
+Use `--preview --since <UTC-start> --until <UTC-end>` for a bounded preview
+that can span midnight. Its new cohort is created within that interval. Daily
+reports retain their UTC-day cohort. Injector evidence is bounded by the report
+cutoff, so later admissions cannot inflate an earlier delivered count; daily
+reports may still use the following day's evidence when scoring after midnight.

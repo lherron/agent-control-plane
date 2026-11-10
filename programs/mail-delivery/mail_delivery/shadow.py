@@ -89,6 +89,7 @@ class WatchHistory:
     """At most 20 payload changes per key, with separate source/receipt clocks."""
     def __init__(self, limit=20):
         self.limit = limit
+        self.ready_at = {kind: None for kind in TYPES}
         self.rows = {kind: {} for kind in TYPES}
 
     def record(self, kind, payload, received_at):
@@ -147,6 +148,8 @@ class Shadow:
         for row in incoming:
             self.history.record(kind, row['payload'], received_at)
         self.views[kind].apply(change)
+        if change.reset:
+            self.history.ready_at[kind] = received_at
 
     def read(self, op, **args):
         # Only expected owner availability/absence refusals become missing
@@ -226,7 +229,8 @@ class Shadow:
                 if first_delivery is None and envelope.state == 'pending' and decision.action in ('steer', 'enqueue', 'launch', 'preempt'):
                     first_delivery = dict(basis='observed', at=stamp(decided_now), runtime_id=context.id,
                         decision=asdict(decision), capability_source='port_probe' if observed.state in ('idle', 'turn-active') else 'not_needed',
-                        port_capability=observed.steer_capable, capability_differed=False, missing_fields=[])
+                        port_capability=observed.steer_capable, capability_differed=False, missing_fields=[],
+                        home_read_at=tags.get('home_read_at'), home_binding_changed_at=tags.get('home_binding_changed_at'))
                 if first_delivery is not None:
                     self.first_deliveries[identifier] = first_delivery
                 key = json.dumps((mail, seat_state, asdict(envelope), asdict(observed), asdict(context),
