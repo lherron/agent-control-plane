@@ -149,6 +149,15 @@ class Dedup(TestCase):
         self.assertEqual(self.shadow.last, {})
         self.assertEqual(self.shadow.details, {})
 
+    def test_new_receipt_in_same_presented_state_refreshes_owner_detail(self):
+        self.mail['payload'].update(state='presented', presentedAt='2026-11-10T12:00:01Z')
+        self.shadow.apply('room.mail', change(self.mail))
+        self.sweep()
+        self.mail['payload']['presentedAt'] = '2026-11-10T12:00:03Z'
+        self.shadow.apply('room.mail', change(self.mail))
+        self.sweep()
+        self.assertEqual(len(self.client.calls), 2)
+
     def test_do_not_infer_placement_or_broker_state_from_summary_or_node(self):
         self.sweep()
         observed = self.decisions()[0]

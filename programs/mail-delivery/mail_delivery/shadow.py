@@ -148,11 +148,12 @@ class Shadow:
             if identifier not in self.refresh and self.signals.get(identifier) == signal:
                 continue
             cached = self.details.get(identifier)
-            if cached is None or cached[0] != mail.get('state'):
+            detail_key = (mail.get('state'), mail.get('presentedAt'), mail.get('deferred'))
+            if cached is None or cached[0] != detail_key:
                 # These details are missing from the document; read each only
                 # on the first observation of an envelope state transition.
                 detail = self.read('room.mail.get', envelope=identifier)
-                self.details[identifier] = (mail.get('state'), detail)
+                self.details[identifier] = (detail_key, detail)
             else:
                 _, detail = cached
             if snapshots is None:
@@ -167,7 +168,8 @@ class Shadow:
                 continue
             decision = decide(envelope, observed, context, decided_now)
             self.client.log('shadow.decision', envelope_id=identifier, target=target,
-                envelope_state=mail.get('state'), observed_seat_state=observed.state,
+                envelope_state=envelope.state, document_envelope_state=mail.get('state'),
+                observed_seat_state=observed.state,
                 envelope_state_at=detail.get('updatedAt') or mail.get('createdAt'),
                 seat_summary_state=seat.get('status'), runtime_id=context.id,
                 decision=asdict(decision), reason=decision.reason,

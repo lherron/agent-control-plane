@@ -164,13 +164,16 @@ class PortInputs:
         target = scope + '/lane:main'
         tags = dict(log_fed_memos=[], broker_movement_dependent=False,
                     injector_anchor=self.memos.anchor)
+        state = detail.get('state', mail['state'])
+        if detail.get('terminal') or state in ('acked', 'failed', 'expired', 'withdrawn'):
+            state = 'terminal'
         envelope = Envelope(id=mail['id'], obligation=mail.get('obligation'), kind='envelope',
-            state='terminal' if detail.get('terminal') else mail['state'],
+            state=state,
             delivery=detail.get('delivery'), created_at=ms(mail.get('createdAt')),
             presented_before=bool(detail['presentedTo']) if 'presentedTo' in detail else None,
             retry_at=ms(detail.get('retryAt')))
         seat, runtime, session = self.target(scope, check_federation=(
-            mail['state'] == 'pending' and store['intent'] is None))
+            state == 'pending' and store['intent'] is None))
         context = Runtime(id=runtime.get('runtimeId'), status=runtime.get('status'),
                           created_at=ms(runtime.get('createdAt')))
         if seat.home == 'foreign' or seat.live_elsewhere:
@@ -234,7 +237,7 @@ class PortInputs:
                 origin=dict(detail.get('from', {}), envelopeId=mail['id']),
                 ttlMs=t.KICKER_SUBMISSION_TTL_MS, turnPolicy='guarded')['admission']
             seat = replace(seat, preempt_admission=admission)
-        if mail['state'] == 'presented':
+        if state == 'presented':
             receipts = detail.get('presentedTo', [])
             receipt = max(receipts, key=lambda p: p.get('presentedAt', '')) if receipts else {}
             receipt_runtime = receipt.get('runtimeId')
