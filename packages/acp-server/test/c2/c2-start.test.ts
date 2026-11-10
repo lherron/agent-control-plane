@@ -26,12 +26,9 @@ function reap(acp: C2Acp): void {
   seat.runtimeLive = false
   acp.fake.touch(SEAT, 'runtime.state')
 }
+// Rev 5.2 (T-13271): after the keyed start the answer steers, like any answer.
 const seatInputs = (acp: C2Acp) =>
-  acp.fake
-    .literalInputs()
-    .filter(
-      (c) => (c.body as { selector?: { sessionRef?: string } }).selector?.sessionRef === SEAT_REF
-    )
+  acp.fake.steers().filter((c) => (c.body as { target?: string }).target === SEAT_REF)
 const startCalls = (acp: C2Acp) => acp.fake.calls.filter((c) => c.path === '/v1/runtimes/start')
 
 async function offlineEntry(acp: C2Acp) {
@@ -51,7 +48,7 @@ async function offlineEntry(acp: C2Acp) {
 }
 
 describe('answering a seat with no runtime (§6b)', () => {
-  test('starts the seat once keyed by requestId, then sends fenced to the started host and generation', async () => {
+  test('starts the seat once keyed by requestId, then steers the answer to the started seat', async () => {
     await withC2Acp(async (acp) => {
       const entry = await offlineEntry(acp)
       const req = answerRequest(entry)
@@ -77,9 +74,11 @@ describe('answering a seat with no runtime (§6b)', () => {
       expect(seat?.hostSessionId).toBe('hsid-started-1')
       const inputs = seatInputs(acp)
       expect(inputs.length).toBe(1)
-      expect(inputs[0]?.body).toMatchObject({
-        text: req.text,
-        fences: { expectedHostSessionId: 'hsid-started-1', expectedGeneration: seat?.generation },
+      expect(inputs[0]?.body).toEqual({
+        target: SEAT_REF,
+        body: req.text,
+        origin: { principalRef: 'agent:lance' },
+        idempotencyKey: req.requestId,
       })
       const again = await acp.postJson<ActionResponse>(ACTIONS, req)
       expect(again.body.replayed).toBe(true)

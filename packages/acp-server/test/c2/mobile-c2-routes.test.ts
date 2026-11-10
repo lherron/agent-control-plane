@@ -228,7 +228,7 @@ describe('GET /v1/mobile/c2/v2/snapshot', () => {
 })
 
 describe('POST /v1/mobile/c2/v2/actions', () => {
-  test('answer: one fenced send with the question, sent on the row, delivered claim, per-row ledger act', async () => {
+  test('answer: one steer with the question, sent on the row, delivered claim, per-row ledger act', async () => {
     await withC2Acp(async (acp) => {
       const { entry } = await snapshotEntry(acp)
       const request = answerRequest(entry)
@@ -245,10 +245,13 @@ describe('POST /v1/mobile/c2/v2/actions', () => {
       expect(body.entry?.rows[0]?.state).toBe('sent')
       const sends = seatSends(acp)
       expect(sends).toHaveLength(1)
-      expect(sends[0]?.body).toMatchObject({
-        text: ANSWER_TEXT,
-        enter: true,
-        fences: { expectedHostSessionId: 'hsid-c2fixture-acp', expectedGeneration: 2 },
+      // Rev 5.2 (T-13271): Lance's answer is HRC's steer, keyed by the request id, with no fences or enter.
+      expect(sends[0]?.path).toBe('/v1/submissions/steer')
+      expect(sends[0]?.body).toEqual({
+        target: SEAT_REF,
+        body: ANSWER_TEXT,
+        origin: { principalRef: 'agent:lance' },
+        idempotencyKey: request.requestId,
       })
       const sent = (acp.record().body as { questions: Array<{ sent?: Record<string, unknown> }> })
         .questions[0]?.sent

@@ -1,5 +1,5 @@
 /**
- * An HRC literal-input call that is accepted on the local socket and never answered (card contract rev 4 §6
+ * An HRC steer (rev 5.2; before it, literal input) that is accepted on the local socket and never answered (card contract rev 4 §6
  * step 7). After the call was made the outcome is indeterminate: `unknown_outcome`, exactly one attempt, the
  * receipt left at `sending` and the row claim held, so the row reads in flight. Never `not_submitted`, never
  * retried; recovery later records it `done {unknown_outcome}` with the claim's outcome `unknown`.
@@ -19,11 +19,11 @@ import {
   withC2Acp,
 } from './c2-acp.js'
 
-test('a literal-input timeout is unknown_outcome with one attempt, receipt sending and the row claim held', async () => {
+test('a steer timeout is unknown_outcome with one attempt, receipt sending and the row claim held', async () => {
   await withC2Acp(
     async (acp) => {
       const { entry } = await snapshotEntry(acp)
-      acp.fake.literalInput.mode = 'hang'
+      acp.fake.steer.mode = 'hang'
       const request = answerRequest(entry)
       const started = Date.now()
       const { status, body } = await acp.postJson<ActionResponse>(ACTIONS, request)
@@ -66,7 +66,7 @@ test('past the grace, recovery records unknown_outcome and the row becomes uncer
   await withC2Acp(
     async (acp) => {
       const { entry } = await snapshotEntry(acp)
-      acp.fake.literalInput.mode = 'hang'
+      acp.fake.steer.mode = 'hang'
       const request = answerRequest(entry)
       await acp.postJson<ActionResponse>(ACTIONS, request)
       await settle(600)

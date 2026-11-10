@@ -195,6 +195,8 @@ export type AcpHrcClient = Pick<
   | 'resolveRuntimeIntent'
   | 'sendInFlightInput'
   | 'startRuntime'
+  // T-13271: Lance's c2 answers steer (card contract rev 5.2).
+  | 'steer'
   | 'tailEvents'
   | 'terminate'
   | 'waitMessage'

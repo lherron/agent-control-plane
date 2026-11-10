@@ -17,6 +17,7 @@ import type {
   SeatRow,
   SendTarget,
   StartedSeat,
+  Steer,
 } from '@praesidium/c2-core'
 import { scopePredicate } from '@praesidium/c2-core'
 
@@ -36,6 +37,7 @@ export type C2HrcClient = Pick<
   | 'resolveRuntimeIntent'
   | 'resolveSession'
   | 'startRuntime'
+  | 'steer'
   | 'tailEvents'
   | 'watchBoundedEvents'
 >
@@ -709,6 +711,95 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     return pending
   }
 
+  /** The host call may outlive the deadline; its late settlement is not an error. */
+  async function withinDeadline<T>(call: Promise<T>, what: string): Promise<T> {
+    call.catch(() => undefined)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`${what} did not answer within ${options.literalInputTimeoutMs}ms`)),
+        options.literalInputTimeoutMs
+      )
+    })
+    try {
+      return await Promise.race([call, deadline])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }
+  function failed(error: unknown): Refusal {
+    const refusal = refusalOf(error)
+    if (refusal !== undefined) return refusal
+    if (isUnreachable(error))
+      return { code: 'not_submitted', detail: { reason: 'hrc_unavailable' } }
+    throw error
+  }
+  /**
+   * Card contract rev 5.2 §6 step 7: HRC's steer at admission (no `wait`). A runId is delivery. An explicit
+   * rejection is definitive not_submitted with HRC's reason; any other reply without a runId (a cursorless
+   * expired, cancelled or lost disposition) may have been applied, so it is an uncertain refusal: claims held,
+   * no resend (Daedalus F1, EN-50789). No fallback to the fenced send.
+   */
+  async function sendSteer(
+    target: SendTarget,
+    text: string,
+    principalRef: string,
+    steer: Steer
+  ): Promise<Receipt | Refusal> {
+    let reply: Awaited<ReturnType<C2HrcClient['steer']>>
+    try {
+      reply = await withinDeadline(
+        client.steer({
+          target: target.sessionRef,
+          body: text,
+          origin: { principalRef },
+          idempotencyKey: steer.key,
+        }),
+        'HRC steer'
+      )
+    } catch (error) {
+      return failed(error)
+    }
+    const r = reply as Record<string, unknown> & {
+      disposition?: { type?: string; reason?: string }
+    }
+    const runId =
+      typeof r['runId'] === 'string' && r['runId'] !== '' ? (r['runId'] as string) : undefined
+    if (runId === undefined) {
+      const type = r.disposition?.type
+      const reason =
+        typeof r['reason'] === 'string' ? (r['reason'] as string) : r.disposition?.reason
+      if (r['admission'] === 'rejected' || type === 'rejected')
+        return {
+          code: 'not_submitted',
+          detail: { reason: reason ?? 'rejected', submissionId: r['submissionId'] },
+        }
+      return {
+        code: 'steer_uncertain',
+        detail: { disposition: type ?? null, submissionId: r['submissionId'] },
+      }
+    }
+    const receipt: Receipt = {
+      node: await node(),
+      sessionRef: target.sessionRef,
+      hostSessionId:
+        typeof r['hostSessionId'] === 'string'
+          ? (r['hostSessionId'] as string)
+          : target.hostSessionId,
+      generation:
+        typeof r['generation'] === 'number' ? (r['generation'] as number) : target.generation,
+      runtimeId: typeof r['runtimeId'] === 'string' ? (r['runtimeId'] as string) : '',
+      runId,
+    }
+    if (typeof r['status'] === 'string') receipt.status = r['status'] as string
+    const effective = r['effectiveDoor']
+    if (effective === 'steer' || effective === 'enqueue') {
+      receipt.door = { effective }
+      if (typeof r['downgradeReason'] === 'string')
+        receipt.door.downgradeReason = r['downgradeReason'] as string
+    }
+    return receipt
+  }
   return {
     node() {
       if (hasConnected && !following)
@@ -807,7 +898,14 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
         replayed: started.claim?.replayed === true,
       }
     },
-    async send(target: SendTarget, text: string): Promise<Receipt | Refusal> {
+    async send(
+      target: SendTarget,
+      text: string,
+      as?: string,
+      steer?: Steer
+    ): Promise<Receipt | Refusal> {
+      // Rev 5.2 (T-13271): Lance's answer and compose are HRC's steer, keyed by the requestId, with no fences.
+      if (steer !== undefined) return sendSteer(target, text, as ?? options.principal, steer)
       // HRC's literal-input route carries no principal; the receipt and the
       // ledger act around it carry `as` (agent:lance for phone actions).
       const call = client.deliverLiteralBySelector({
@@ -819,31 +917,11 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
           expectedGeneration: target.generation,
         },
       })
-      // The call may outlive the deadline; its late settlement is not an error.
-      call.catch(() => undefined)
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const deadline = new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `HRC literal input did not answer within ${options.literalInputTimeoutMs}ms`
-              )
-            ),
-          options.literalInputTimeoutMs
-        )
-      })
       let delivered: Awaited<typeof call>
       try {
-        delivered = await Promise.race([call, deadline])
+        delivered = await withinDeadline(call, 'HRC literal input')
       } catch (error) {
-        const refusal = refusalOf(error)
-        if (refusal !== undefined) return refusal
-        if (isUnreachable(error))
-          return { code: 'not_submitted', detail: { reason: 'hrc_unavailable' } }
-        throw error
-      } finally {
-        if (timer !== undefined) clearTimeout(timer)
+        return failed(error)
       }
       const receipt: Receipt = {
         node: await node(),

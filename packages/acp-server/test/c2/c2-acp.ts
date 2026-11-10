@@ -375,14 +375,15 @@ export function reconcilePath(requestId: string, sessionRef: string): string {
   return `/v1/mobile/c2/v2/actions/${encodeURIComponent(requestId)}?${new URLSearchParams({ sessionRef })}`
 }
 
-/** Literal inputs to the fixture seat itself (not lines to Vesta). */
+/** Inputs to the fixture seat itself (not lines to Vesta): steers (rev 5.2 answers) and literal inputs. */
 export function seatSends(acp: C2Acp) {
-  return acp.fake
-    .literalInputs()
-    .filter(
-      (call) =>
-        (call.body as { selector?: { sessionRef?: string } }).selector?.sessionRef === SEAT_REF
-    )
+  return acp.fake.calls.filter(
+    (call) =>
+      (call.path === '/v1/submissions/steer' &&
+        (call.body as { target?: string }).target === SEAT_REF) ||
+      (call.path === '/v1/literal-input/by-selector' &&
+        (call.body as { selector?: { sessionRef?: string } }).selector?.sessionRef === SEAT_REF)
+  )
 }
 
 /** Wait past a few controller poll periods so background work would have shown. */

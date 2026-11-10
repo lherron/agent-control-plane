@@ -122,6 +122,14 @@ export type FakeRuntime = {
 }
 
 export type LiteralInputMode = 'accept' | 'accept-no-run' | 'hang'
+/**
+ * `POST /v1/submissions/steer` (card contract rev 5.2, T-13271), shaped from max3 HRC's replies on 2026-11-10
+ * (T-13271 artifacts sdk-steer-{idle,busy,replay}.json, probe-steer-self.json). `accept`: admitted, effectiveDoor
+ * steer. `downgrade`: admitted, effectiveDoor enqueue, steer_not_supported. `reject`: admission rejected, reason
+ * guarded. `lost`: admitted with a cursorless lost disposition and no runId. `hang`: accepted, never answered.
+ * A repeated idempotencyKey replays the first admission: same runId, `replayed: true`, no door report.
+ */
+export type SteerMode = 'accept' | 'downgrade' | 'reject' | 'lost' | 'hang'
 
 export type FakeHrc = {
   socketPath: string
@@ -140,6 +148,7 @@ export type FakeHrc = {
   emit(event: Omit<FakeLedgerEvent, 'hrcSeq'>): void
   /** `refuse`: seats whose literal input answers 409 stale_context. */
   literalInput: { mode: LiteralInputMode; refuse: Set<string> }
+  steer: { mode: SteerMode }
   /**
    * §2.13 keyed start, as the real routes answered on 2026-11-05 (T-12645 live/summon/real-*.json): declaration
    * resolve, then exact claim-and-start (replayed by `idempotencyKey`), then `POST /v1/sessions/resolve` for the head.
@@ -194,6 +203,7 @@ export type FakeHrc = {
     generation?: number | null
   ): FakeAnnotation | undefined
   literalInputs(): FakeCall[]
+  steers(): FakeCall[]
   writes(): FakeCall[]
   stop(): Promise<void>
 }
@@ -248,6 +258,8 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     mode: 'accept',
     refuse: new Set(),
   }
+  const steer: { mode: SteerMode } = { mode: 'accept' }
+  const steerReplays = new Map<string, Record<string, unknown>>()
   const seatErrors: FakeHrc['seatErrors'] = new Map()
   let lastStamp = 0
   let seq = 1000
@@ -633,6 +645,79 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     })
   }
 
+  function steerRoute(call: FakeCall): Promise<Response> | Response {
+    if (steer.mode === 'hang') return new Promise<Response>(() => {})
+    const body = call.body as { target?: string; body?: string; idempotencyKey?: string }
+    const key = body.idempotencyKey
+    const prior = key !== undefined ? steerReplays.get(key) : undefined
+    if (prior !== undefined) {
+      const { effectiveDoor: _door, requestedDoor: _req, downgradeReason: _why, ...rest } = prior
+      return Response.json({ ...rest, replayed: true, effectiveDoor: null })
+    }
+    const sessionRef = body.target ?? ''
+    const scopeRef = sessionRef.replace(/\/lane:[^/]+$/, '')
+    const seat = seatMap.get(scopeRef)
+    if (seat === undefined || !seat.runtimeLive) {
+      return hrcError(404, 'unknown_session', { sessionRef })
+    }
+    const submissionId = `submission_fake_${++runCounter}`
+    if (steer.mode === 'reject') {
+      return Response.json({
+        admission: 'rejected',
+        disposition: { type: 'rejected', reason: 'guarded' },
+        effectiveDoor: 'steer',
+        reason: 'guarded',
+        submissionId,
+      })
+    }
+    if (steer.mode === 'lost') {
+      return Response.json({
+        admission: 'admitted',
+        disposition: { type: 'lost' },
+        effectiveDoor: 'steer',
+        submissionId,
+      })
+    }
+    const runId = `run-fake-${runCounter}`
+    append({
+      hrcSeq: ++seq,
+      eventKind: 'submission.admission',
+      scopeRef,
+      hostSessionId: seat.hostSessionId,
+      generation: seat.generation,
+      payload: {
+        text: body.body,
+        runId,
+        effectiveDoor: steer.mode === 'downgrade' ? 'enqueue' : 'steer',
+      },
+    })
+    const reply: Record<string, unknown> = {
+      runId,
+      hostSessionId: seat.hostSessionId,
+      generation: seat.generation,
+      runtimeId: seat.runtimeId,
+      transport: 'headless',
+      status: 'accepted',
+      supportsInFlightInput: false,
+      submissionId,
+      admission: 'admitted',
+      startIdentity: { kind: 'broker', invocationId: 'inv-fake' },
+      observation: {},
+      stage: 'accepted',
+      replayed: false,
+      executionFormat: 'format1',
+      ...(steer.mode === 'downgrade'
+        ? {
+            effectiveDoor: 'enqueue',
+            requestedDoor: 'steer',
+            downgradeReason: 'steer_not_supported',
+          }
+        : { effectiveDoor: 'steer' }),
+    }
+    if (key !== undefined) steerReplays.set(key, reply)
+    return Response.json(reply)
+  }
+
   function eventsRoute(url: URL): Response {
     if (!fake.events.enabled) return hrcError(404, 'not_found', { path: url.pathname })
     if (url.pathname === '/v1/events/tail') {
@@ -818,6 +903,8 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       if (request.method === 'POST' && url.pathname === '/v1/literal-input/by-selector') {
         return literalInputRoute(call)
       }
+      if (request.method === 'POST' && url.pathname === '/v1/submissions/steer')
+        return steerRoute(call)
       return hrcError(404, 'not_found', { path: url.pathname })
     },
   })
@@ -835,6 +922,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       append({ ...event, hrcSeq: ++seq })
     },
     literalInput,
+    steer,
     start,
     seatErrors,
     events: {
@@ -880,6 +968,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     },
     find,
     literalInputs: () => calls.filter((call) => call.path === '/v1/literal-input/by-selector'),
+    steers: () => calls.filter((call) => call.path === '/v1/submissions/steer'),
     writes: () => calls.filter((call) => call.method !== 'GET'),
     async stop() {
       if (stopped) return

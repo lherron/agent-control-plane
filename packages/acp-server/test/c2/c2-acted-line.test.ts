@@ -68,16 +68,16 @@ describe('the acted line', () => {
     })
   })
 
-  test('accepted delivery without a runId reads run=accepted', async () => {
+  // Rev 5.2 (T-13271): an answer steers, and an admitted steer always has a runId, so `run=accepted` no longer
+  // arises for an answer. A rejected steer is a refusal and sends no line.
+  test('a rejected steer sends no acted line', async () => {
     await withC2Acp(async (acp) => {
-      acp.fake.literalInput.mode = 'accept-no-run'
+      acp.fake.steer.mode = 'reject'
       const { entry } = await snapshotEntry(acp)
       const { body } = await acp.postJson<ActionResponse>(ACTIONS, answerRequest(entry))
-      expect(body.outcome).toBe('accepted')
+      expect(body.outcome).toBe('not_submitted')
       await settle()
-      expect(vestaLines(acp).map((l) => l.text)).toEqual([
-        `[c2] acted ${SEAT} answers recommended=true edited=false run=accepted answers=ship:Ship*`,
-      ])
+      expect(vestaLines(acp)).toHaveLength(0)
     })
   })
 
@@ -120,11 +120,11 @@ describe('the acted line', () => {
   test('an unknown outcome sends no acted line', async () => {
     await withC2Acp(
       async (acp) => {
-        acp.fake.literalInput.mode = 'hang'
+        acp.fake.steer.mode = 'hang'
         const { entry } = await snapshotEntry(acp)
         const { body } = await acp.postJson<ActionResponse>(ACTIONS, answerRequest(entry))
         expect(body.outcome).toBe('unknown_outcome')
-        acp.fake.literalInput.mode = 'accept'
+        acp.fake.steer.mode = 'accept'
         await settle()
         expect(vestaLines(acp)).toHaveLength(0)
       },
