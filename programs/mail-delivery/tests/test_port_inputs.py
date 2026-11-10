@@ -121,6 +121,20 @@ class PortAdapter(TestCase):
         e, s, r, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
         self.assertEqual(decide(e, s, r, 1794312001000).reason, 'awaiting_operator')
 
+    def test_disposed_presentation_cannot_arm_reminder_from_lagging_document(self):
+        # EN-50794 on max3: wrkq acked at 19:52:05, injector persisted
+        # skipped:not_presented:acked at 19:52:11 while document still presented.
+        self.mail['state'] = 'presented'
+        self.detail['presentedTo'] = [dict(runtimeId='rt-1', presentedAt='2026-11-10T12:00:00Z')]
+        self.store['presentations'] = [dict(runtime_id='rt-1', landing_hrc_seq=8,
+            disposed_at='2026-11-10T12:00:01Z', disposition='skipped:not_presented:acked')]
+        original = self.port.hrc.get
+        self.port.hrc.get = lambda route, **params: (
+            {'events': [dict(hrcSeq=9, ts='2026-11-10T12:00:01Z')]}
+            if route == '/v1/events/tail' else original(route, **params))
+        e, s, r, _ = self.port.gather(self.mail, self.detail, self.store, 1794312002000)
+        self.assertEqual(decide(e, s, r, 1794312002000).reason, 'no_due_reminder')
+
     def test_unknown_session_means_no_session_as_in_socket_injection_port(self):
         original = self.port.hrc.get
         def get(route, **params):

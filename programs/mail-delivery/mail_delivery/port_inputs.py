@@ -238,7 +238,8 @@ class PortInputs:
             receipts = detail.get('presentedTo', [])
             receipt = max(receipts, key=lambda p: p.get('presentedAt', '')) if receipts else {}
             receipt_runtime = receipt.get('runtimeId')
-            presentation = next((p for p in store['presentations'] if p['runtime_id'] == receipt_runtime), None)
+            presentation = next((p for p in store['presentations'] if p['runtime_id'] == receipt_runtime and
+                (p.get('disposed_at') is None or p.get('disposition') == 'held:awaiting_operator')), None)
             if presentation:
                 bound_runtime = runtime if identifier == receipt_runtime else self.runtime(receipt_runtime)
                 terminal = self.terminal(receipt_runtime)
