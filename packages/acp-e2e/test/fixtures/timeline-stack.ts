@@ -5,7 +5,7 @@ import { ownerBinary } from '../../../../scripts/lib/owner-binaries.js'
  * Every seam here is the real one:
  *
  *  - HRC is a spawned installed `rusthrc` daemon on an isolated runtime/state root, and
- *    history is seeded through its release's store package while stopped.
+ *    history is seeded with native migration and SQL while stopped.
  *    Live events come from native admission and broker projection using HRC's
  *    own FakeAspd/stub-broker substrate; no side writer runs with the daemon.
  *  - wrkq is a real store (`wrkqadm init`) driven by the real `wrkf` RPC
@@ -27,13 +27,12 @@ import { homedir, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 
 import { type WorkClient, createClient } from '@wrkq/client'
+import { parseScopeRef } from 'agent-scope'
 import type { HrcLifecycleEvent, HrcSessionRecord } from 'hrc-core'
-import type { HrcLifecycleEventInput } from 'hrc-store-sqlite'
 
 import {
   type ScratchHrcDaemon,
   createScratchHrcDaemon,
-  loadInstalledHrcStore,
   runAllTeardownSteps,
 } from './scratch-hrc.js'
 
@@ -49,7 +48,6 @@ export type TimelineStack = {
   hrc: ScratchHrcDaemon
   runtimeIds: Set<string>
   projectRoot: string
-  hrcStore: Awaited<ReturnType<typeof loadInstalledHrcStore>>
   wrkqDbPath: string
   /**
    * Real `wrkf` RPC clients, pooled by caller principal.
@@ -197,7 +195,6 @@ export async function createTimelineStack(): Promise<TimelineStack> {
       rmSync(root, { recursive: true, force: true })
       throw new Error(`HRC FakeAspd launcher did not start: ${errors}`)
     }
-    const hrcStore = await loadInstalledHrcStore()
     const hrc = await createScratchHrcDaemon('acp-timeline-e2e-hrc-', {
       start: false,
       env: {
@@ -220,6 +217,12 @@ export async function createTimelineStack(): Promise<TimelineStack> {
         )
       }
     )
+
+    // Native migration owns schema creation; all fixture writes happen before start.
+    execFileSync(ownerBinary('hrc'), ['store', 'migrate', hrc.databasePath], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    })
 
     const wrkqClients = new Map<string, Promise<WorkClient>>()
     const wrkqAs = (principalRef: string): Promise<WorkClient> => {
@@ -369,7 +372,6 @@ export async function createTimelineStack(): Promise<TimelineStack> {
     return {
       root,
       hrc,
-      hrcStore,
       runtimeIds,
       projectRoot,
       wrkqDbPath,
@@ -468,17 +470,57 @@ export async function readHistory(
 
 // ── HRC seeding ─────────────────────────────────────────────────────────────
 
-export function insertHrcSession(stack: TimelineStack, record: HrcSessionRecord): void {
+export type HrcHistorySeed = Omit<
+  HrcLifecycleEvent,
+  'identity' | 'hrcSeq' | 'streamSeq' | 'replayed'
+> & { replayed?: boolean }
+
+function openSeedDatabase(stack: TimelineStack): Database {
   if (stack.hrc.running) throw new Error('HRC seeding requires a stopped daemon')
-  const db = stack.hrcStore.openHrcDatabase(join(stack.hrc.stateRoot, 'state.sqlite'))
+  const db = new Database(stack.hrc.databasePath, { strict: true })
+  db.exec('PRAGMA foreign_keys = ON')
+  return db
+}
+
+export function insertHrcSession(stack: TimelineStack, record: HrcSessionRecord): void {
+  const db = openSeedDatabase(stack)
   try {
-    db.sessions.insert(record)
-    db.continuities.upsert({
-      scopeRef: record.scopeRef,
-      laneRef: record.laneRef,
-      activeHostSessionId: record.hostSessionId,
-      updatedAt: record.updatedAt,
-    })
+    const identity = parseScopeRef(record.scopeRef)
+    db.transaction(() => {
+      db.query(`INSERT INTO sessions(
+        host_session_id,scope_ref,lane_ref,generation,status,prior_host_session_id,
+        created_at,updated_at,last_applied_intent_json,continuation_json
+      ) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+        record.hostSessionId,
+        record.scopeRef,
+        record.laneRef,
+        record.generation,
+        record.status,
+        record.priorHostSessionId ?? null,
+        record.createdAt,
+        record.updatedAt,
+        record.lastAppliedIntentJson === undefined
+          ? null
+          : JSON.stringify(record.lastAppliedIntentJson),
+        record.continuation === undefined ? null : JSON.stringify(record.continuation)
+      )
+      db.query(`INSERT INTO continuities(
+        scope_ref,lane_ref,active_host_session_id,updated_at,scope_kind,agent_id,
+        project_id,task_id,role_name
+      ) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(scope_ref,lane_ref) DO UPDATE SET
+        active_host_session_id=excluded.active_host_session_id,updated_at=excluded.updated_at
+      `).run(
+        record.scopeRef,
+        record.laneRef,
+        record.hostSessionId,
+        record.updatedAt,
+        identity.kind,
+        identity.agentId,
+        'projectId' in identity ? identity.projectId : null,
+        'taskId' in identity ? identity.taskId : null,
+        'roleName' in identity ? identity.roleName : null
+      )
+    })()
   } finally {
     db.close()
   }
@@ -491,13 +533,13 @@ export function insertHrcSession(stack: TimelineStack, record: HrcSessionRecord)
  */
 export async function replaceHrcLedgerIncarnation(stack: TimelineStack): Promise<string> {
   await stack.hrc.stop()
-  const db = stack.hrcStore.openHrcDatabase(join(stack.hrc.stateRoot, 'state.sqlite'))
+  const db = openSeedDatabase(stack)
   try {
     const replacement = `replaced${Date.now().toString(16)}`
-    db.sqlite
-      .query('UPDATE hrc_event_ledger_metadata SET ledger_incarnation_id = ? WHERE id = 1')
-      .run(replacement)
-    return db.hrcEvents.ledgerIncarnationId()
+    db.query('UPDATE hrc_event_ledger_metadata SET ledger_incarnation_id = ? WHERE id = 1').run(
+      replacement
+    )
+    return replacement
   } finally {
     db.close()
     await stack.hrc.start()
@@ -518,20 +560,62 @@ export function replaceCollaborationLedgerIncarnation(stack: TimelineStack): str
 }
 
 /**
- * Append history through the real lifecycle-event repository — the same append
- * the daemon itself calls, before the daemon starts. Native has exclusive write
- * ownership once it is running; history is read through its normal API afterwards.
+ * Mirror crates/hrc-store/src/lib.rs::append_event: reserve stream_seq, insert
+ * every native EventWrite column, and let SQLite allocate hrc_seq and run its
+ * session-index triggers. Native append maintains no event hash. The caller's
+ * transaction covers cursor reservation and insertion together.
  */
 export function appendHrcHistory(
   stack: TimelineStack,
-  events: readonly HrcLifecycleEventInput[]
+  events: readonly HrcHistorySeed[]
 ): HrcLifecycleEvent[] {
-  if (stack.hrc.running) throw new Error('HRC seeding requires a stopped daemon')
-  const db = stack.hrcStore.openHrcDatabase(join(stack.hrc.stateRoot, 'state.sqlite'))
+  const db = openSeedDatabase(stack)
   try {
-    const appended: HrcLifecycleEvent[] = []
-    for (const event of events) appended.push(db.hrcEvents.append(event))
-    return appended
+    const reserve = db.query<{ seq: number }, []>(
+      'UPDATE event_stream_cursor SET next_seq=next_seq+1 WHERE id=1 RETURNING next_seq-1 AS seq'
+    )
+    const insert = db.query(`INSERT INTO hrc_events(
+      stream_seq,ts,host_session_id,scope_ref,lane_ref,generation,runtime_id,run_id,
+      launch_id,app_id,app_session_key,category,event_kind,transport,error_code,
+      replayed,evidence_origin,source_ref,origin_seq,payload_json
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    return db.transaction(() =>
+      events.map((event) => {
+        const reserved = reserve.get()
+        if (!reserved) throw new Error('missing native event stream cursor')
+        const payload = JSON.stringify(event.payload)
+        if (payload === undefined) throw new Error('HRC seed payload must be JSON')
+        const replayed = event.replayed ?? false
+        const result = insert.run(
+          reserved.seq,
+          event.ts,
+          event.hostSessionId,
+          event.scopeRef,
+          event.laneRef,
+          event.generation,
+          event.runtimeId ?? null,
+          event.runId ?? null,
+          event.launchId ?? null,
+          event.appId ?? null,
+          event.appSessionKey ?? null,
+          event.category,
+          event.eventKind,
+          event.transport ?? null,
+          event.errorCode ?? null,
+          replayed ? 1 : 0,
+          event.evidenceOrigin ?? null,
+          event.sourceRef ?? null,
+          event.originSeq ?? null,
+          payload
+        )
+        return {
+          ...event,
+          hrcSeq: Number(result.lastInsertRowid),
+          streamSeq: reserved.seq,
+          replayed,
+        }
+      })
+    )()
   } finally {
     db.close()
   }

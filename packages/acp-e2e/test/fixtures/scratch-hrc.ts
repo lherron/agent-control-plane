@@ -2,7 +2,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, existsSync, openSync, readFileSync, realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import { HrcClient } from 'hrc-sdk'
 
@@ -92,24 +92,6 @@ export function assertScratchHrcPaths(
   ) {
     throw new Error('refusing to use production HRC support paths for the ACPS E2E suite')
   }
-}
-
-// Init and timeline seeding must use the same store implementation as rusthrc.
-// ACP's dependency remains for types; its schema pin trails the installed release.
-export async function loadInstalledHrcStore(): Promise<typeof import('hrc-store-sqlite')> {
-  const binaryPath = realpathSync(ownerBinary('hrc'))
-  if (!binaryPath.endsWith('/rusthrc')) throw new Error(`expected installed rusthrc: ${binaryPath}`)
-  const storePackage = join(dirname(dirname(binaryPath)), 'packages/hrc-store-sqlite/dist/index.js')
-  if (!existsSync(storePackage))
-    throw new Error(`installed rusthrc release ships no ${storePackage}`)
-  return import(storePackage)
-}
-
-// Temporary until the installed native daemon owns migration. No new Bun process
-// or dotenv loading: import the release module directly into the suite.
-async function provisionHrcStore(databasePath: string): Promise<void> {
-  const { openHrcDatabase } = await loadInstalledHrcStore()
-  openHrcDatabase(databasePath).close()
 }
 
 export async function createScratchHrcDaemon(
@@ -241,7 +223,6 @@ export async function createScratchHrcDaemon(
       env,
       timeout: 30_000,
     })
-    await provisionHrcStore(databasePath)
     if (options.start !== false) await start()
   } catch (error) {
     try {

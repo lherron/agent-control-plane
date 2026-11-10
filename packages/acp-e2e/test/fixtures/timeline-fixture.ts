@@ -17,7 +17,7 @@
  * by calling the code under test.
  */
 
-import type { HrcLifecycleEventInput } from 'hrc-store-sqlite'
+import type { HrcHistorySeed } from './timeline-stack.js'
 
 export const TIMELINE_AGENT_ID = 'tlagent'
 export const TIMELINE_PROJECT_ID = 'tlproj'
@@ -52,7 +52,7 @@ export const INTERLEAVE_COUNT = 140
  */
 export type HrcSeedSpec = {
   label: string
-  event: HrcLifecycleEventInput
+  event: HrcHistorySeed
   projects: boolean
   /** Declared expected logical frame id; only meaningful when `projects`. */
   logicalFrameId?: string | undefined
@@ -69,11 +69,11 @@ function iso(ms: number): string {
 
 function targetEvent(
   eventKind: string,
-  category: HrcLifecycleEventInput['category'],
+  category: HrcHistorySeed['category'],
   ts: string,
   payload: unknown,
-  extra: Partial<HrcLifecycleEventInput> = {}
-): HrcLifecycleEventInput {
+  extra: Partial<HrcHistorySeed> = {}
+): HrcHistorySeed {
   return {
     ts,
     hostSessionId: TIMELINE_HOST_SESSION_ID,
