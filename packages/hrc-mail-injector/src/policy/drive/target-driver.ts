@@ -692,6 +692,10 @@ export async function driveMailTargetOnce(
       summary.refused++
       continue
     }
+    if (outcome === 'terminalized') {
+      summary.terminalized++
+      continue
+    }
     if (outcome === 'skipped') {
       summary.skipped++
       continue
@@ -729,6 +733,7 @@ export async function driveMailTargetOnce(
       return { outcome: 'refused' as const, members: digest.length }
     })
     if (outcome === 'submitted') summary.admitted += members
+    else if (outcome === 'terminalized') summary.terminalized += members
     else if (outcome === 'refused') summary.refused += digest.length
     else summary.skipped += digest.length
   }

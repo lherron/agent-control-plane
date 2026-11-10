@@ -33,6 +33,7 @@ import { KICKER_SUBMISSION_TTL_MS, errorText, parseSessionRef } from '../interna
 import { formatBacklogDigest, formatEnvelopePresentations } from '../ledger/presentation.js'
 import type { EnvelopePresentationForm, PresentableEnvelope } from '../ledger/presentation.js'
 import type { WrkqEnvelope } from '../ledger/types.js'
+import { failEnvelopeWithAudit } from '../terminal/envelope-terminal.js'
 import { presentationRuntimeIdFor } from './authority.js'
 import { digestPresentationId } from './digest-group.js'
 import { landLaunchIfStarted, recordSteerFallback, steerRefusalFallback } from './landing.js'
@@ -40,7 +41,7 @@ import type { ActionableEnvelope } from './presentation.js'
 import { actionableDirectives, senderGenerationFor } from './presentation.js'
 import type { ObservedBrokerSeat } from './seat.js'
 
-export type DeliveryOutcome = 'submitted' | 'refused' | 'skipped'
+export type DeliveryOutcome = 'submitted' | 'refused' | 'skipped' | 'terminalized'
 
 /**
  * A compile rejection (ASP `compile-not-ok`) or an HRC admission refusal of a
@@ -70,8 +71,47 @@ function isDefiniteDispatchRejection(error: unknown): error is HrcDomainError {
     error instanceof HrcDomainError &&
     (error.code === HrcErrorCode.PRESENTATION_CONFLICT ||
       isDefinitePreLaunchRejection(error) ||
-      isRetiredHostRejection(error))
+      isRetiredHostRejection(error) ||
+      isLaunchCwdMissing(error))
   )
+}
+
+/**
+ * HRC refused to launch or resume into a working directory that is gone — a
+ * finished task's removed worktree (hrc-runtime T-12976: 422 `cwd_missing`,
+ * detail `{cwd, hostSessionId, scopeRef, retryable: false}`). It refuses before
+ * preparing a start, so nothing was written, and nothing about the target
+ * changes between sweeps: the mail fails once, naming the path (T-12977).
+ */
+export function isLaunchCwdMissing(error: unknown): error is HrcDomainError {
+  return error instanceof HrcDomainError && (error.code as string) === 'cwd_missing'
+}
+
+/** Fail mail a `cwd_missing` refusal can never deliver: once, with HRC's words. */
+async function failForMissingCwd(
+  server: MailKickerContext,
+  targetSessionRef: string,
+  envelopeIds: readonly string[],
+  error: HrcDomainError,
+  wakeReason: HrcMailDriveWakeReason
+): Promise<void> {
+  server.log('WARN', 'wrkq.kicker.launch_cwd_missing', {
+    targetSessionRef,
+    wakeReason,
+    envelopes: [...envelopeIds],
+    cwd: error.detail['cwd'],
+    message: error.message,
+  })
+  for (const envelope of envelopeIds) {
+    server.store.mailDelivery.clearIntent(envelope)
+    await failEnvelopeWithAudit(server, {
+      envelope,
+      reason: 'undeliverable',
+      detail: `cwd_missing: ${error.message}`,
+      targetSessionRef,
+      callSite: 'launch_cwd_missing',
+    })
+  }
 }
 
 /**
@@ -340,6 +380,10 @@ export async function deliverToSeat(
       submissionOrigin: originFor(item),
     })
   } catch (error) {
+    if (isLaunchCwdMissing(error)) {
+      await failForMissingCwd(server, targetSessionRef, [item.envelope.id], error, wakeReason)
+      return 'terminalized'
+    }
     // D2: a positively unwritten refusal leaves the envelope pending for the
     // next ordinary drive. Do not self-wake a persistent conflict into a loop.
     // A lost RPC response remains uncertain: the broker may have written.
@@ -564,6 +608,10 @@ export async function deliverDigestToSeat(
       submissionOrigin: originFor({ envelope: leader }),
     })
   } catch (error) {
+    if (isLaunchCwdMissing(error)) {
+      await failForMissingCwd(server, targetSessionRef, members, error, wakeReason)
+      return { outcome: 'terminalized', members: members.length }
+    }
     if (isDefiniteDispatchRejection(error)) clearAll()
     else uncertainAll('dispatch_error', 'dispatch_error')
     server.log('WARN', 'wrkq.kicker.delivery_failed', {

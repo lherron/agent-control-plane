@@ -188,6 +188,10 @@ export function deterministicBirthRefusalFor(
   error: unknown
 ): DeterministicBirthRefusal | undefined {
   if (!(error instanceof HrcDomainError)) return undefined
+  // T-12977: a birth into a removed worktree (422 `cwd_missing`, T-12976) is
+  // equally fixed by nothing a sweep can change; HRC's message names the path.
+  if ((error.code as string) === 'cwd_missing')
+    return { code: 'cwd_missing', message: error.message }
   if (error.code !== HrcErrorCode.DECLARATION_INVALID) return undefined
   if (localPlacementRefusalFor(error) !== undefined) return undefined
   const source = error.detail['source']

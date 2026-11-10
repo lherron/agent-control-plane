@@ -14,6 +14,7 @@ export type EnvelopeFailCallSite =
   | 'non_landing_strikes_exhausted'
   | 'lapsed_obligations'
   | 'target_task_terminal'
+  | 'launch_cwd_missing'
 
 type EnvelopeFailInput = {
   envelope: string
@@ -104,11 +105,13 @@ export async function failEnvelopeWithAudit(
   // suppressing on liveness would suppress the only case the bound exists for.
   // `target_task_terminal` rests on the task's state, not on the seat's: a
   // finished task's fyi is closed whether or not a runtime row lingers.
+  // `launch_cwd_missing` is HRC's own positive refusal to start the seat.
   if (
     input.reason === 'undeliverable' &&
     input.callSite !== 'non_landing_strikes_exhausted' &&
     input.callSite !== 'launch_birth_exhausted' &&
-    input.callSite !== 'target_task_terminal'
+    input.callSite !== 'target_task_terminal' &&
+    input.callSite !== 'launch_cwd_missing'
   ) {
     const live = await liveRuntimeForTarget(server, input.targetSessionRef)
     if (live !== undefined) {
