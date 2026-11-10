@@ -147,3 +147,9 @@ EN-50915 reconstruction input ruling: a ready watch's missing scope is known
 absence; an unready history is `history_cold`. Missing home evidence may use
 the same existing locate GET, labelled before/after admission with timestamp
 proof recorded. No reconstruction preempt-admission probe is permitted.
+
+EN-50935 permits a later ordinary seat probe only for the same runtime,
+generation and invocation proven active before admission. Capability classes
+are invocation declarations, independent of idle/active state; as-of seat state
+still comes from history. Cold proof may use an earlier anonymous broker record
+and must retain its seq/time; unavailable or changed identity stays a named gap.

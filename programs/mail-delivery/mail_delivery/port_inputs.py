@@ -175,6 +175,7 @@ class PortInputs:
             if key not in self.cache:
                 self.alive()
                 self.cache[key] = self.hrc.runtimes(hostSessionId=session['hostSessionId'], all='true')
+                self.cache_read_at[key] = int(time.time()*1000)
             candidates = [r for r in self.cache[key]
                 if r.get('generation') == session['generation'] and
                 r.get('controllerKind') == 'harness-broker' and 'activeInvocationId' in r and
@@ -314,10 +315,61 @@ class PortInputs:
         envelope = Envelope(id=mail['id'], obligation=detail.get('obligation', mail.get('obligation')),
             delivery=detail.get('delivery'), created_at=ms(detail.get('createdAt', mail.get('createdAt'))), kind='envelope')
         return self.first_delivery(mail, detail, store, envelope, Seat(), Runtime(), now,
-            history=history, admission=admission, allow_home_read=True)
+            history=history, admission=admission, allow_home_read=True, allow_capability_read=True)
 
-    def first_delivery(self, mail, detail, store, envelope, seat, runtime, now, *, history=None, admission=None, allow_home_read=False):
-        """Historical facts, with only the explicitly allowed missing-home GET."""
+    def late_capability(self, identifier, scope, at, history, raw, raw_read_at, intent):
+        """A later capability read needs proof of the same admitted invocation."""
+        entry = history.as_of('runtime', identifier, at) if history is not None else None
+        prior = entry['payload'] if entry else raw if raw_read_at is not None and raw_read_at <= at else {}
+        generation = prior.get('generation')
+        expected = prior.get('activeInvocationId')
+        proof_source = 'runtime_history' if entry else 'ordinary_read'
+        if expected is None and raw_read_at is not None and raw_read_at <= at:
+            expected = raw.get('activeInvocationId')
+            generation = generation if generation is not None else raw.get('generation')
+            proof_source = 'ordinary_read'
+        if generation is None and intent.get('runtime_id') == identifier and ms(intent.get('submitted_at')) == at:
+            generation = intent.get('generation')
+        if history is not None:
+            current = history.rows['seat'].get(scope, [])
+            if current and (current[-1]['payload'] or {}).get('activeRuntimeId') != identifier:
+                return None, None, 'first_delivery.runtime_replaced'
+        try:
+            probe = self.get('/v1/runtimes/' + str(identifier) + '/seat')
+        except HrcError as error:
+            if error.status == 404 or error.payload.get('error', {}).get('code') in ('invalid_selector', 'invalid_fence'):
+                return None, None, 'first_delivery.runtime_replaced'
+            raise
+        if probe.get('runtimeId') != identifier or (generation is not None and probe.get('generation') != generation):
+            return None, None, 'first_delivery.runtime_replaced'
+        if generation is None:
+            return None, None, 'first_delivery.runtime_generation_at_admission'
+        invocation = probe.get('invocationId')
+        proof = dict(runtime_id=identifier, generation=generation, invocation_id=invocation,
+                     source=proof_source, seq=None, time=None)
+        if not invocation or (expected is not None and invocation != expected):
+            return None, proof, 'first_delivery.invocation_at_admission'
+        if expected is None:
+            proof['source'] = 'broker_record'
+            try:
+                rows = self.get('/v1/broker-events', runtimeId=identifier, invocationId=invocation,
+                    generation=generation, afterSeq=0, follow='false')
+            except HrcError as error:
+                proof['poll_error'] = dict(status=error.status, code=error.payload.get('error', {}).get('code'))
+                return None, proof, 'first_delivery.invocation_at_admission'
+            witness = next((r for r in rows if r.get('invocationId') == invocation and
+                r.get('seq') is not None and ms(r.get('time')) is not None and ms(r['time']) < at), None)
+            proof.update(records_returned=len(rows), first_record=(
+                {key: rows[0].get(key) for key in ('seq', 'time', 'invocationId')} if rows else None))
+            if witness is None:
+                return None, proof, 'first_delivery.invocation_at_admission'
+            proof.update(seq=witness['seq'], time=witness['time'])
+        if not isinstance(probe.get('admissionClasses'), list):
+            return None, proof, 'first_delivery.steer_capable'
+        return 'steer' in probe['admissionClasses'], proof, None
+
+    def first_delivery(self, mail, detail, store, envelope, seat, runtime, now, *, history=None, admission=None, allow_home_read=False, allow_capability_read=False):
+        """Historical state with explicitly permitted home/capability GETs."""
         diagnostic = store.get('diagnostic')
         deliveries = self.memos.deliveries
         if admission is None:
@@ -341,6 +393,9 @@ class PortInputs:
         cache = {k:v[1] for k,v in self.retained_cache.items()} | self.cache
         raw = next((r for key, rows in cache.items() if key[0] == 'runtimes'
                     for r in rows if r.get('runtimeId') == identifier), {})
+        raw_key = next((key for key, rows in cache.items() if key[0] == 'runtimes' and
+                       any(r.get('runtimeId') == identifier for r in rows)), None)
+        raw_read_at = self.cache_read_at.get(raw_key, (self.retained_cache.get(raw_key) or (None,))[0])
         probe = cache.get(('/v1/runtimes/' + str(identifier) + '/seat', ()), {})
         home_key = ('/v1/federation/locate', (('scopeRef', mail['to']['scopeRef']),))
         location = cache.get(home_key, {})
@@ -414,12 +469,21 @@ class PortInputs:
                            ms(intent.get('submitted_at')) <= at)
         if invocation is not None and (matching_intent or historical_probe):
             own = 'steer' in (probe.get('admissionClasses') or [])
+        capability_proof = None
+        capability_gap = None
+        late_probe = False
+        if own is None and state in ('idle', 'turn-active') and allow_capability_read:
+            own, capability_proof, capability_gap = self.late_capability(identifier, mail['to']['scopeRef'],
+                at, history, raw, raw_read_at, intent)
+            late_probe = own is not None
         source = 'port_probe' if own is not None else 'injector_log' if isinstance(logged_capability, bool) else 'unavailable'
+        if late_probe:
+            source = 'port_probe_after_admission'
         capable = own if own is not None else logged_capability if isinstance(logged_capability, bool) else None
         if state not in ('idle', 'turn-active'):
             source = 'not_needed'
         elif capable is None:
-            missing.append('first_delivery.steer_capable')
+            missing.append(capability_gap or 'first_delivery.steer_capable')
         if state == 'absent' and not absence_known and 'history_cold' not in missing:
             missing.append('first_delivery.session_exists_at_admission')
         form = data.get('form')
@@ -478,6 +542,7 @@ class PortInputs:
             home_source=home_source, home_read_at=read_at, home_binding_predates_admission=home_proven,
             home_binding_changed_at=changed,
             capability_source=source, port_capability=own, injector_capability=logged_capability,
+            capability_proof=capability_proof,
             capability_differed=own is not None and isinstance(logged_capability, bool) and own != logged_capability,
             decision=asdict(decision), missing_fields=missing,
             inputs=dict(envelope=asdict(reconstructed), seat=asdict(observed), runtime=asdict(context)))

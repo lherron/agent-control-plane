@@ -169,3 +169,15 @@ the change, every moved envelope class, departures from `differed_defect`, and
 headline changes; an unchanged result says so. `--previous-score <JSON>`
 compares a separately named earlier report; `--scorer-change` supplies the
 one-line explanation (otherwise the scorer commit subject is used).
+
+EN-50930/50935: when no usable capability probe exists, reconstruction may
+read the ordinary allowlisted runtime seat route, labelled
+`port_probe_after_admission`. It checks runtime and generation, then proves
+that invocation was active at admission using as-of history or an earlier
+ordinary runtime read. For a cold invocation only, the existing anonymous
+broker-event GET from seq zero may prove it existed before admission; the
+comparison records the proving seq/time. No consumer or cursor is declared.
+A different invocation or missing pre-admission proof remains
+`first_delivery.invocation_at_admission`; runtime replacement remains explicit.
+The later probe supplies only frozen invocation capabilities, never past seat
+state. Null later classes stay unknown.

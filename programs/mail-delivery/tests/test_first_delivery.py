@@ -154,7 +154,7 @@ class FirstDelivery(TestCase):
         h.record('runtime',dict(runtimeId='rt-1',status='ready'),at)
         admission=self.memos.deliveries.first_admission('EN-1')
         value=self.port.first_from_intent(self.mail,self.detail,self.store,admission,h,self.now)
-        self.assertEqual(self.calls,['/v1/federation/locate'])
+        self.assertEqual(self.calls,['/v1/federation/locate','/v1/runtimes/rt-1/seat'])
         self.assertEqual(value['home_source'],'read_after_admission')
         self.assertTrue(value['home_binding_predates_admission'])
         self.assertNotIn('first_delivery.home_at_admission',value['missing_fields'])
@@ -192,10 +192,101 @@ class FirstDelivery(TestCase):
         value=self.port.first_from_intent(self.mail,dict(self.detail,delivery='hold'),self.store,admission,WatchHistory(),self.now)
         self.assertIn('history_cold',value['missing_fields'])
         self.assertIn('first_delivery.preempt_admission_at_admission',value['missing_fields'])
-        self.assertEqual(self.calls,['/v1/federation/locate'])
+        self.assertEqual(self.calls,['/v1/federation/locate','/v1/runtimes/rt-1/seat'])
 
     def test_unready_absent_scope_reports_history_cold_as_the_root_gap(self):
         from mail_delivery.shadow import WatchHistory
         self.store['diagnostic']['observed_seat_state']='absent'
         value=self.port.first_from_intent(self.mail,self.detail,self.store,self.memos.deliveries.first_admission('EN-1'),WatchHistory(),self.now)
         self.assertEqual(value['missing_fields'],['history_cold'])
+
+    def late_probe_setup(self, *, history_invocation='inv', probe_invocation='inv', generation=2, events=None):
+        from mail_delivery.shadow import WatchHistory
+        h=WatchHistory();at=ms('2026-11-10T12:00:00Z')
+        payload=dict(runtimeId='rt-1',status='ready',generation=2)
+        if history_invocation is not None:payload['activeInvocationId']=history_invocation
+        h.record('seat',dict(scopeRef=TARGET,activeRuntimeId='rt-1'),at)
+        h.record('runtime',payload,at)
+        self.store['intent']=None
+        self.memos.deliveries.intents['EN-1'][0]['row']['data'].pop('steerCapable',None)
+        old=self.port.hrc.get
+        def get(route,**params):
+            if route=='/v1/broker-events':
+                self.calls.append(route)
+                self.assertEqual(params['afterSeq'],0)
+                self.assertEqual(params['follow'],'false')
+                self.assertNotIn('consumer',params)
+                return events or []
+            value=old(route,**params)
+            if route=='/v1/runtimes/rt-1/seat':
+                value=dict(value,runtimeId='rt-1',invocationId=probe_invocation,generation=generation)
+            return value
+        self.port.hrc.get=get
+        return h
+
+    def test_late_probe_uses_asof_invocation_and_generation_without_broker_replay(self):
+        h=self.late_probe_setup()
+        value=self.port.first_from_intent(self.mail,dict(self.detail,state='acked'),self.store,self.memos.deliveries.first_admission('EN-1'),h,self.now)
+        self.assertEqual(value['decision']['action'],'steer')
+        self.assertEqual(value['capability_source'],'port_probe_after_admission')
+        self.assertEqual(value['capability_proof']['source'],'runtime_history')
+        self.assertNotIn('/v1/broker-events',self.calls)
+
+    def test_late_probe_cold_invocation_is_proven_by_anonymous_broker_record(self):
+        h=self.late_probe_setup(history_invocation=None,events=[dict(invocationId='inv',seq=1,time='2026-11-10T11:00:00Z')])
+        value=self.port.first_from_intent(self.mail,self.detail,self.store,self.memos.deliveries.first_admission('EN-1'),h,self.now)
+        self.assertEqual(value['decision']['action'],'steer')
+        self.assertEqual(value['capability_source'],'port_probe_after_admission')
+        self.assertEqual(value['capability_proof']['seq'],1)
+        self.assertEqual(value['capability_proof']['time'],'2026-11-10T11:00:00Z')
+
+    def test_late_probe_rejects_same_runtime_generation_with_a_different_invocation(self):
+        h=self.late_probe_setup(probe_invocation='inv-replacement',events=[dict(invocationId='inv-replacement',seq=1,time='2026-11-10T11:00:00Z')])
+        value=self.port.first_from_intent(self.mail,self.detail,self.store,self.memos.deliveries.first_admission('EN-1'),h,self.now)
+        self.assertEqual(value['decision']['action'],'cannot_decide')
+        self.assertIn('first_delivery.invocation_at_admission',value['missing_fields'])
+
+    def test_late_probe_rejects_replaced_generation(self):
+        h=self.late_probe_setup(generation=3)
+        value=self.port.first_from_intent(self.mail,self.detail,self.store,self.memos.deliveries.first_admission('EN-1'),h,self.now)
+        self.assertEqual(value['decision']['action'],'cannot_decide')
+        self.assertIn('first_delivery.runtime_replaced',value['missing_fields'])
+
+    def test_late_probe_without_an_earlier_broker_record_keeps_named_gap(self):
+        for rows in ([],[dict(invocationId='inv',seq=1,time='2026-11-10T12:00:02Z')],
+                     [dict(invocationId='other',seq=1,time='2026-11-10T11:00:00Z')]):
+            with self.subTest(rows=rows):
+                self.setUp();h=self.late_probe_setup(history_invocation=None,events=rows)
+                value=self.port.first_from_intent(self.mail,self.detail,self.store,self.memos.deliveries.first_admission('EN-1'),h,self.now)
+                self.assertIn('first_delivery.invocation_at_admission',value['missing_fields'])
+                self.assertEqual(value['decision']['action'],'cannot_decide')
+
+    def test_late_probe_prefers_an_ordinary_read_from_before_admission(self):
+        h=self.late_probe_setup(history_invocation=None)
+        key=('runtimes','hsid-1')
+        self.port.cache[key]=[dict(runtimeId='rt-1',generation=2,activeInvocationId='inv')]
+        self.port.cache_read_at[key]=ms('2026-11-10T12:00:00Z')
+        value=self.port.first_from_intent(self.mail,self.detail,self.store,self.memos.deliveries.first_admission('EN-1'),h,self.now)
+        self.assertEqual(value['decision']['action'],'steer')
+        self.assertEqual(value['capability_proof']['source'],'ordinary_read')
+        self.assertNotIn('/v1/broker-events',self.calls)
+
+    def test_late_probe_null_classes_are_unknown_instead_of_a_historical_false(self):
+        h=self.late_probe_setup()
+        old=self.port.hrc.get
+        self.port.hrc.get=lambda route,**params: dict(old(route,**params),admissionClasses=None) if route.endswith('/seat') else old(route,**params)
+        value=self.port.first_from_intent(self.mail,self.detail,self.store,self.memos.deliveries.first_admission('EN-1'),h,self.now)
+        self.assertIn('first_delivery.steer_capable',value['missing_fields'])
+        self.assertEqual(value['decision']['action'],'cannot_decide')
+
+    def test_anonymous_broker_retention_refusal_is_a_named_proof_gap(self):
+        from mail_delivery.hrc_read import HrcError
+        h=self.late_probe_setup(history_invocation=None)
+        old=self.port.hrc.get
+        def get(route,**params):
+            if route=='/v1/broker-events':raise HrcError(409,{'error':{'code':'cursor_expired'}})
+            return old(route,**params)
+        self.port.hrc.get=get
+        value=self.port.first_from_intent(self.mail,self.detail,self.store,self.memos.deliveries.first_admission('EN-1'),h,self.now)
+        self.assertIn('first_delivery.invocation_at_admission',value['missing_fields'])
+        self.assertEqual(value['capability_proof']['poll_error']['code'],'cursor_expired')
