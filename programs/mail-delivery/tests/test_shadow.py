@@ -216,3 +216,25 @@ class Dedup(TestCase):
         self.shadow.sweep(1794312002000, force=True)
         self.assertEqual(len(self.client.calls), 2)
         self.assertEqual([d['envelope_state'] for d in self.decisions()], ['pending', 'presented'])
+
+    def test_admission_trigger_compares_already_acked_mail_without_open_sweep(self):
+        from mail_delivery.memos import Memos
+        from mail_delivery.port_inputs import ms
+        memos=Memos()
+        memos.accept(dict(event='mail_injector.started',ts='2026-11-10T11:00:00Z'))
+        memos.accept(dict(event='wrkq.kicker.delivery_intent',ts='2026-11-10T12:00:01Z',data=dict(envelope='EN-1',runtimeId='rt-1',door='steer')))
+        memos.accept(dict(event='wrkq.kicker.delivery_admitted',ts='2026-11-10T12:00:02Z',data=dict(envelope='EN-1',runtimeId='rt-1',door='steer')))
+        self.shadow.started_at=ms('2026-11-10T12:00:00Z')
+        self.shadow.source.memos=memos
+        calls=[]
+        def reconstruct(mail,detail,store,admission,history,now):
+            calls.append(mail['id'])
+            return dict(basis='reconstructed',at=admission['at'],runtime_id='rt-1',capability_source='port_probe',
+                decision=dict(action='steer',reason='steer_capable'),missing_fields=[])
+        self.shadow.source.first_from_intent=reconstruct
+        self.shadow.apply('room.mail',change(row('mail-1',**dict(self.mail['payload'],state='acked')),reset=True))
+        self.shadow.process_first_deliveries(ms('2026-11-10T12:00:03Z'))
+        self.shadow.process_first_deliveries(ms('2026-11-10T12:00:04Z'))
+        self.assertEqual(calls,['EN-1'])
+        self.assertEqual(len([r for e,r in self.client.logs if e=='shadow.first_delivery']),1)
+        self.assertEqual(self.decisions(),[])

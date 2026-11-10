@@ -208,7 +208,7 @@ def first_delivery_comparison(identifier, observations, deliveries, required=Fal
         return dict(base, classification='cannot_decide', cannot_decide_kind='shadow_input_gap',
                     missing_field='first_delivery.snapshot_missing')
     reconstructed = snapshot.get('basis') == 'reconstructed'
-    chosen = admission['intent'] if reconstructed and admission else intent
+    chosen = admission['intent'] if admission else intent
     if reconstructed and (admission is None or snapshot.get('runtime_id') != admission['runtime_id']
                           or snapshot['at'] != admission['at']):
         return dict(base, classification='cannot_decide', cannot_decide_kind='injector_evidence_unmapped',
@@ -280,7 +280,7 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
                         data['cohort'] = ('new' if appeared[:10] == day else 'backlog') if appeared else 'unknown'
                         failures.append(data)
                     continue
-                if row['event'] != 'shadow.decision':
+                if row['event'] not in ('shadow.decision', 'shadow.first_delivery'):
                     data = row.get('data', {})
                     actor = data.get('actor') or data.get('principalRef')
                     # wrkq maintenance on envelope.show is not a shadow write.
@@ -296,7 +296,7 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
             _decision(row['decision'])
             _difference(row)
             epoch_ms(row['appeared_at'])
-            observations += 1
+            observations += not row.get('comparison_only', False)
             missing_fields.update(row.get('missing_fields', []))
             if row['decision'].get('missing_fact'):
                 missing_fields.add(row['decision']['missing_fact'])
@@ -330,12 +330,14 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
             observation_scores = []
             ordered = sorted(history[identifier], key=lambda r: epoch_ms(r['decided_at']))
             for index, observation in enumerate(ordered):
+                if observation.get('comparison_only'):
+                    continue
                 next_state = next((other.get('envelope_state_at') for other in ordered[index + 1:]
-                    if other.get('envelope_state') != observation.get('envelope_state')), None)
+                    if not other.get('comparison_only') and other.get('envelope_state') != observation.get('envelope_state')), None)
                 scored = comparison(observation, intent, diagnostic,
                     _evidence(connection, identifier, epoch_ms(observation['decided_at']), log_evidence)[2],
                     log_evidence, next_state, cutoff=end,
-                    observation_until=ordered[index + 1]['decided_at'] if index + 1 < len(ordered) else None)
+                    observation_until=next((r['decided_at'] for r in ordered[index+1:] if not r.get('comparison_only')), None))
                 observation_scores.append(dict(decided_at=observation['decided_at'],
                     decision=observation['decision'], **scored))
             cohort = 'new' if start <= datetime.fromisoformat(shadow['appeared_at'].replace('Z', '+00:00')) < start + timedelta(days=1) else 'backlog'
@@ -418,8 +420,11 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
         'gate': gate,
         'agreed_by_inaction_observations': sum(o['classification'] == 'agreed_by_inaction' for r in rows for o in r['observation_scores']),
         'compared_agreement_observations': sum(o['classification'] == 'agreed' for r in rows for o in r['observation_scores'] if o.get('comparison_kind') != 'first_delivery'),
+        'first_delivery_missing_fact_counts': dict(Counter(field for r in new_rows
+            for field in set(((r['first_delivery_comparison'] or {}).get('shadow_snapshot') or {}).get('missing_fields', [])))),
         'first_delivery_field_observations': sum(bool(r.get('first_delivery')) for records in history.values() for r in records),
         'day': day, 'timezone': 'UTC', 'shadow_observations': observations,
+        'first_delivery_events': sum(r.get('comparison_only', False) for records in history.values() for r in records),
         'envelopes': len(rows), 'counts': dict(sorted(Counter(r['classification'] for r in rows).items())),
         'counts_by_cohort': {cohort: dict(Counter(r['classification'] for r in rows if r['cohort'] == cohort))
                              for cohort in ('new', 'backlog')},
@@ -468,6 +473,7 @@ def write_report(report: dict, out: Path | str) -> tuple[Path, Path]:
              f"New left uncompared: {gate['new_uncompared']}/{gate['new_envelopes']} ({gate['new_uncompared_share']:.1%}).", '',
              'Compared capability sources: ' + json.dumps(gate['capability_sources'], sort_keys=True), '',
              'Capability derivation differences: ' + (', '.join(gate['capability_differences']) or 'none'), '',
+             'First-delivery missing facts (envelopes per named fact): ' + json.dumps(report['first_delivery_missing_fact_counts'], sort_keys=True), '',
              f"First-delivery fields recorded in this log window: {report['first_delivery_field_observations']}.", '',
 
              f"Inaction agreements: {report['agreed_by_inaction_observations']} observations; compared observation agreements: {report['compared_agreement_observations']} (first delivery counted separately above).", '',

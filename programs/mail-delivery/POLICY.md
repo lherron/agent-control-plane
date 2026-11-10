@@ -27,6 +27,8 @@ created that UTC day, with older backlog alongside. No full-body admission is
 compared to a presented/intent-held observation. Log-fed memo dependencies and
 broker movement are tagged. See README for exact reads and time windows.
 
+First-delivery reconstruction runs from injector admission evidence independently of open-envelope visibility, using bounded watch history for as-of runtime status and labelled already-read invocation proof for capability.
+
 The remaining text is the T-13192 source readback and input inventory:
 
 T-13192, read against the canonical injector source on 2026-11-10. This is the

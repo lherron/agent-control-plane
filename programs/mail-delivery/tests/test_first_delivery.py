@@ -95,3 +95,55 @@ class FirstDelivery(TestCase):
         value = self.reconstruct()
         self.assertEqual(value['capability_source'], 'port_probe')
         self.assertEqual(value['decision']['action'], 'steer')
+
+    def test_watch_history_uses_idle_status_before_own_delivery_changed_it(self):
+        from mail_delivery.shadow import WatchHistory
+        h=WatchHistory()
+        h.record('seat',dict(scopeRef=TARGET,activeRuntimeId='rt-1',node='max3'),ms('2026-11-10T12:00:00Z'))
+        h.record('runtime',dict(runtimeId='rt-1',status='ready'),ms('2026-11-10T12:00:00Z'))
+        h.record('runtime',dict(runtimeId='rt-1',status='busy'),ms('2026-11-10T12:00:02Z'))
+        original=self.port.hrc.runtimes
+        self.port.hrc.runtimes=lambda **p:[dict(r,status='busy',statusChangedAt='2026-11-10T12:00:02Z') for r in original(**p)]
+        e,s,r,_=self.port.gather(self.mail,self.detail,self.store,self.now)
+        value=self.port.first_delivery(self.mail,self.detail,self.store,e,s,r,self.now,history=h)
+        self.assertEqual(value['decision']['action'],'steer')
+        self.assertEqual(value['inputs']['runtime']['status'],'ready')
+        self.assertEqual(value['history']['runtime']['received_at'],ms('2026-11-10T12:00:00Z'))
+
+    def test_admission_reconstruction_uses_retained_reads_without_new_hrc_calls(self):
+        from mail_delivery.shadow import WatchHistory
+        h=WatchHistory()
+        h.record('seat',dict(scopeRef=TARGET,activeRuntimeId='rt-1',node='max3'),ms('2026-11-10T12:00:00Z'))
+        h.record('runtime',dict(runtimeId='rt-1',status='ready'),ms('2026-11-10T12:00:00Z'))
+        self.port.gather(self.mail,self.detail,self.store,self.now)
+        self.port.begin()
+        before=list(self.calls)
+        admission=self.memos.deliveries.first_admission('EN-1')
+        value=self.port.first_from_intent(dict(self.mail,state='acked'),dict(self.detail,state='acked'),self.store,admission,h,self.now)
+        self.assertEqual(self.calls,before)
+        self.assertEqual(value['decision']['action'],'steer')
+        self.assertEqual(value['history']['runtime']['received_at'],ms('2026-11-10T12:00:00Z'))
+
+    def test_missing_pre_admission_watch_history_is_named(self):
+        from mail_delivery.shadow import WatchHistory
+        e,s,r,_=self.port.gather(self.mail,self.detail,self.store,self.now)
+        value=self.port.first_delivery(self.mail,self.detail,self.store,e,s,r,self.now,history=WatchHistory())
+        self.assertEqual(value['decision']['action'],'cannot_decide')
+        self.assertIn('first_delivery.runtime_history_before_admission',value['missing_fields'])
+        self.assertIn('first_delivery.seat_history_before_admission',value['missing_fields'])
+
+    def test_later_intent_row_cannot_prove_first_invocation_capability(self):
+        self.store['intent']['submitted_at']='2026-11-10T12:00:02Z'
+        value=self.reconstruct()
+        self.assertEqual(value['capability_source'],'injector_log')
+
+    def test_proven_status_change_received_late_is_reported_as_watch_lag(self):
+        from mail_delivery.shadow import WatchHistory
+        h=WatchHistory()
+        h.record('seat',dict(scopeRef=TARGET,activeRuntimeId='rt-1'),ms('2026-11-10T12:00:00Z'))
+        h.record('runtime',dict(runtimeId='rt-1',status='awaiting_input',statusChangedAt='2026-11-10T11:59:59Z'),ms('2026-11-10T12:00:00Z'))
+        h.record('runtime',dict(runtimeId='rt-1',status='ready',statusChangedAt='2026-11-10T12:00:00.500Z'),ms('2026-11-10T12:00:02Z'))
+        e,s,r,_=self.port.gather(self.mail,self.detail,self.store,self.now)
+        value=self.port.first_delivery(self.mail,self.detail,self.store,e,s,r,self.now,history=h)
+        self.assertIn('first_delivery.runtime_watch_lag',value['missing_fields'])
+        self.assertEqual(value['history_status_lag_ms'],1500)

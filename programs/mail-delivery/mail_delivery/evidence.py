@@ -134,6 +134,7 @@ class InjectorEvidence:
                 action = self.action(row)
                 candidate = dict(at=row['ts'], action=action,
                     source='injector_log', label=row['event'], data=data,
+                    drive_started_at=min((r['ts'] for r in records), key=epoch_ms),
                     records=records, explicit=bool(identifiers))
                 # A completed multi-envelope drive says no per-envelope door;
                 # its delivery_intent records do. Do not spread one member's
@@ -200,6 +201,15 @@ class InjectorEvidence:
         comparable = []
         for candidate in candidates:
             at = epoch_ms(candidate['at'])
+            if candidate.get('drive_started_at') and epoch_ms(candidate['drive_started_at']) < begin:
+                continue  # a late completion belongs to its drive's starting state
+            if state == 'presented' and candidate.get('drive_started_at'):
+                # wrkq updatedAt is second-resolution. An explicit receipt
+                # inside that second is a stronger phase boundary.
+                receipts = [epoch_ms(r['ts']) for r in self.deliveries.presented.get(shadow['envelope_id'], [])
+                            if epoch_ms(r['ts']) <= decided]
+                if receipts and epoch_ms(candidate['drive_started_at']) < max(receipts):
+                    continue
             window = (t.LEDGER_SWEEP_TICKS if candidate['explicit'] else t.REMINDER_CHECK_TICKS) * 1000
             if not begin <= at < end or abs(at - decided) > window:
                 continue

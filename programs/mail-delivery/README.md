@@ -110,3 +110,23 @@ open evidence windows. Agreement requires a first-delivery or real first action
 comparison; inaction alone cannot establish a door match. Daily headers show
 new delivered, compared-and-agreed, uncompared count/share and named causes,
 plus capability-source counts. The report never awards a gate verdict.
+
+First-delivery work is triggered by matched injector intent/admission evidence,
+including envelopes already presented or acked. A separate
+`shadow.first_delivery` event joins the ordinary observations in the scorer;
+it is never scored as another as-observed action. Existing envelope detail and
+store reads move with that trigger; it adds no HRC route or probe.
+
+The watch history retains at most 20 payload changes per seat/runtime key.
+Each entry records receipt time and the payload's own change time when present;
+as-of selection requires both not to follow the intent. Removed/reset rows
+leave tombstones, so a deleted row cannot supply a later state. Inactive keys,
+recent envelope details and existing HRC probe evidence expire after 15 minutes.
+Histories remain in memory; logs include only selected facts and clocks.
+A missing pre-admission seat/runtime entry is named, as is missing invocation
+capability proof. The diagnostic supplies the injector's physical seat state,
+labelled separately from watch runtime status; an explicit intent-seat fallback
+is labelled too. No capability is derived from a door.
+
+Injector completions belong to the state in which their drive began, including
+a drive whose completion straddles wrkq's second-resolution presentation time.

@@ -1,6 +1,7 @@
 """Read-only live observer. All state is disposable; watches re-list on reset."""
 # Source replacement is owned by the kernel's stable-tree scanner.
 from dataclasses import asdict
+from copy import deepcopy
 from datetime import datetime, timezone
 import json
 import os
@@ -84,6 +85,40 @@ def temporal_state(envelope, seat, now):
     return [now >= deadline for deadline in deadlines]
 
 
+class WatchHistory:
+    """At most 20 payload changes per key, with separate source/receipt clocks."""
+    def __init__(self, limit=20):
+        self.limit = limit
+        self.rows = {kind: {} for kind in TYPES}
+
+    def record(self, kind, payload, received_at):
+        key = payload.get({'seat': 'scopeRef', 'runtime': 'runtimeId', 'room.mail': 'id'}[kind])
+        if not key:
+            return
+        records = self.rows[kind].setdefault(key, [])
+        if records and records[-1]['payload'] == payload:
+            return
+        field = next((f for f in ('statusChangedAt', 'updatedAt', 'lastActivityAt', 'createdAt') if payload.get(f)), None)
+        from .port_inputs import ms
+        records.append(dict(payload=deepcopy(payload), received_at=received_at,
+                            changed_at=ms(payload[field]) if field else None, changed_field=field))
+        del records[:-self.limit]
+
+    def remove(self, kind, key, received_at):
+        if key in self.rows[kind]:
+            records = self.rows[kind][key]
+            records.append(dict(payload=None, received_at=received_at, changed_at=received_at, changed_field='removed'))
+            del records[:-self.limit]
+
+    def as_of(self, kind, key, at):
+        entry = next((r for r in reversed(self.rows[kind].get(key, []))
+                     if r['received_at'] <= at and (r['changed_at'] is None or r['changed_at'] <= at)), None)
+        return entry if entry and entry['payload'] is not None else None
+
+    def latest(self, kind, key):
+        return next((r for r in reversed(self.rows[kind].get(key, [])) if r['payload'] is not None), None)
+
+
 class Shadow:
     def __init__(self, client, source, store):
         self.client = client
@@ -93,10 +128,24 @@ class Shadow:
         self.last = {}
         self.details = {}
         self.first_deliveries = {}
+        self.history = WatchHistory()
+        self.first_attempted = set()
+        self.started_at = int(time.time() * 1000)
+        self.recent_details = {}
         self.signals = {}
         self.refresh = set()
 
-    def apply(self, kind, change):
+    def apply(self, kind, change, received_at=None):
+        received_at = int(time.time() * 1000) if received_at is None else received_at
+        incoming = change.rows if change.reset else change.upsert
+        removed = (self.views[kind].rows.keys() - {r['id'] for r in incoming}) if change.reset else change.remove
+        key_field = {'seat': 'scopeRef', 'runtime': 'runtimeId', 'room.mail': 'id'}[kind]
+        for identifier in removed:
+            old = self.views[kind].rows.get(identifier)
+            if old and old['payload'].get(key_field):
+                self.history.remove(kind, old['payload'][key_field], received_at)
+        for row in incoming:
+            self.history.record(kind, row['payload'], received_at)
         self.views[kind].apply(change)
 
     def read(self, op, **args):
@@ -164,13 +213,14 @@ class Shadow:
                     # on the first observation of an envelope state transition.
                     detail = self.read('room.mail.get', envelope=identifier)
                     self.details[identifier] = (detail_key, detail)
+                    self.recent_details[identifier] = (now, detail)
                 else:
                     _, detail = cached
                 envelope, observed, context, tags = self.source.gather(mail, detail, snapshots[identifier], now)
                 decided_now = clock() if clock else now
                 first_delivery = self.first_deliveries.get(identifier)
                 reconstruct = getattr(self.source, 'first_delivery', None)
-                if first_delivery is None and reconstruct:
+                if first_delivery is None and reconstruct and not hasattr(self.source, 'first_from_intent'):
                     first_delivery = reconstruct(mail, detail, snapshots[identifier], envelope, observed, context, decided_now)
                 decision = decide(envelope, observed, context, decided_now)
                 if first_delivery is None and envelope.state == 'pending' and decision.action in ('steer', 'enqueue', 'launch', 'preempt'):
@@ -210,9 +260,64 @@ class Shadow:
         for identifier in self.last.keys() - current:
             self.last.pop(identifier, None)
             self.details.pop(identifier, None)
-            self.first_deliveries.pop(identifier, None)
             self.signals.pop(identifier, None)
         self.refresh.intersection_update(current)
+
+
+    def process_first_deliveries(self, now, alive=lambda: None):
+        reconstruct = getattr(self.source, 'first_from_intent', None)
+        memos = getattr(self.source, 'memos', None)
+        if reconstruct is None or memos is None or not all(v.ready for v in self.views.values()):
+            return
+        from .score import epoch_ms
+        started = time.monotonic()
+        # Intent/admission evidence drives this independently of open mail.
+        for identifier in list(memos.deliveries.intents):
+            admission = memos.deliveries.first_admission(identifier)
+            if not admission:
+                continue
+            key = (identifier, admission['at'])
+            at = epoch_ms(admission['at'])
+            if at < max(self.started_at, now-900000) or key in self.first_attempted:
+                continue
+            if time.monotonic()-started >= 2:
+                break
+            alive()
+            target = admission['intent']['data'].get('targetSessionRef', '').removesuffix('/lane:main')
+            mail = None
+            try:
+                record = self.history.latest('room.mail', identifier)
+                mail = record['payload'] if record else None
+                cached = self.recent_details.get(identifier)
+                detail = cached[1] if cached else self.read('room.mail.get', envelope=identifier)
+                if mail is None:
+                    mail = detail
+                if not mail or not mail.get('to', {}).get('scopeRef'):
+                    continue  # scope-less interface mail is not an injector target
+                snapshot = self.first_deliveries.get(identifier)
+                if snapshot is None or snapshot.get('basis') != 'observed':
+                    store = self.store([mail])[identifier]
+                    snapshot = reconstruct(mail, detail, store, admission, self.history, now)
+                self.first_deliveries[identifier] = snapshot
+                self.client.log('shadow.first_delivery', envelope_id=identifier, target=mail['to']['scopeRef'],
+                    appeared_at=mail.get('createdAt') or detail.get('createdAt'), decided_at=stamp(now),
+                    envelope_state='pending', envelope_state_at=mail.get('createdAt') or detail.get('createdAt'),
+                    runtime_id=admission['runtime_id'], decision=snapshot['decision'], first_delivery=snapshot,
+                    comparison_only=True, missing_fields=snapshot.get('missing_fields', []),
+                    admission_processing_ms=now-epoch_ms(admission['admitted_at']))
+            except Exception as error:
+                self.client.log('shadow.decision_failed', envelope_id=identifier, target=target,
+                    comparison_kind='first_delivery', exception_type=type(error).__name__, message=str(error),
+                    traceback=traceback.format_exc(), appeared_at=mail.get('createdAt') if mail else None)
+            self.first_attempted.add(key)
+        self.recent_details = {k:v for k,v in self.recent_details.items() if now-v[0] <= 900000}
+        self.first_deliveries = {k:v for k,v in self.first_deliveries.items() if now-epoch_ms(v['at']) <= 900000}
+        self.first_attempted = {k for k in self.first_attempted if now-epoch_ms(k[1]) <= 900000}
+        for kind, records in self.history.rows.items():
+            active = {r.get({'seat': 'scopeRef', 'runtime': 'runtimeId', 'room.mail': 'id'}[kind]) for r in self.views[kind].payloads()}
+            for key in list(records):
+                if key not in active and now-records[key][-1]['received_at'] > 900000:
+                    del records[key]
 
 
 def main(program):
@@ -243,5 +348,6 @@ def main(program):
         shadow.sweep(int(time.time() * 1000), program.alive,
                      force=periodic or memos.signature() != previous,
                      clock=lambda: int(time.time() * 1000), budget_seconds=2)
+        shadow.process_first_deliveries(int(time.time()*1000), program.alive)
         if periodic:
             deadline = time.monotonic() + SWEEP_SECONDS

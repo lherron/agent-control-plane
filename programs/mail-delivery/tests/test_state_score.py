@@ -202,3 +202,38 @@ class StateScoring(TestCase):
         events = [self.event('delivery_intent', at='2026-11-10T12:01:02Z', envelope='EN-1', runtimeId='rt-1', door='steer')]
         scores = self.run_state_score([first, later], events)['rows'][0]['observation_scores']
         self.assertEqual(scores[0]['classification'], 'agreed')
+
+    def test_completion_uses_drive_start_state_across_second_resolution_presentation(self):
+        observed = self.observation('hold')
+        observed.update(envelope_state_at='2026-11-10T12:01:00Z', decided_at='2026-11-10T12:01:01Z')
+        observed['decision']['reason'] = 'awaiting_turn'
+        events = [self.event('drive_phase', at='2026-11-10T12:00:59.500Z', phase='pending_view', envelopeIds=['EN-1'], driveAttemptId='d'),
+                  self.event('presented', at='2026-11-10T12:01:00.200Z', envelope='EN-1', runtimeId='rt'),
+                  self.event('drive_completed', at='2026-11-10T12:01:00.800Z', outcome='birth_deferred', driveAttemptId='d')]
+        scored=self.run_state_score([observed],events)['rows'][0]['observation_scores'][0]
+        self.assertEqual(scored['classification'],'agreed_by_inaction')
+
+    def test_separate_first_delivery_event_scores_even_without_observed_open_mail(self):
+        from mail_delivery.score import write_report
+        from pathlib import Path
+        observed=self.observation('steer')
+        observed['first_delivery']=dict(basis='reconstructed',at='2026-11-10T12:00:58Z',runtime_id='rt-1',
+            decision=dict(action='steer',reason='steer_capable'),capability_source='port_probe')
+        observed['comparison_only']=True
+        logrow=dict(event='shadow.first_delivery',ts=observed['decided_at'],data=observed)
+        events=[self.event('delivery_intent',at='2026-11-10T12:00:58Z',envelope='EN-1',runtimeId='rt-1',door='steer'),
+                self.event('delivery_admitted',at='2026-11-10T12:00:59Z',envelope='EN-1',runtimeId='rt-1',door='steer')]
+        report=self.run_state_score([logrow],events)
+        self.assertEqual(report['gate']['new_compared_and_agreed'],1)
+        self.assertEqual(report['rows'][0]['classification'],'agreed')
+        self.assertEqual(len(report['rows'][0]['observation_scores']),1)
+
+    def test_observed_first_action_compares_with_admitted_door_not_refused_attempt(self):
+        observed=self.observation('steer')
+        observed.update(envelope_state='pending',envelope_state_at='2026-11-10T12:00:00Z')
+        events=[self.event('delivery_intent',at='2026-11-10T12:00:58Z',envelope='EN-1',runtimeId='rt-1',door='steer'),
+                self.event('delivery_intent',at='2026-11-10T12:01:02Z',envelope='EN-1',runtimeId='rt-1',door='enqueue'),
+                self.event('delivery_admitted',at='2026-11-10T12:01:03Z',envelope='EN-1',runtimeId='rt-1',door='enqueue')]
+        first=self.run_state_score([observed],events)['rows'][0]['first_delivery_comparison']
+        self.assertEqual(first['classification'],'differed_defect')
+        self.assertEqual(first['injector_decision'],'enqueue')
