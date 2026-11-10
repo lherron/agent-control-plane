@@ -46,9 +46,16 @@ export type SteerHold = {
 /**
  * One target's birth retry schedule. `dueWoken` marks that the ledger loop has
  * already woken the target for this `nextAtMs` (T-13151); every reschedule
- * replaces the entry, which clears it.
+ * replaces the entry, which clears it. `participantHost` marks a schedule set
+ * by a participant-host refusal: its `attempts` count that class's retries and
+ * are never charged toward the sweep's own refusal bound.
  */
-export type BirthSweepBackoff = { attempts: number; nextAtMs: number; dueWoken?: true }
+export type BirthSweepBackoff = {
+  attempts: number
+  nextAtMs: number
+  dueWoken?: true
+  participantHost?: true
+}
 
 /** Internal capability surface shared by the decomposed kicker state machines. */
 export type MailKickerContext = {

@@ -318,24 +318,45 @@ export function createLaunchFailures(sqlite: Database): InjectorStateStore['laun
     envelope_id TEXT PRIMARY KEY, presentation_id TEXT NOT NULL,
     attempts INTEGER NOT NULL, last_error TEXT NOT NULL
   )`)
+  // T-13151: when a run of participant-host refusals began. NULL for every
+  // other refusal class, which keeps the attempt-count bound.
+  const columns = sqlite
+    .query<{ name: string }, []>('PRAGMA table_info(hrcmail_launch_failures)')
+    .all()
+  if (!columns.some((column) => column.name === 'participant_host_since_ms'))
+    sqlite.exec('ALTER TABLE hrcmail_launch_failures ADD COLUMN participant_host_since_ms INTEGER')
   return {
-    get: (envelopeId) =>
-      sqlite
-        .query<{ attempts: number; lastError: string }, [string]>(
-          'SELECT attempts, last_error AS lastError FROM hrcmail_launch_failures WHERE envelope_id = ?'
-        )
-        .get(envelopeId) ?? undefined,
-    record: (envelopeId, presentationId, error) => {
+    get: (envelopeId) => {
       const row = sqlite
-        .query<{ attempts: number }, [string, string, string]>(`
-            INSERT INTO hrcmail_launch_failures (envelope_id, presentation_id, attempts, last_error)
-            VALUES (?, ?, 1, ?)
+        .query<
+          { attempts: number; lastError: string; participantHostSinceMs: number | null },
+          [string]
+        >(
+          'SELECT attempts, last_error AS lastError, participant_host_since_ms AS participantHostSinceMs FROM hrcmail_launch_failures WHERE envelope_id = ?'
+        )
+        .get(envelopeId)
+      if (row === null) return undefined
+      const { participantHostSinceMs, ...failure } = row
+      return participantHostSinceMs === null ? failure : { ...failure, participantHostSinceMs }
+    },
+    record: (envelopeId, presentationId, error, participantHostAtMs) => {
+      // A participant-host refusal keeps the first one's time; any other
+      // refusal clears it, returning the envelope to the attempt bound.
+      const row = sqlite
+        .query<{ attempts: number }, [string, string, string, number | null]>(`
+            INSERT INTO hrcmail_launch_failures
+              (envelope_id, presentation_id, attempts, last_error, participant_host_since_ms)
+            VALUES (?, ?, 1, ?, ?)
             ON CONFLICT(envelope_id) DO UPDATE SET
               attempts = attempts + CASE WHEN presentation_id = excluded.presentation_id THEN 0 ELSE 1 END,
-              presentation_id = excluded.presentation_id, last_error = excluded.last_error
+              presentation_id = excluded.presentation_id, last_error = excluded.last_error,
+              participant_host_since_ms = CASE
+                WHEN excluded.participant_host_since_ms IS NULL THEN NULL
+                ELSE COALESCE(participant_host_since_ms, excluded.participant_host_since_ms)
+              END
             RETURNING attempts
           `)
-        .get(envelopeId, presentationId, error)
+        .get(envelopeId, presentationId, error, participantHostAtMs ?? null)
       if (row === null) throw new Error('launch failure was not recorded')
       return row.attempts
     },

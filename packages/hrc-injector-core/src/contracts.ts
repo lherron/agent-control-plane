@@ -156,8 +156,16 @@ export type HrcInjectionPort = {
 export type InjectorStateStore = {
   mailDelivery: HrcMailDeliveryRepository
   launchFailures: {
-    get(envelopeId: string): { attempts: number; lastError: string } | undefined
-    record(envelopeId: string, presentationId: string, error: string): number
+    get(
+      envelopeId: string
+    ): { attempts: number; lastError: string; participantHostSinceMs?: number } | undefined
+    /** `participantHostAtMs`: this refusal is the participant-host class (T-13151). */
+    record(
+      envelopeId: string,
+      presentationId: string,
+      error: string,
+      participantHostAtMs?: number
+    ): number
   }
   wrkqLedgerCursors: WrkqLedgerCursorRepository
   /** Latest bounded injector evidence; never delivery authority. */

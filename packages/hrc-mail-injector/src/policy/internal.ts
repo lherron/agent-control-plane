@@ -65,9 +65,24 @@ export const BIRTH_SWEEP_BACKOFF_BASE_MS = 60_000
 /**
  * First retry after HRC refused because a participant host is not serving the
  * address (T-13151). HRC knocked the host in the same refusal, and a parked
- * host rejoins within seconds. Later retries keep the ordinary schedule.
+ * host usually rejoins within seconds.
  */
 export const PARTICIPANT_HOST_FIRST_RETRY_MS = 10_000
+/**
+ * A participant host can take longer to rejoin (a Foundry fleet restart:
+ * 9-97 s, EN-50054), so its retries double from the first only to a minute,
+ * and its mail fails only once this long has passed since the first refusal.
+ */
+export const PARTICIPANT_HOST_RETRY_CAP_MS = 60_000
+export const PARTICIPANT_HOST_GIVE_UP_MS = 10 * 60_000
+
+/** 10 s, 20 s, 40 s, then every 60 s. */
+export function participantHostRetryInMs(attempts: number): number {
+  return Math.min(
+    PARTICIPANT_HOST_FIRST_RETRY_MS * 2 ** (attempts - 1),
+    PARTICIPANT_HOST_RETRY_CAP_MS
+  )
+}
 /**
  * Backoff base for a refusal that only says THIS node lacks the project's
  * checkout. The hosting node normally births within a sweep, so the no-host

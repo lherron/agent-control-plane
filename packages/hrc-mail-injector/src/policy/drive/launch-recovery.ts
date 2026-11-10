@@ -2,19 +2,30 @@ import type { HrcMailDeliveryIntent } from 'hrc-injector-core'
 import type { MailKickerContext } from '../context.js'
 import {
   BIRTH_SWEEP_BACKOFF_BASE_MS,
-  PARTICIPANT_HOST_FIRST_RETRY_MS,
+  PARTICIPANT_HOST_GIVE_UP_MS,
   parseSessionRef,
+  participantHostRetryInMs,
 } from '../internal.js'
 import { failEnvelopeWithAudit } from '../terminal/envelope-terminal.js'
 
-/** The launch bound belongs to the envelope, independently of scope backoff. */
+/**
+ * The launch bound belongs to the envelope, independently of scope backoff.
+ * Three attempts, except while every refusal has been the participant-host
+ * class (T-13151): then ten minutes from the first refusal, because a parked
+ * host can take that long to rejoin and each refusal knocks it again.
+ */
 export async function failExhaustedLaunch(
   server: MailKickerContext,
   envelopeId: string,
   targetSessionRef: string
 ): Promise<boolean> {
   const failure = server.store.launchFailures.get(envelopeId)
-  if (failure === undefined || failure.attempts < 3) return false
+  if (failure === undefined) return false
+  const exhausted =
+    failure.participantHostSinceMs === undefined
+      ? failure.attempts >= 3
+      : Date.now() - failure.participantHostSinceMs >= PARTICIPANT_HOST_GIVE_UP_MS
+  if (!exhausted) return false
   const row = await server.ledger.envelopeShow({ envelope: envelopeId })
   if (!row.terminal && row.state === 'pending' && row.presentedTo.length === 0) {
     await failEnvelopeWithAudit(server, {
@@ -32,9 +43,9 @@ export async function failExhaustedLaunch(
  * Release only a launch intent; broker submission uncertainty keeps its fence.
  *
  * `participantHost` is the typed reason when HRC refused because the address's
- * participant host is not serving (T-13151): its first retry is short, because
- * HRC knocked the host in the same refusal. Later attempts keep the ordinary
- * doubling, so the envelope's three-attempt launch bound still spans minutes.
+ * participant host is not serving (T-13151). HRC knocked the host in the same
+ * refusal, so retries run at 10 s, 20 s, 40 s, then every minute, and the
+ * envelope's bound is ten minutes from the first such refusal.
  */
 export async function recoverFailedLaunch(
   server: MailKickerContext,
@@ -55,7 +66,8 @@ export async function recoverFailedLaunch(
   const attempts = server.store.launchFailures.record(
     intent.envelopeId,
     intent.presentationId,
-    error
+    error,
+    participantHost === undefined ? undefined : Date.now()
   )
   server.store.mailDelivery.recordBirthRefusal({
     targetSessionRef: intent.targetSessionRef,
@@ -65,12 +77,13 @@ export async function recoverFailedLaunch(
   server.store.mailDelivery.clearIntent(intent.envelopeId)
   server.mailKickerStalledDeliveryAnnounced.delete(intent.envelopeId)
   const nextAttemptInMs =
-    participantHost !== undefined && attempts === 1
-      ? PARTICIPANT_HOST_FIRST_RETRY_MS
-      : BIRTH_SWEEP_BACKOFF_BASE_MS * 2 ** (attempts - 1)
+    participantHost === undefined
+      ? BIRTH_SWEEP_BACKOFF_BASE_MS * 2 ** (attempts - 1)
+      : participantHostRetryInMs(attempts)
   server.mailKickerBirthSweepBackoff.set(intent.targetSessionRef, {
     attempts,
     nextAtMs: Date.now() + nextAttemptInMs,
+    ...(participantHost === undefined ? {} : { participantHost: true as const }),
   })
   server.log('WARN', 'wrkq.kicker.launch_birth_released', {
     envelope: intent.envelopeId,

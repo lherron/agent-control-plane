@@ -45,8 +45,8 @@ import {
   BIRTH_SWEEP_BACKOFF_BASE_MS,
   BIRTH_SWEEP_MAX_REFUSALS,
   BIRTH_SWEEP_NOT_HOSTED_BASE_MS,
-  PARTICIPANT_HOST_FIRST_RETRY_MS,
   errorText,
+  participantHostRetryInMs,
 } from '../internal.js'
 import { targetSessionRefForLedgerScope } from '../ledger/scope.js'
 import { failEnvelopeWithAudit } from '../terminal/envelope-terminal.js'
@@ -151,7 +151,11 @@ export async function chargeBirthSweepRefusal(
   const now = Date.now()
   const baseMs =
     refusal.notPlaceableHere === true ? BIRTH_SWEEP_NOT_HOSTED_BASE_MS : BIRTH_SWEEP_BACKOFF_BASE_MS
-  const attempts = (server.mailKickerBirthSweepBackoff.get(targetSessionRef)?.attempts ?? 0) + 1
+  // A participant-host schedule counts launch retries under its own ten-minute
+  // bound; one unrelated refusal (an aspd restart mid-window) must not inherit
+  // that count and exhaust the sweep's five at once.
+  const prior = server.mailKickerBirthSweepBackoff.get(targetSessionRef)
+  const attempts = (prior?.participantHost === true ? 0 : (prior?.attempts ?? 0)) + 1
   if (attempts >= BIRTH_SWEEP_MAX_REFUSALS) {
     try {
       const lastReason = server.store.mailDelivery.getBirthRefusal(targetSessionRef)?.lastReason
@@ -315,7 +319,7 @@ export function nextBirthRetryAt(server: MailKickerContext): number {
  * written (`participant_attempt_absorbing` or `participant_substitution`), and
  * HRC knocked its host. No birth backoff applies to a turn door, so without
  * this the next drive is the recovery sweep. Schedule one on the same clock:
- * 10 s first, then the ordinary doubling. The sweep prunes the entry once the
+ * 10 s, 20 s, 40 s, then every minute. The sweep prunes the entry once the
  * target is seated or no longer owed a birth, which also resets the doubling.
  */
 export function scheduleParticipantHostRetry(
@@ -323,14 +327,13 @@ export function scheduleParticipantHostRetry(
   targetSessionRef: string,
   reason: string
 ): void {
-  const attempts = (server.mailKickerBirthSweepBackoff.get(targetSessionRef)?.attempts ?? 0) + 1
-  const nextAttemptInMs =
-    attempts === 1
-      ? PARTICIPANT_HOST_FIRST_RETRY_MS
-      : BIRTH_SWEEP_BACKOFF_BASE_MS * 2 ** (attempts - 1)
+  const prior = server.mailKickerBirthSweepBackoff.get(targetSessionRef)
+  const attempts = (prior?.participantHost === true ? prior.attempts : 0) + 1
+  const nextAttemptInMs = participantHostRetryInMs(attempts)
   server.mailKickerBirthSweepBackoff.set(targetSessionRef, {
     attempts,
     nextAtMs: Date.now() + nextAttemptInMs,
+    participantHost: true,
   })
   server.log('INFO', 'wrkq.kicker.participant_host_retry', {
     targetSessionRef,
