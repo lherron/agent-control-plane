@@ -4,6 +4,7 @@ No log text or runtime credentials are retained. Unknown events are ignored;
 missing required outcome fields remain explicitly unknown at the adapter.
 """
 import json
+from copy import deepcopy
 from pathlib import Path
 from .score import epoch_ms
 from . import timings as t
@@ -18,6 +19,8 @@ class Memos:
         self.reset()
 
     def reset(self):
+        from .evidence import DeliveryHistory
+        self.deliveries = DeliveryHistory()
         self.anchored = False
         self.anchor = None
         self.fallback = {}
@@ -31,7 +34,8 @@ class Memos:
 
     def signature(self):
         return json.dumps((self.anchor, self.fallback, sorted(self.capability),
-                           self.backoff, self.quiet, self.birth, self.notices), sort_keys=True)
+                           self.backoff, self.quiet, self.birth, self.notices,
+                           sum(map(len, self.deliveries.admitted.values()))), sort_keys=True)
 
     def accept(self, row):
         event = row.get('event', '')
@@ -52,6 +56,15 @@ class Memos:
         envelope = data.get('envelope')
         at = epoch_ms(row['ts']) if row.get('ts') else None
         name = event.removeprefix('wrkq.kicker.')
+        snapshot = None
+        if name == 'delivery_intent':
+            snapshot = deepcopy(dict(anchor=self.anchor, anchored=self.anchored,
+                fallback={envelope: self.fallback[envelope]} if envelope in self.fallback else {},
+                capability={runtime} if runtime in self.capability else set(),
+                backoff={runtime: self.backoff[runtime]} if runtime in self.backoff else {},
+                quiet={runtime: self.quiet[runtime]} if runtime in self.quiet else {},
+                birth={target: self.birth[target]} if target in self.birth else {}))
+        self.deliveries.accept(row, snapshot)
         if name == 'delivery_intent':
             self.intents[envelope] = runtime
             if data.get('door') == 'enqueue':

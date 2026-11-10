@@ -73,8 +73,11 @@ A live row requires evidence after its observed state-transition time, before
 the next known transition. Explicit-envelope evidence must be within 300 s of
 the shadow observation; target-only evidence within 30 s. Presented mail cannot
 match an old full-body admission, and intent/reminder holds cannot match a
-previous delivery door. No suitable injector decision is `pending_evidence`,
-neither agreement nor defect. Unmapped injector evidence is separated from a
+previous delivery door. An unmatched act is a defect once its evidence window
+closes; an unmatched hold/defer agrees by inaction if no injector act occurred.
+Only a still-open window is `pending_evidence`, with its cause retained.
+Inaction windows also end at the next changed observation or a retry deadline.
+Inaction agreement is reported separately from compared door agreement. Unmapped injector evidence is separated from a
 `shadow_input_gap` beneath `cannot_decide`; only the latter is a port defect.
 Every bucket separates today's new envelopes from older backlog; the gate is
 judged on new traffic. Timing flags a shadow decision at least 60 s before the
@@ -91,3 +94,19 @@ state boundaries and are not evidence for installed live agreement.
 [POLICY.md](POLICY.md) records the source rules and historical qualifications.
 Live acceptance and first-hour score evidence are in the T-13270 artifact dir.
 Python tests remain opt-in, outside the repository's `just verify` gate.
+
+First-delivery comparisons run the same `decide()` against facts already read,
+with this envelope's own intent/presentations excluded and the seat/runtime
+from the injector's diagnostic. Historical status, memo anchors and invocation
+identity must be provable; gaps are named rather than inferred from the door.
+The port's matching invocation probe supplies capability when available; the
+injector log is an explicitly labelled fallback. Both derivations are compared
+when present. A capability disagreement is a defect. The scorer recovers the
+injector's door from joined envelope/runtime intent and admission log lines.
+
+Each envelope retains all observation scores and the observation setting its
+class. Any defect dominates; first-delivery or shadow input gaps follow, then
+open evidence windows. Agreement requires a first-delivery or real first action
+comparison; inaction alone cannot establish a door match. Daily headers show
+new delivered, compared-and-agreed, uncompared count/share and named causes,
+plus capability-source counts. The report never awards a gate verdict.

@@ -122,14 +122,15 @@ class Scoring(TestCase):
         self.assertEqual(report['rows'][2]['missing_field'], 'injector.evidence')
         self.assertEqual(report['unmapped_outcomes'], ['future_unknown'])
 
-    def test_latest_per_envelope_within_utc_day(self):
+    def test_worst_observation_sets_envelope_class_with_its_timestamp(self):
         early = self.row(1, 'enqueue')
         early['decided_at'] = '2026-11-10T11:59:59Z'
         outside = self.row(2)
         outside['decided_at'] = '2026-11-11T00:00:00Z'
         report = self.run_score([early, self.row(1), outside])
         self.assertEqual(len(report['rows']), 1)
-        self.assertEqual(report['rows'][0]['classification'], 'agreed')
+        self.assertEqual(report['rows'][0]['classification'], 'differed_defect')
+        self.assertEqual(report['rows'][0]['classifying_observation']['decided_at'], early['decided_at'])
         self.assertEqual(report['shadow_observations'], 2)
         self.assertEqual(len(report['rows'][0]['shadow_history']), 2)
 

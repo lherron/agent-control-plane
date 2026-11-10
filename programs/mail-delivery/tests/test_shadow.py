@@ -193,3 +193,26 @@ class Dedup(TestCase):
         self.assertEqual(failures[0]['message'], 'null admission classes')
         self.assertIn('Traceback', failures[0]['traceback'])
         self.assertNotIn('EN-1', self.shadow.last)
+
+    def test_intent_completion_refreshes_pending_owner_detail_before_another_decision(self):
+        # EN-50847: owner detail was pending before landing at21:04:09.587;
+        # the next local snapshot lost its intent while the watch still said
+        # pending. Reusing that detail would suggest another full steer.
+        snapshot = {'intent': {'submitted_at': '2026-11-10T12:00:00Z'}, 'presentations': []}
+        self.shadow.store = lambda rows: {'EN-1': dict(snapshot)}
+        states = iter(('pending', 'presented'))
+        original_read = self.client.read
+        def read(op, **args):
+            result = original_read(op, **args)
+            if op == 'room.mail.get':
+                result['result']['state'] = next(states)
+            return result
+        self.client.read = read
+        def gather(mail, detail, store, now):
+            return Envelope(id=mail['id'], state=detail['state']), Seat(), Runtime(), {}
+        self.shadow.source.gather = gather
+        self.sweep()
+        snapshot.update(intent=None, presentations=[{'runtime_id': 'rt-1', 'landing_hrc_seq': 8}])
+        self.shadow.sweep(1794312002000, force=True)
+        self.assertEqual(len(self.client.calls), 2)
+        self.assertEqual([d['envelope_state'] for d in self.decisions()], ['pending', 'presented'])

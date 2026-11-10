@@ -4,9 +4,9 @@ No diagnostics/previous injector door is used to choose a shadow door. Those
 are comparison evidence only. Process-local outcome memos have their own log
 feeder; their absence is never inferred from an empty document projection.
 """
-from dataclasses import replace
+from dataclasses import asdict, replace
 import re
-from .decision import Envelope, Seat, Runtime, Intent, Presentation, Retry, Refusal
+from .decision import Decision, Envelope, Seat, Runtime, Intent, Presentation, Retry, Refusal, decide
 from .hrc_read import HrcError
 from .score import open_injector, epoch_ms
 from . import timings as t
@@ -58,10 +58,47 @@ def store_batch(path, mail):
                 expiries=many('hrcmail_delivery_expiries', 'envelope_id', identifier),
                 birth=one('hrcmail_birth_refusals', 'target_session_ref', target),
                 launch=one('hrcmail_launch_failures', 'envelope_id', identifier),
-                notices=many('hrcmail_failure_notices', 'target_session_ref', target))
+                notices=many('hrcmail_failure_notices', 'target_session_ref', target),
+                diagnostic=one('hrcmail_drive_diagnostics', 'envelope_id', identifier))
         return snapshots
     finally:
         connection.close()
+
+
+def apply_memo_facts(envelope, seat, store, now, identifier, target, memos, tags):
+    if memos.anchored:
+        tags['log_fed_memos'].append('injector_outcomes')
+        fallback = memos.fallback.get(envelope.id)
+        backoff = memos.backoff.get(identifier)
+        refusal = Refusal(kind=(fallback if envelope.id in memos.fallback else
+                               'transient' if backoff else 'none'),
+            attempts=backoff['attempts'] if backoff else 0,
+            last_at=backoff['at'] if backoff else None)
+        birth = memos.birth.get(target)
+        retry = Retry(kind='none')
+        if birth:
+            retry = Retry(kind=birth['kind'], attempts=birth['attempts'], last_at=birth['at'],
+                          host_reason=(birth['reason'] if birth['kind'] == 'participant_turn'
+                                       else birth['reason'] or ''),
+                          host_since=(store['launch'] or {}).get('participant_host_since_ms'))
+        launch = store['launch']
+        if launch:
+            # failExhaustedLaunch precedes the seat door even if its
+            # process-local pacing was reset on injector restart.
+            since = launch.get('participant_host_since_ms')
+            if since is not None and now - since >= t.PARTICIPANT_HOST_GIVE_UP_MS:
+                retry = Retry(kind='launch', attempts=launch['attempts'], host_reason='host_absent',
+                              host_since=launch['participant_host_since_ms'], last_at=None)
+            elif since is None and launch['attempts'] >= 3:
+                retry = Retry(kind='launch', attempts=launch['attempts'], host_reason='')
+        envelope = replace(envelope, birth_retry=retry, steer_refusal=refusal)
+        hold = memos.quiet.get(identifier)
+        seat = replace(seat, steer_capability_refused=identifier in memos.capability,
+            quiet_hold=bool(hold), quiet_since=hold['since'] if hold else None,
+            quiet_moved=False if hold else None)
+        tags['broker_movement_dependent'] = bool(hold)
+    return envelope, seat
+
 
 
 class PortInputs:
@@ -213,37 +250,7 @@ class PortInputs:
         expiries = store.get('expiries', [])
         strike = next((r['expiries'] for r in expiries if r['runtime_id'] == identifier), 0)
         envelope = replace(envelope, intent=normalized_intent, non_landing_strikes=strike)
-        if self.memos.anchored:
-            tags['log_fed_memos'].append('injector_outcomes')
-            fallback = self.memos.fallback.get(mail['id'])
-            backoff = self.memos.backoff.get(identifier)
-            refusal = Refusal(kind=(fallback if mail['id'] in self.memos.fallback else
-                                   'transient' if backoff else 'none'),
-                attempts=backoff['attempts'] if backoff else 0,
-                last_at=backoff['at'] if backoff else None)
-            birth = self.memos.birth.get(target)
-            retry = Retry(kind='none')
-            if birth:
-                retry = Retry(kind=birth['kind'], attempts=birth['attempts'], last_at=birth['at'],
-                              host_reason=(birth['reason'] if birth['kind'] == 'participant_turn'
-                                           else birth['reason'] or ''),
-                              host_since=(store['launch'] or {}).get('participant_host_since_ms'))
-            launch = store['launch']
-            if launch:
-                # failExhaustedLaunch precedes the seat door even if its
-                # process-local pacing was reset on injector restart.
-                since = launch.get('participant_host_since_ms')
-                if since is not None and now - since >= t.PARTICIPANT_HOST_GIVE_UP_MS:
-                    retry = Retry(kind='launch', attempts=launch['attempts'], host_reason='host_absent',
-                                  host_since=launch['participant_host_since_ms'], last_at=None)
-                elif since is None and launch['attempts'] >= 3:
-                    retry = Retry(kind='launch', attempts=launch['attempts'], host_reason='')
-            envelope = replace(envelope, birth_retry=retry, steer_refusal=refusal)
-            hold = self.memos.quiet.get(identifier)
-            seat = replace(seat, steer_capability_refused=identifier in self.memos.capability,
-                quiet_hold=bool(hold), quiet_since=hold['since'] if hold else None,
-                quiet_moved=False if hold else None)
-            tags['broker_movement_dependent'] = bool(hold)
+        envelope, seat = apply_memo_facts(envelope, seat, store, now, identifier, target, self.memos, tags)
         task = re.search(r':task:(T-\d+)$', scope)
         seat = replace(seat, target_is_task=bool(task), task_read='not_applicable')
         if task and envelope.obligation == 'fyi' and seat.state == 'absent' and self.read_owner:
@@ -282,3 +289,100 @@ class PortInputs:
                 # injector has no due reminder and excludes this legacy mail.
                 envelope = replace(envelope, presentation=Presentation(status='none'))
         return envelope, seat, context, tags
+
+    def first_delivery(self, mail, detail, store, envelope, seat, runtime, now):
+        """Reconstruct from already-read facts only; no I/O or door-as-input."""
+        diagnostic = store.get('diagnostic')
+        history = self.memos.deliveries
+        if not diagnostic or diagnostic.get('outcome') != 'admitted':
+            return None
+        admission = history.for_diagnostic(mail['id'], diagnostic.get('runtime_id'), diagnostic['created_at'])
+        missing = []
+        if admission is None:
+            return dict(basis='reconstructed', at=diagnostic['created_at'], runtime_id=diagnostic.get('runtime_id'),
+                capability_source='unavailable', capability_differed=False,
+                decision=asdict(Decision('cannot_decide', 'reconstruction_missing',
+                    missing_fact='first_delivery.matched_admission')), missing_fields=['first_delivery.matched_admission'])
+        at = ms(admission['at'])
+        data = admission['intent']['data']
+        identifier = diagnostic.get('runtime_id')
+        state = diagnostic.get('observed_seat_state')
+        raw = next((r for key, rows in self.cache.items() if key[0] == 'runtimes'
+                    for r in rows if r.get('runtimeId') == identifier), {})
+        probe = self.cache.get(('/v1/runtimes/' + str(identifier) + '/seat', ()), {})
+        location = self.cache.get(('/v1/federation/locate', (('scopeRef', mail['to']['scopeRef']),)), {})
+        authority = location.get('authority') or {}
+        changed = ms((authority.get('record') or {}).get('updatedAt'))
+        if changed is None or changed > at:
+            missing.append('first_delivery.home_at_admission')
+        memo = admission['memo']
+        if not memo or not memo['anchored'] or envelope.created_at is None or ms(memo['anchor']) > envelope.created_at:
+            missing.append('first_delivery.complete_memo_anchor')
+        # A status carries an actual last-change time, unlike updatedAt/tool
+        # activity. Never reuse a status that changed after the injector read.
+        status_at = ms(raw.get('statusChangedAt'))
+        if state in ('idle', 'turn-active') and (status_at is None or status_at > at):
+            missing.append('first_delivery.runtime_status_at_admission')
+        logged_capability = data.get('steerCapable')
+        own = None
+        intent = store.get('intent') or {}
+        invocation = probe.get('invocationId')
+        diagnostics = (raw.get('runtimeStateJson') or {}).get('brokerDispatchDiagnostics') or {}
+        witnesses = [diagnostics.get('liveSeatProbe') or {}] + (diagnostics.get('seatTransitions') or [])
+        historical_probe = any(w.get('invocationId') == invocation and
+            ms(w.get('observedAt') or w.get('transitionedAt')) is not None and
+            ms(w.get('observedAt') or w.get('transitionedAt')) <= at for w in witnesses)
+        matching_intent = (intent.get('runtime_id') == identifier and
+                           intent.get('invocation_id') == invocation)
+        if invocation is not None and (matching_intent or historical_probe):
+            own = 'steer' in (probe.get('admissionClasses') or [])
+        source = 'port_probe' if own is not None else 'injector_log' if isinstance(logged_capability, bool) else 'unavailable'
+        capable = own if own is not None else logged_capability if isinstance(logged_capability, bool) else None
+        if state not in ('idle', 'turn-active'):
+            source = 'not_needed'
+        elif capable is None:
+            missing.append('first_delivery.steer_capable')
+        if state == 'absent':
+            missing.append('first_delivery.session_exists_at_admission')
+        form = data.get('form')
+        if form not in ('full', 'defer-retry', 'digest'):
+            missing.append('first_delivery.prior_presentations')
+        # No prior intent after a complete anchor proves zero pre-first-attempt
+        # strikes. Otherwise a later successful landing may have cleared them.
+        first = history.first_intent(mail['id'])
+        first_attempt = first is admission['intent']
+        expiries = [r for r in store.get('expiries', []) if r.get('runtime_id') == identifier]
+        strikes = 0 if first_attempt and memo and memo['anchored'] and envelope.created_at is not None and ms(memo['anchor']) <= envelope.created_at else None
+        if expiries:
+            row = expiries[0]
+            expired_at = ms(row.get('last_expired_at'))
+            if expired_at is None or expired_at > at:
+                missing.append('first_delivery.non_landing_strikes_at_admission')
+            else:
+                strikes = row['expiries']
+        elif not first_attempt:
+            missing.append('first_delivery.non_landing_strikes_at_admission')
+        if store.get('launch'):
+            missing.append('first_delivery.launch_failures_at_admission')
+        if envelope.delivery == 'hold':
+            missing.append('first_delivery.preempt_admission_at_admission')
+        reconstructed = replace(envelope, state='pending', presented_before=form != 'full',
+            intent=Intent(status='none'), presentation=Presentation(status='none'), non_landing_strikes=strikes)
+        observed = replace(seat, state=state, session_exists=True if state != 'absent' else None,
+            steer_capable=capable, awaiting_input=raw.get('status') == 'awaiting_input')
+        context = Runtime(id=identifier, status=raw.get('status'), created_at=ms(raw.get('createdAt')))
+        if memo:
+            from types import SimpleNamespace
+            reconstructed, observed = apply_memo_facts(reconstructed, observed,
+                dict(store, intent=None, presentations=[], launch=None), at, identifier,
+                mail['to']['scopeRef']+'/lane:main', SimpleNamespace(**memo), {'log_fed_memos': []})
+        decision = (Decision('cannot_decide', 'reconstruction_missing', missing_fact=missing[0]) if missing else
+                    decide(reconstructed, observed, context, at))
+        if decision.missing_fact and decision.missing_fact not in missing:
+            missing.append(decision.missing_fact)
+        return dict(basis='reconstructed', at=admission['at'], runtime_id=identifier,
+            diagnostic_at=diagnostic['created_at'], admitted_at=admission['admitted_at'],
+            capability_source=source, port_capability=own, injector_capability=logged_capability,
+            capability_differed=own is not None and isinstance(logged_capability, bool) and own != logged_capability,
+            decision=asdict(decision), missing_fields=missing,
+            inputs=dict(envelope=asdict(reconstructed), seat=asdict(observed), runtime=asdict(context)))

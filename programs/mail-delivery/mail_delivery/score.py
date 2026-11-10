@@ -57,13 +57,15 @@ def _door(door):
             'invoke': 'launch', 'preempt': 'preempt'}.get(door)
 
 
-def _diagnostic(diagnostic, intent):
+def _diagnostic(diagnostic, intent, logged_admission=None):
     outcome = diagnostic['outcome']
     # Observed on max3: admitted, seat_starting, seat_turn-observed, seat_unavailable.
     # Other deferred paths are explicit recordDeferredDiagnostic calls in target-driver.ts.
     if outcome in ('seat_starting', 'seat_stopping', 'seat_unavailable',
                    'seat_turn-observed', 'broker_probe_failed'):
         return 'defer'
+    if outcome == 'admitted' and logged_admission is not None:
+        return logged_admission['door']
     if outcome == 'admitted' and intent is not None:
         # 'admitted' says no door. A stale intent from another runtime cannot supply it.
         if diagnostic['runtime_id'] == intent['runtime_id'] and epoch_ms(intent['submitted_at']) <= epoch_ms(diagnostic['created_at']):
@@ -72,7 +74,7 @@ def _diagnostic(diagnostic, intent):
     return None
 
 
-def _evidence(c, envelope_id, decided_at):
+def _evidence(c, envelope_id, decided_at, log_evidence=None):
     intent_row = c.execute('''SELECT envelope_id, door, runtime_id, generation,
         delivery_outcome, submitted_at FROM hrcmail_delivery_intents WHERE envelope_id=?''',
         (envelope_id,)).fetchone()
@@ -81,11 +83,13 @@ def _evidence(c, envelope_id, decided_at):
         FROM hrcmail_drive_diagnostics WHERE envelope_id=?''', (envelope_id,)).fetchone()
     intent = dict(intent_row) if intent_row else None
     diagnostic = dict(diagnostic_row) if diagnostic_row else None
+    logged_admission = (log_evidence.deliveries.for_diagnostic(envelope_id, diagnostic['runtime_id'], diagnostic['created_at'])
+                        if log_evidence and diagnostic else None)
     candidates = []
     if intent is not None:
         candidates.append((intent['submitted_at'], _door(intent['door']), 'intent', intent['door']))
     if diagnostic is not None:
-        candidates.append((diagnostic['created_at'], _diagnostic(diagnostic, intent),
+        candidates.append((diagnostic['created_at'], _diagnostic(diagnostic, intent, logged_admission),
                            'diagnostic', diagnostic['outcome']))
     if not candidates:
         return intent, diagnostic, None
@@ -95,7 +99,7 @@ def _evidence(c, envelope_id, decided_at):
     return intent, diagnostic, selected
 
 
-def comparison(shadow, intent, diagnostic, legacy_evidence, log_evidence, state_until=None):
+def comparison(shadow, intent, diagnostic, legacy_evidence, log_evidence, state_until=None, *, cutoff=None, observation_until=None):
     evidence = legacy_evidence
     records = []
     if 'envelope_state' in shadow:
@@ -103,14 +107,56 @@ def comparison(shadow, intent, diagnostic, legacy_evidence, log_evidence, state_
         if intent:
             candidates.append((intent['submitted_at'], _door(intent['door']), 'intent', intent['door']))
         if diagnostic:
-            candidates.append((diagnostic['created_at'], _diagnostic(diagnostic, intent),
+            admission = log_evidence.deliveries.for_diagnostic(shadow['envelope_id'], diagnostic['runtime_id'], diagnostic['created_at'])
+            candidates.append((diagnostic['created_at'], _diagnostic(diagnostic, intent, admission),
                                'diagnostic', diagnostic['outcome']))
         selected = log_evidence.match(shadow, candidates, state_until)
         evidence = ((selected['at'], selected['action'], selected['source'], selected['label'])
                     if selected else None)
         records = selected['records'] if selected else []
-    actual = evidence[1] if evidence else None
+    landed = log_evidence.deliveries.landed_before(shadow)
+    if landed is not None:
+        return dict(classification='differed_defect', cannot_decide_kind=None,
+            missing_field=None, cause='stale_pending_after_delivery',
+            evidence=[landed['ts'], 'hold', 'injector_log', landed['event']],
+            injector_log_evidence=[landed], injector_decision='hold')
     action = shadow['decision']['action']
+    cause = None
+    if 'envelope_state' in shadow and action in ('steer', 'enqueue', 'launch', 'preempt', 'hold', 'defer'):
+        decided = epoch_ms(shadow['decided_at'])
+        deadline = decided + 300000
+        nonact = action in ('hold', 'defer')
+        for boundary in (state_until, observation_until if nonact else None):
+            if boundary:
+                deadline = min(deadline, epoch_ms(boundary))
+        retry = shadow['decision'].get('retry_at')
+        if nonact and retry is not None and retry > decided:
+            deadline = min(deadline, retry)
+        presented = [epoch_ms(r['ts']) for r in log_evidence.deliveries.presented.get(shadow['envelope_id'], [])
+                     if epoch_ms(r['ts']) > decided]
+        if presented:
+            deadline = min(deadline, min(presented))
+        lower = decided if nonact else epoch_ms(shadow.get('envelope_state_at') or shadow['decided_at'])
+        acts = [r['row'] for r in log_evidence.deliveries.intents.get(shadow['envelope_id'], [])
+                if lower <= epoch_ms(r['row']['ts']) < min(deadline, cutoff if cutoff is not None else float('inf'))
+                and abs(epoch_ms(r['row']['ts']) - decided) <= 300000
+                and (shadow['envelope_state'] == 'pending' or r['row']['data'].get('form') == 'reminder')]
+        if evidence and epoch_ms(evidence[0]) >= min(deadline, cutoff if cutoff is not None else float('inf')):
+            evidence, records = None, []
+        if acts:
+            chosen = min(acts, key=lambda r: abs(epoch_ms(r['ts']) - decided))
+            evidence = (chosen['ts'], _door(chosen['data'].get('door')), 'injector_log', chosen['event'])
+            records = [chosen]
+        elif nonact and evidence and evidence[1] in ('steer', 'enqueue', 'launch', 'preempt'):
+            evidence, records = None, []  # completion of an intent opened before this fence
+        if evidence is None or (not nonact and evidence[1] not in ('steer', 'enqueue', 'launch', 'preempt')):
+            closed = cutoff is None or cutoff >= deadline
+            classification = ('agreed_by_inaction' if nonact else 'differed_defect') if closed else 'pending_evidence'
+            cause = ('no_injector_act' if closed else 'evidence_window_open')
+            return dict(classification=classification, cannot_decide_kind=None, missing_field=None,
+                cause=cause, evidence_window_end_ms=deadline, evidence=None,
+                injector_log_evidence=[], injector_decision=None)
+    actual = evidence[1] if evidence else None
     difference = shadow.get('difference')
     missing = None
     kind = None
@@ -134,6 +180,63 @@ def comparison(shadow, intent, diagnostic, legacy_evidence, log_evidence, state_
     return dict(classification=classification, cannot_decide_kind=kind, missing_field=missing,
                 evidence=list(evidence) if evidence else None,
                 injector_log_evidence=records, injector_decision=actual)
+
+
+def first_delivery_comparison(identifier, observations, deliveries, required=False):
+    intent = deliveries.first_intent(identifier)
+    admission = deliveries.first_admission(identifier)
+    snapshots = [r['first_delivery'] for r in observations if r.get('first_delivery')]
+    snapshot = next(iter(snapshots), None)
+    if snapshot is None and intent is not None:
+        boundary = admission['admitted_at'] if admission else intent['ts']
+        observed = next((r for r in observations if r['decision']['action'] in ('steer', 'enqueue', 'launch', 'preempt')
+                         and epoch_ms(r['decided_at']) <= epoch_ms(boundary)), None)
+        if observed:
+            snapshot = dict(basis='observed_before_injector', at=observed['decided_at'],
+                runtime_id=observed.get('runtime_id'), decision=observed['decision'],
+                capability_source='port_probe' if observed.get('observed_seat_state') in ('idle', 'turn-active') else 'not_needed')
+    if not required and snapshot is None:
+        return None
+    base = dict(comparison_kind='first_delivery', decided_at=snapshot['at'] if snapshot else observations[0]['decided_at'],
+        basis=snapshot.get('basis') if snapshot else 'missing', capability_source=snapshot.get('capability_source', 'unavailable') if snapshot else 'unavailable',
+        capability_differed=False, missing_field=None, cannot_decide_kind=None, evidence=None,
+        injector_log_evidence=[], injector_decision=None, shadow_snapshot=snapshot)
+    if intent is None:
+        return dict(base, classification='cannot_decide', cannot_decide_kind='injector_evidence_unmapped',
+                    missing_field='injector.first_delivery_door')
+    if snapshot is None:
+        return dict(base, classification='cannot_decide', cannot_decide_kind='shadow_input_gap',
+                    missing_field='first_delivery.snapshot_missing')
+    reconstructed = snapshot.get('basis') == 'reconstructed'
+    chosen = admission['intent'] if reconstructed and admission else intent
+    if reconstructed and (admission is None or snapshot.get('runtime_id') != admission['runtime_id']
+                          or snapshot['at'] != admission['at']):
+        return dict(base, classification='cannot_decide', cannot_decide_kind='injector_evidence_unmapped',
+                    missing_field='injector.matched_admission')
+    boundary = admission['admitted_at'] if admission else intent['ts']
+    if not reconstructed and epoch_ms(snapshot['at']) > epoch_ms(boundary):
+        return dict(base, classification='cannot_decide', cannot_decide_kind='shadow_input_gap',
+                    missing_field='first_delivery.snapshot_missing')
+    actual = _door(chosen['data'].get('door'))
+    decision = snapshot['decision']
+    own = snapshot.get('port_capability')
+    logged = chosen['data'].get('steerCapable')
+    capability_differed = snapshot.get('capability_differed', False) or (
+        isinstance(own, bool) and isinstance(logged, bool) and own != logged)
+    base.update(injector_decision=actual, evidence=[chosen['ts'], actual, 'injector_log', chosen['event']],
+        injector_log_evidence=admission['records'] if reconstructed and admission else [chosen],
+        capability_differed=capability_differed, decision=decision,
+        shadow_door=snapshot.get('door', decision['action'] if decision['action'] in ('steer', 'enqueue', 'launch', 'preempt') else None),
+        injector_raw_door=chosen['data'].get('door'))
+    if capability_differed:
+        return dict(base, classification='differed_defect', cause='capability_derivation_differed')
+    if decision['action'] == 'cannot_decide':
+        return dict(base, classification='cannot_decide', cannot_decide_kind='shadow_input_gap',
+                    missing_field=decision['missing_fact'])
+    if actual is None:
+        return dict(base, classification='cannot_decide', cannot_decide_kind='injector_evidence_unmapped',
+                    missing_field='injector.first_delivery_door')
+    return dict(base, classification='agreed' if decision['action'] == actual and base['shadow_door'] == actual else 'differed_defect')
 
 
 def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=None, until=None,
@@ -224,29 +327,56 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
             appeared = epoch_ms(shadow['appeared_at'])
             action = shadow['decision']['action']
             intent, diagnostic, evidence = _evidence(connection, identifier, decided)
-            result = comparison(shadow, intent, diagnostic, evidence, log_evidence)
-            evidence = result.pop('evidence')
-            actual = result['injector_decision']
-            classification = result['classification']
-            missing = result['missing_field']
             observation_scores = []
             ordered = sorted(history[identifier], key=lambda r: epoch_ms(r['decided_at']))
             for index, observation in enumerate(ordered):
                 next_state = next((other.get('envelope_state_at') for other in ordered[index + 1:]
                     if other.get('envelope_state') != observation.get('envelope_state')), None)
                 scored = comparison(observation, intent, diagnostic,
-                    _evidence(connection, identifier, epoch_ms(observation['decided_at']))[2],
-                    log_evidence, next_state)
-                observation_scores.append(dict(decided_at=observation['decided_at'], **scored))
+                    _evidence(connection, identifier, epoch_ms(observation['decided_at']), log_evidence)[2],
+                    log_evidence, next_state, cutoff=end,
+                    observation_until=ordered[index + 1]['decided_at'] if index + 1 < len(ordered) else None)
+                observation_scores.append(dict(decided_at=observation['decided_at'],
+                    decision=observation['decision'], **scored))
+            cohort = 'new' if start <= datetime.fromisoformat(shadow['appeared_at'].replace('Z', '+00:00')) < start + timedelta(days=1) else 'backlog'
+            first = first_delivery_comparison(identifier, ordered, log_evidence.deliveries,
+                required=cohort == 'new' and identifier in log_evidence.deliveries.delivered_envelopes())
+            if first is not None:
+                observation_scores.append(first)
+                if first.get('missing_field'):
+                    missing_fields.add(first['missing_field'])
+                for value in (first.get('shadow_snapshot') or {}).get('missing_fields', []):
+                    missing_fields.add(value)
+            priority = {'differed_defect': 0, 'cannot_decide': 1, 'differed_missing_data': 1,
+                        'differed_by_design': 2, 'pending_evidence': 3, 'agreed': 4, 'agreed_by_inaction': 5}
+            result = min(observation_scores, key=lambda r: (priority[r['classification']], epoch_ms(r['decided_at'])))
+            evidence = result['evidence']
+            actual = result['injector_decision']
+            classification = result['classification']
+            if 'envelope_state' in shadow and classification in ('agreed', 'agreed_by_inaction'):
+                door_agreed = (first is not None and first['classification'] == 'agreed') or any(
+                    o['classification'] == 'agreed' and o.get('decision', {}).get('action') in ('steer', 'enqueue', 'launch', 'preempt')
+                    for o in observation_scores)
+                if door_agreed:
+                    classification = 'agreed'
+                else:
+                    result = dict(result, classification='cannot_decide', cannot_decide_kind='injector_evidence_unmapped',
+                        missing_field='first_delivery.historical_comparison_missing', cause='inaction_only_no_door_comparison')
+                    classification = 'cannot_decide'
+                    missing_fields.add(result['missing_field'])
+            missing = result['missing_field']
             if evidence is not None and actual is None:
                 unmapped.add(evidence[3])
             acted = epoch_ms(evidence[0]) if evidence else None
             rows.append({
                 'envelope_id': identifier, 'classification': classification, 'missing_field': missing,
-                'cohort': 'new' if start <= datetime.fromisoformat(shadow['appeared_at'].replace('Z', '+00:00')) < start + timedelta(days=1) else 'backlog',
+                'cohort': cohort,
+                'first_delivery_comparison': first,
+                'injector_delivered': identifier in log_evidence.deliveries.delivered_envelopes(),
                 'cannot_decide_kind': result['cannot_decide_kind'],
                 'injector_log_evidence': result['injector_log_evidence'],
                 'observation_scores': observation_scores,
+                'classifying_observation': result,
                 'shadow': shadow, 'shadow_history': history[identifier], 'injector_decision': actual,
                 'injector_intent': intent, 'injector_diagnostic': diagnostic,
                 'matched_source': evidence[2] if evidence else None,
@@ -266,7 +396,29 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
             })
     finally:
         connection.close()
+    new_rows = [r for r in rows if r['cohort'] == 'new']
+    compared = [r for r in new_rows if r['first_delivery_comparison'] and
+                r['first_delivery_comparison']['classification'] in ('agreed', 'differed_defect')]
+    uncompared = [dict(envelope_id=r['envelope_id'], classification=r['classification'],
+        cause=r['missing_field'] or (r['classifying_observation'].get('cause', 'evidence_window_open') if r['classification'] == 'pending_evidence' else 'first_delivery.not_compared'))
+        for r in new_rows if r['classification'] in ('cannot_decide', 'pending_evidence')]
+    gate = dict(new_envelopes=len(new_rows),
+        new_injector_delivered=sum(r['injector_delivered'] for r in new_rows),
+        new_compared_and_agreed=sum(r['injector_delivered'] and r['first_delivery_comparison'] is not None and
+            r['first_delivery_comparison']['classification'] == 'agreed' for r in new_rows),
+        new_first_delivery_compared=len(compared),
+        first_delivery_uncompared=[dict(envelope_id=r['envelope_id'], cause=(r['first_delivery_comparison'] or {}).get('missing_field') or 'first_delivery.not_compared')
+            for r in new_rows if r['injector_delivered'] and (not r['first_delivery_comparison'] or r['first_delivery_comparison']['classification'] == 'cannot_decide')],
+        new_uncompared=len(uncompared),
+        new_uncompared_share=len(uncompared)/len(new_rows) if new_rows else 0.0,
+        uncompared=uncompared, capability_sources=dict(Counter(r['first_delivery_comparison']['capability_source'] for r in compared)),
+        capability_differences=[r['envelope_id'] for r in rows if r['first_delivery_comparison'] and
+            r['first_delivery_comparison'].get('capability_differed')])
     return {
+        'gate': gate,
+        'agreed_by_inaction_observations': sum(o['classification'] == 'agreed_by_inaction' for r in rows for o in r['observation_scores']),
+        'compared_agreement_observations': sum(o['classification'] == 'agreed' for r in rows for o in r['observation_scores'] if o.get('comparison_kind') != 'first_delivery'),
+        'first_delivery_field_observations': sum(bool(r.get('first_delivery')) for records in history.values() for r in records),
         'day': day, 'timezone': 'UTC', 'shadow_observations': observations,
         'envelopes': len(rows), 'counts': dict(sorted(Counter(r['classification'] for r in rows).items())),
         'counts_by_cohort': {cohort: dict(Counter(r['classification'] for r in rows if r['cohort'] == cohort))
@@ -298,7 +450,8 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
                                   r['cannot_decide_kind'] == 'shadow_input_gap' for r in rows),
         'evidence_limit': ('State-aware rows require a state-transition time. Exact-envelope evidence is within 300 s; '
                           'target-only evidence within 30 s. Earlier admissions never score a current intent/reminder hold. '
-                          'Unobserved injector decisions stay pending_evidence. DB tables retain latest rows, not history.'),
+                          'Closed windows with no injector act agree by inaction for hold/defer and are defects for acts. '
+                          'Only open windows remain pending_evidence. DB tables retain latest rows, not history.'),
         'rows': rows,
     }
 
@@ -309,7 +462,15 @@ def write_report(report: dict, out: Path | str) -> tuple[Path, Path]:
     json_path = directory / ('score-' + report['day'] + '.json')
     markdown_path = directory / ('score-' + report['day'] + '.md')
     json_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n')
+    gate = report['gate']
     lines = [f"# Mail delivery shadow — {report['day']} (UTC)", '',
+             f"New injector-delivered: {gate['new_injector_delivered']}; compared and agreed: {gate['new_compared_and_agreed']}.", '',
+             f"New left uncompared: {gate['new_uncompared']}/{gate['new_envelopes']} ({gate['new_uncompared_share']:.1%}).", '',
+             'Compared capability sources: ' + json.dumps(gate['capability_sources'], sort_keys=True), '',
+             'Capability derivation differences: ' + (', '.join(gate['capability_differences']) or 'none'), '',
+             f"First-delivery fields recorded in this log window: {report['first_delivery_field_observations']}.", '',
+
+             f"Inaction agreements: {report['agreed_by_inaction_observations']} observations; compared observation agreements: {report['compared_agreement_observations']} (first delivery counted separately above).", '',
              f"{report['envelopes']} envelopes; {report['shadow_observations']} shadow observations.", '',
              'The gate uses envelopes created this UTC day; older backlog is shown separately.', '',
              '| Classification | New today | Older backlog | Total |', '| --- | ---: | ---: | ---: |']
@@ -327,13 +488,16 @@ def write_report(report: dict, out: Path | str) -> tuple[Path, Path]:
               f"Shadow at least 60 s before injector: {report['early_injector_count']}", '',
               f"Excluded read-triggered wrkq maintenance: {report['excluded_read_maintenance']}", '',
               f"Excluded noncanonical or unstamped kernel lines: {report['excluded_kernel_sources']}", '',
+              'Uncompared new envelopes and causes: ' + json.dumps(gate['uncompared'], sort_keys=True), '',
+              'First-delivery coverage gaps (including envelopes classed as defects): ' + json.dumps(gate['first_delivery_uncompared'], sort_keys=True), '',
+              'Pending evidence causes: ' + json.dumps([dict(envelope_id=r['envelope_id'], cause=r['classifying_observation'].get('cause')) for r in report['rows'] if r['classification'] == 'pending_evidence']), '',
               'Timing: milliseconds from shadow appeared_at; delta = shadow minus injector.',
               'Design/missing-data classifications require explicit annotated evidence in the shadow log.', '',
               'Unmapped outcomes: ' + (', '.join(report['unmapped_outcomes']) or 'none'), '',
-              '| Envelope | Class | Missing field | Shadow ms | Injector ms | Delta ms |',
-              '| --- | --- | --- | ---: | ---: | ---: |']
+              '| Envelope | Class | Classifying observation | Missing field | Shadow ms | Injector ms | Delta ms |',
+              '| --- | --- | --- | --- | ---: | ---: | ---: |']
     for row in report['rows']:
-        values = [row['envelope_id'], row['classification'], row['missing_field'],
+        values = [row['envelope_id'], row['classification'], row['classifying_observation']['decided_at'], row['missing_field'],
                   row['shadow_latency_ms'], row['injector_latency_ms'], row['latency_delta_ms']]
         lines.append('| ' + ' | '.join(str(v).replace('|', '\\|').replace('\n', ' ') if v is not None else '—' for v in values) + ' |')
     markdown_path.write_text('\n'.join(lines) + '\n')

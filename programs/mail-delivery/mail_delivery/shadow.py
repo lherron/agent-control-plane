@@ -92,6 +92,7 @@ class Shadow:
         self.views = {kind: View() for kind in TYPES}
         self.last = {}
         self.details = {}
+        self.first_deliveries = {}
         self.signals = {}
         self.refresh = set()
 
@@ -149,8 +150,15 @@ class Shadow:
             if identifier not in self.refresh and self.signals.get(identifier) == signal:
                 continue
             try:
+                if snapshots is None:
+                    snapshots = self.store(mail_rows)
                 cached = self.details.get(identifier)
-                detail_key = (mail.get('state'), mail.get('presentedAt'), mail.get('deferred'))
+                # A landed presentation clears its intent before the document
+                # necessarily advances. That local transition invalidates a
+                # cached pending owner row just like a watch state change.
+                delivery_key = json.dumps((snapshots[identifier].get('intent'),
+                                           snapshots[identifier].get('presentations')), sort_keys=True)
+                detail_key = (mail.get('state'), mail.get('presentedAt'), mail.get('deferred'), delivery_key)
                 if cached is None or cached[0] != detail_key:
                     # These details are missing from the document; read each only
                     # on the first observation of an envelope state transition.
@@ -158,23 +166,31 @@ class Shadow:
                     self.details[identifier] = (detail_key, detail)
                 else:
                     _, detail = cached
-                if snapshots is None:
-                    snapshots = self.store(mail_rows)
                 envelope, observed, context, tags = self.source.gather(mail, detail, snapshots[identifier], now)
                 decided_now = clock() if clock else now
+                first_delivery = self.first_deliveries.get(identifier)
+                reconstruct = getattr(self.source, 'first_delivery', None)
+                if first_delivery is None and reconstruct:
+                    first_delivery = reconstruct(mail, detail, snapshots[identifier], envelope, observed, context, decided_now)
+                decision = decide(envelope, observed, context, decided_now)
+                if first_delivery is None and envelope.state == 'pending' and decision.action in ('steer', 'enqueue', 'launch', 'preempt'):
+                    first_delivery = dict(basis='observed', at=stamp(decided_now), runtime_id=context.id,
+                        decision=asdict(decision), capability_source='port_probe' if observed.state in ('idle', 'turn-active') else 'not_needed',
+                        port_capability=observed.steer_capable, capability_differed=False, missing_fields=[])
+                if first_delivery is not None:
+                    self.first_deliveries[identifier] = first_delivery
                 key = json.dumps((mail, seat_state, asdict(envelope), asdict(observed), asdict(context),
-                                  temporal_state(envelope, observed, decided_now)), sort_keys=True)
+                                  temporal_state(envelope, observed, decided_now), first_delivery), sort_keys=True)
                 self.signals[identifier] = signal
                 self.refresh.discard(identifier)
                 if self.last.get(identifier) == key:
                     continue
-                decision = decide(envelope, observed, context, decided_now)
                 self.client.log('shadow.decision', envelope_id=identifier, target=target,
                     envelope_state=envelope.state, document_envelope_state=mail.get('state'),
                     observed_seat_state=observed.state,
                     envelope_state_at=detail.get('updatedAt') or mail.get('createdAt'),
                     seat_summary_state=seat.get('status'), runtime_id=context.id,
-                    decision=asdict(decision), reason=decision.reason,
+                    decision=asdict(decision), first_delivery=first_delivery, reason=decision.reason,
                     missing_fact=decision.missing_fact,
                     missing_fields=[decision.missing_fact] if decision.missing_fact else [],
                     appeared_at=mail.get('createdAt') or detail.get('createdAt'),
@@ -194,6 +210,7 @@ class Shadow:
         for identifier in self.last.keys() - current:
             self.last.pop(identifier, None)
             self.details.pop(identifier, None)
+            self.first_deliveries.pop(identifier, None)
             self.signals.pop(identifier, None)
         self.refresh.intersection_update(current)
 

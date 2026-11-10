@@ -22,7 +22,7 @@ as well as terminated, crashed, dead and stale. The adapter uses the complete
 Durable launch exhaustion precedes process-local pacing, as in target-driver.
 
 Live comparison additionally joins injector JSON-log decisions. A missing
-same-state decision stays pending_evidence. Daily gate counts use envelopes
+same-state decision is evaluated over a bounded evidence window: a closed hold/defer window without an injector act agrees by inaction, while an unmatched act is a defect; only open windows stay pending_evidence. Daily gate counts use envelopes
 created that UTC day, with older backlog alongside. No full-body admission is
 compared to a presented/intent-held observation. Log-fed memo dependencies and
 broker movement are tagged. See README for exact reads and time windows.
