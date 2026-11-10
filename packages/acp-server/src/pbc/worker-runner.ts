@@ -1,9 +1,9 @@
 import type { Actor } from 'acp-core'
 import type { PbcContinuationJob } from 'acp-state-store'
 import { normalizeSessionRef } from 'agent-scope'
-import { resolveDatabasePath } from 'hrc-core'
 import type { WrkqStoreAdapter } from 'wrkq-lib'
 import type { ResolvedAcpServerDeps } from '../deps.js'
+import { resolveHrcRoutes } from '../hrc-client.js'
 import {
   readOptionalFiniteNumber as readNumber,
   readObjectRecord as readRecord,
@@ -92,16 +92,18 @@ export function createPbcWorkerRunner(input: {
         getRunFinalAssistantText(
           {
             getRun: (runId) => input.deps.runStore.getRun(runId),
-            hrcDbPath: resolveDatabasePath(),
+            hrc: resolveHrcRoutes(input.deps, 'acp-server:pbc'),
           },
           acpRunId
         ),
-      getRunStatus: (acpRunId) => {
+      getRunStatus: async (acpRunId) => {
         const acpRun = input.deps.runStore.getRun(acpRunId)
         if (acpRun?.hrcRunId === undefined) {
           return undefined
         }
-        return readRunStatus(resolveDatabasePath(), acpRun.hrcRunId)?.status
+        return (
+          await readRunStatus(resolveHrcRoutes(input.deps, 'acp-server:pbc'), acpRun.hrcRunId)
+        )?.status
       },
       jobs: {
         renewLease: (params) => stateStore.pbcContinuationJobs.renewLease(params),

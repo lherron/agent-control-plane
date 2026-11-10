@@ -53,7 +53,7 @@ function emitterWith(job: JobRecord) {
 }
 
 describe('job lifecycle emitter (T-05245)', () => {
-  test('non-flow dispatched run emits exactly one job.dispatched', () => {
+  test('non-flow dispatched run emits exactly one job.dispatched', async () => {
     const job = makeJob()
     const { admin, emitter } = emitterWith(job)
     const run = makeRun({
@@ -63,8 +63,8 @@ describe('job lifecycle emitter (T-05245)', () => {
       dispatchedAt: '2026-06-28T09:00:00.500Z',
     })
 
-    emitter.reconcile(run, job)
-    emitter.reconcile(run, job) // repeated tick must not double-emit
+    await emitter.reconcile(run, job)
+    await emitter.reconcile(run, job) // repeated tick must not double-emit
 
     const dispatched = admin.systemEvents.list({ kind: 'job.dispatched' })
     expect(dispatched).toHaveLength(1)
@@ -80,14 +80,14 @@ describe('job lifecycle emitter (T-05245)', () => {
     expect(admin.systemEvents.list({ kind: 'job.completed' })).toHaveLength(0)
   })
 
-  test('synchronous flow (terminal without observed dispatch) emits both events in order', () => {
+  test('synchronous flow (terminal without observed dispatch) emits both events in order', async () => {
     const job = makeJob({ flow: { sequence: [] } as unknown as JobRecord['flow'] })
     const { admin, emitter } = emitterWith(job)
     // Flow raced straight to succeeded; we never saw the 'dispatched' state and
     // there is no top-level runId.
     const run = makeRun({ status: 'succeeded', completedAt: '2026-06-28T09:00:02.000Z' })
 
-    emitter.reconcile(run, job)
+    await emitter.reconcile(run, job)
 
     const all = admin.systemEvents.list({})
     expect(all.map((e) => e.kind)).toEqual(['job.dispatched', 'job.completed'])
@@ -96,7 +96,7 @@ describe('job lifecycle emitter (T-05245)', () => {
     expect(all[1]?.payload).toMatchObject({ status: 'succeeded', jobRunId: 'jr-1' })
   })
 
-  test('failed terminal run emits one job.completed carrying errorCode and errorMessage, even across repeated ticks', () => {
+  test('failed terminal run emits one job.completed carrying errorCode and errorMessage, even across repeated ticks', async () => {
     const job = makeJob()
     const { admin, emitter } = emitterWith(job)
     const run = makeRun({
@@ -106,8 +106,8 @@ describe('job lifecycle emitter (T-05245)', () => {
       completedAt: '2026-06-28T09:00:03.000Z',
     })
 
-    emitter.reconcile(run, job)
-    emitter.reconcile(run, job) // idempotent over repeated reconciler ticks
+    await emitter.reconcile(run, job)
+    await emitter.reconcile(run, job) // idempotent over repeated reconciler ticks
 
     const completed = admin.systemEvents.list({ kind: 'job.completed' })
     expect(completed).toHaveLength(1)
@@ -118,16 +118,16 @@ describe('job lifecycle emitter (T-05245)', () => {
     })
   })
 
-  test('pending/claimed/skipped runs emit nothing (not yet started)', () => {
+  test('pending/claimed/skipped runs emit nothing (not yet started)', async () => {
     const job = makeJob()
     const { admin, emitter } = emitterWith(job)
-    emitter.reconcile(makeRun({ status: 'claimed' }), job)
-    emitter.reconcile(makeRun({ status: 'pending' }), job)
-    emitter.reconcile(makeRun({ status: 'skipped' }), job)
+    await emitter.reconcile(makeRun({ status: 'claimed' }), job)
+    await emitter.reconcile(makeRun({ status: 'pending' }), job)
+    await emitter.reconcile(makeRun({ status: 'skipped' }), job)
     expect(admin.systemEvents.list({})).toHaveLength(0)
   })
 
-  test('succeeded completion carries a truncated finalResponse when resolver provided', () => {
+  test('succeeded completion carries a truncated finalResponse when resolver provided', async () => {
     const job = makeJob()
     const admin = createInMemoryAdminStore()
     const jobsStore = {
@@ -138,7 +138,7 @@ describe('job lifecycle emitter (T-05245)', () => {
       jobsStore,
       resolveFinalText: (runId) => (runId === 'run-1' ? `  ${'y'.repeat(5000)}  ` : undefined),
     })
-    emitter.reconcile(makeRun({ status: 'succeeded', runId: 'run-1', completedAt: 'z' }), job)
+    await emitter.reconcile(makeRun({ status: 'succeeded', runId: 'run-1', completedAt: 'z' }), job)
 
     const completed = admin.systemEvents.list({ kind: 'job.completed' })[0]
     const finalResponse = completed?.payload['finalResponse'] as string
@@ -146,7 +146,7 @@ describe('job lifecycle emitter (T-05245)', () => {
     expect(finalResponse.endsWith('…')).toBe(true)
   })
 
-  test('failed completion and runId-less runs carry no finalResponse', () => {
+  test('failed completion and runId-less runs carry no finalResponse', async () => {
     const job = makeJob()
     const admin = createInMemoryAdminStore()
     const jobsStore = { getJob: () => ({ job }) } as unknown as JobsStore
@@ -155,8 +155,11 @@ describe('job lifecycle emitter (T-05245)', () => {
       jobsStore,
       resolveFinalText: () => 'should not appear on failures',
     })
-    emitter.reconcile(makeRun({ status: 'failed', runId: 'run-1', completedAt: 'z' }), job)
-    emitter.reconcile(makeRun({ jobRunId: 'jr-2', status: 'succeeded', completedAt: 'z' }), job)
+    await emitter.reconcile(makeRun({ status: 'failed', runId: 'run-1', completedAt: 'z' }), job)
+    await emitter.reconcile(
+      makeRun({ jobRunId: 'jr-2', status: 'succeeded', completedAt: 'z' }),
+      job
+    )
 
     const events = admin.systemEvents.list({ kind: 'job.completed' })
     expect(events.map((e) => [e.payload['jobRunId'], e.payload['status']])).toEqual([
@@ -168,20 +171,20 @@ describe('job lifecycle emitter (T-05245)', () => {
     }
   })
 
-  test('a run reconciled without its job record still emits job.dispatched by looking the job up', () => {
+  test('a run reconciled without its job record still emits job.dispatched by looking the job up', async () => {
     const job = makeJob()
     const { admin, emitter } = emitterWith(job)
-    emitter.reconcile(makeRun({ status: 'dispatched' }))
+    await emitter.reconcile(makeRun({ status: 'dispatched' }))
     expect(admin.systemEvents.list({ kind: 'job.dispatched' })).toHaveLength(1)
   })
 
-  test('job lifecycle events carry available timing fields and honest terminal duration', () => {
+  test('job lifecycle events carry available timing fields and honest terminal duration', async () => {
     // T-05316 red bar: Discord job cards need timing supplied by the observer
     // event; duration is only valid when terminal time is after trigger time.
     const job = makeJob()
     const { admin, emitter } = emitterWith(job)
 
-    emitter.reconcile(
+    await emitter.reconcile(
       makeRun({
         jobRunId: 'jr-timed',
         status: 'succeeded',
@@ -207,13 +210,13 @@ describe('job lifecycle emitter (T-05245)', () => {
     })
   })
 
-  test('job lifecycle omits durationMs when terminal timing is invalid or negative', () => {
+  test('job lifecycle omits durationMs when terminal timing is invalid or negative', async () => {
     // T-05316 red bar: do not synthesize misleading durations for malformed or
     // clock-skewed terminal records.
     const job = makeJob()
     const { admin, emitter } = emitterWith(job)
 
-    emitter.reconcile(
+    await emitter.reconcile(
       makeRun({
         jobRunId: 'jr-invalid-duration',
         status: 'failed',
@@ -222,7 +225,7 @@ describe('job lifecycle emitter (T-05245)', () => {
       }),
       job
     )
-    emitter.reconcile(
+    await emitter.reconcile(
       makeRun({
         jobRunId: 'jr-negative-duration',
         status: 'failed',

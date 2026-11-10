@@ -11,6 +11,7 @@ import {
   makeRun,
 } from '../../test/fixtures/interface-run-dispatcher.js'
 import type { StoredRun } from '../domain/run-store.js'
+import type { HrcRouteReader } from '../hrc-route-reader.js'
 import { lastObservedActivityMs } from './interface-run-dispatcher.js'
 import * as dispatcherModule from './interface-run-dispatcher.js'
 
@@ -58,7 +59,7 @@ describe('interface run dispatcher stale activity window', () => {
     if (expected === 'failed') expect(run?.errorCode).toBe(errorCode ?? 'turn_timeout')
   })
 
-  test('clamps future hrc_events timestamps to now before stale math', () => {
+  test('clamps future hrc_events timestamps to now before stale math', async () => {
     const now = Date.now()
     const hrc = createHrcDb()
     const run = makeRun({
@@ -79,7 +80,7 @@ describe('interface run dispatcher stale activity window', () => {
     })
 
     const before = Date.now()
-    const observed = lastObservedActivityMs(run, hrc.hrcDbPath)
+    const observed = await lastObservedActivityMs(run, hrc.routes)
     const after = Date.now()
 
     expect(observed).toBeGreaterThanOrEqual(before)
@@ -140,7 +141,7 @@ describe('interface run dispatcher stale activity window', () => {
       // Birth the run past the stale window so only fresh activity can keep it running;
       // the 10-minute window leaves no wall-clock race between insert and runOnce.
       const fx = createTmuxActuationFixture({
-        hrcDbPath: hrc.hrcDbPath,
+        hrc: hrc.routes,
         generation,
         bornAgoMs: 12 * 60_000,
         staleTimeoutMs: 10 * 60_000,
@@ -186,7 +187,7 @@ describe('interface run dispatcher stale activity window', () => {
       test(`T4c runOnce ${control.id} fresh activity (${branch})`, async () => {
         const hrc = createEvidenceHrcDb()
         const fx = createTmuxActuationFixture({
-          hrcDbPath: hrc.hrcDbPath,
+          hrc: hrc.routes,
           generation: branch === 'without-generation' ? undefined : 7,
           hrcRunId: branch === 'own-run' ? 'run-live' : undefined,
           bornAgoMs: 12 * 60_000,
@@ -229,7 +230,7 @@ async function runOnceAfterActivity(input: {
   let fx: ReturnType<typeof createTmuxActuationFixture>
   try {
     fx = createTmuxActuationFixture({
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       generation: input.generation,
       hrcRunId: input.hrcRunId,
     })
@@ -255,7 +256,7 @@ async function runOnceAfterActivity(input: {
   const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
     runStore: fx.runStore,
     interfaceStore: fx.interfaceStore,
-    hrcDbPath: hrc.hrcDbPath,
+    hrc: hrc.routes,
     config: { intervalMs: 1, staleTimeoutMs: 600_000 },
   })
   try {
@@ -267,12 +268,12 @@ async function runOnceAfterActivity(input: {
   }
 }
 
-function isStaleFromLastObservedActivity(
+async function isStaleFromLastObservedActivity(
   run: StoredRun,
-  hrcDbPath: string,
+  hrc: HrcRouteReader,
   staleTimeoutMs: number
-): boolean {
-  return Date.now() - lastObservedActivityMs(run, hrcDbPath) > staleTimeoutMs
+): Promise<boolean> {
+  return Date.now() - (await lastObservedActivityMs(run, hrc)) > staleTimeoutMs
 }
 
 describe('retained-evidence original incident boundaries', () => {
@@ -311,11 +312,11 @@ describe('retained-evidence original incident boundaries', () => {
         evidenceOrigin: 'retained',
       })
 
-      expect(lastObservedActivityMs(run, hrc.hrcDbPath)).toBeGreaterThanOrEqual(now - 1_000)
-      expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(false)
+      expect(await lastObservedActivityMs(run, hrc.routes)).toBeGreaterThanOrEqual(now - 1_000)
+      expect(await isStaleFromLastObservedActivity(run, hrc.routes, 10_000)).toBe(false)
       hrc.db.close()
     })
-    test(`T4 C ordinary old activity remains the latest actuator (${generation === undefined ? 'without' : 'with'} generation)`, () => {
+    test(`T4 C ordinary old activity remains the latest actuator (${generation === undefined ? 'without' : 'with'} generation)`, async () => {
       const now = Date.now()
       const hrc = createEvidenceHrcDb()
       const run = makeRun({
@@ -341,11 +342,11 @@ describe('retained-evidence original incident boundaries', () => {
           evidenceOrigin: null,
         })
       }
-      expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(true)
+      expect(await isStaleFromLastObservedActivity(run, hrc.routes, 10_000)).toBe(true)
       hrc.db.close()
     })
   }
-  test('T4b retained old activity is fenced on the own-hrcRunId activity branch', () => {
+  test('T4b retained old activity is fenced on the own-hrcRunId activity branch', async () => {
     const now = Date.now()
     const hrc = createEvidenceHrcDb()
     const run = makeRun({
@@ -378,10 +379,10 @@ describe('retained-evidence original incident boundaries', () => {
       payload: {},
       evidenceOrigin: 'retained',
     })
-    expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(false)
+    expect(await isStaleFromLastObservedActivity(run, hrc.routes, 10_000)).toBe(false)
     hrc.db.close()
   })
-  test('T4b C ordinary old activity still makes the own-run branch stale', () => {
+  test('T4b C ordinary old activity still makes the own-run branch stale', async () => {
     const now = Date.now()
     const hrc = createEvidenceHrcDb()
     const run = makeRun({
@@ -414,11 +415,11 @@ describe('retained-evidence original incident boundaries', () => {
       payload: {},
       evidenceOrigin: null,
     })
-    expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(true)
+    expect(await isStaleFromLastObservedActivity(run, hrc.routes, 10_000)).toBe(true)
     hrc.db.close()
   })
   for (const branch of ['without-generation', 'with-generation', 'own-run'] as const) {
-    test(`T4c fresh retained audit activity cannot delay timeout (${branch})`, () => {
+    test(`T4c fresh retained audit activity cannot delay timeout (${branch})`, async () => {
       const now = Date.now()
       const hrc = createEvidenceHrcDb()
       const run = makeRun({
@@ -440,10 +441,10 @@ describe('retained-evidence original incident boundaries', () => {
         payload: { reason: 'retained-audit' },
         evidenceOrigin: 'retained',
       })
-      expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(true)
+      expect(await isStaleFromLastObservedActivity(run, hrc.routes, 10_000)).toBe(true)
       hrc.db.close()
     })
-    test(`T4c C fresh ordinary activity still delays timeout (${branch})`, () => {
+    test(`T4c C fresh ordinary activity still delays timeout (${branch})`, async () => {
       const now = Date.now()
       const hrc = createEvidenceHrcDb()
       const run = makeRun({
@@ -465,7 +466,7 @@ describe('retained-evidence original incident boundaries', () => {
         payload: {},
         evidenceOrigin: null,
       })
-      expect(isStaleFromLastObservedActivity(run, hrc.hrcDbPath, 10_000)).toBe(false)
+      expect(await isStaleFromLastObservedActivity(run, hrc.routes, 10_000)).toBe(false)
       hrc.db.close()
     })
   }

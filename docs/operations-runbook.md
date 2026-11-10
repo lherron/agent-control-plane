@@ -227,7 +227,7 @@ Inspect exact proposed actions without opening the stores for writes:
 bun scripts/acp-stale-orphans-dry-run.ts > /tmp/acp-stale-orphans.json
 ```
 
-Optional `--state-db`, `--jobs-db`, `--hrc-db`, and `--hrc-socket` select an
+Optional `--state-db`, `--jobs-db` and `--hrc-socket` select an
 isolated environment. There is no apply option. Review the action inventory
 before activating a new reaper policy; activation uses the normal ACP lifecycle.
 After activation, repeat the dry-run and compare dispatcher `store_scan.count`

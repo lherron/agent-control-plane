@@ -1,4 +1,3 @@
-import { Database } from 'bun:sqlite'
 import { writeLogLine } from 'acp-core'
 import type { InterfaceStore } from 'acp-interface-store'
 import type { JobsStore } from 'acp-jobs-store'
@@ -20,7 +19,7 @@ import {
   semanticMessageResponse,
   semanticMessageTimeoutFailure,
 } from '../domain/semantic-message-run.js'
-import { readHrcEvidence } from '../hrc-evidence-origin.js'
+import { type HrcEventTailQuery, type HrcRouteReader, eventMatches } from '../hrc-route-reader.js'
 import { readOptionalTrimmedRawString as readString } from '../internal/read-helpers.js'
 import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
 import {
@@ -53,7 +52,8 @@ export type InterfaceRunDispatcherInput = {
   jobsStore?: JobsStore | undefined
   conversationStore?: ConversationStore | undefined
   hrcClient?: Pick<AcpHrcClient, 'waitMessage'> | undefined
-  hrcDbPath: string
+  /** HRC's read routes (T-13243): ACP never opens HRC's store. */
+  hrc: HrcRouteReader
   config: InterfaceRunDispatcherConfig
 }
 
@@ -106,8 +106,7 @@ export function isUnroutableRun(run: StoredRun): boolean {
 export function createInterfaceRunDispatcher(
   input: InterfaceRunDispatcherInput
 ): InterfaceRunDispatcher {
-  const { runStore, interfaceStore, jobsStore, conversationStore, hrcClient, hrcDbPath, config } =
-    input
+  const { runStore, interfaceStore, jobsStore, conversationStore, hrcClient, hrc, config } = input
 
   let nextDelayMs = 60_000
 
@@ -161,7 +160,7 @@ export function createInterfaceRunDispatcher(
     if (run.status === 'pending' && run.hrcRunId === undefined) {
       const dispatchStaleTimeoutMs =
         config.dispatchStaleTimeoutMs ?? Math.min(config.staleTimeoutMs, 45_000)
-      if (isStale(run, dispatchStaleTimeoutMs) || hasExpiredTerminalCorrelationGrace(run)) {
+      if ((await isStale(run, dispatchStaleTimeoutMs)) || hasExpiredTerminalCorrelationGrace(run)) {
         // SDK-headless dispatchTurn blocks until the HRC turn completes, so a
         // long-running turn can leave the ACP run pending+no-hrcRunId well past
         // the dispatch timeout even though HRC accepted and is actively
@@ -177,20 +176,20 @@ export function createInterfaceRunDispatcher(
         // later keeps a long-dead pending run alive (T-04297 follow-up).
         const launchObserved =
           run.hostSessionId !== undefined &&
-          hasInFlightHrcRunForSessionSince(
-            hrcDbPath,
+          (await hasInFlightHrcRunForSessionSince(
+            hrc,
             { scopeRef: run.scopeRef, laneRef: run.laneRef },
             run.createdAt,
             launchCorrelationUntilIso(run.createdAt)
-          )
+          ))
         const terminalGraceProtected =
           !launchObserved &&
-          protectWithTerminalCorrelationGrace({
+          (await protectWithTerminalCorrelationGrace({
             run,
             runStore,
-            hrcDbPath,
+            hrc,
             config,
-          })
+          }))
         if (!launchObserved && !terminalGraceProtected) {
           terminalFailureStatus = 'failed'
           errorCode = 'dispatch_timeout'
@@ -202,10 +201,10 @@ export function createInterfaceRunDispatcher(
 
     if (run.hrcRunId !== undefined) {
       // Headless path: check HRC run status via turn.completed events
-      const hrcStatus = readRunStatus(hrcDbPath, run.hrcRunId)
+      const hrcStatus = await readRunStatus(hrc, run.hrcRunId)
       if (hrcStatus === undefined) {
         // HRC run not found or not terminal yet — check for stale timeout
-        if (isStale(run, config.staleTimeoutMs, hrcDbPath)) {
+        if (await isStale(run, config.staleTimeoutMs, hrc)) {
           terminalFailureStatus = 'failed'
           errorCode = 'turn_timeout'
           errorMessage = `Run exceeded stale timeout (${Math.round(config.staleTimeoutMs / 1000)}s) with no HRC completion`
@@ -215,7 +214,7 @@ export function createInterfaceRunDispatcher(
 
       const terminalOutcome = mapHrcRunTerminalStatus(hrcStatus)
       if (terminalOutcome?.status === 'completed') {
-        assistantMessage = readCompletedAssistantMessageFromHrcEvents(hrcDbPath, run.hrcRunId)
+        assistantMessage = await readCompletedAssistantMessageFromHrcEvents(hrc, run.hrcRunId)
       } else if (terminalOutcome !== undefined) {
         terminalFailureStatus = terminalOutcome.status
         errorCode = terminalOutcome.status === 'failed' ? 'turn_failed' : hrcStatus.errorCode
@@ -223,7 +222,7 @@ export function createInterfaceRunDispatcher(
           hrcStatus.errorMessage ?? `HRC run ${run.hrcRunId} ended with status: ${hrcStatus.status}`
       } else {
         // Not terminal yet — check stale
-        if (isStale(run, config.staleTimeoutMs, hrcDbPath)) {
+        if (await isStale(run, config.staleTimeoutMs, hrc)) {
           terminalFailureStatus = 'failed'
           errorCode = 'turn_timeout'
           errorMessage = `Run exceeded stale timeout (${Math.round(config.staleTimeoutMs / 1000)}s) with no HRC completion`
@@ -238,8 +237,8 @@ export function createInterfaceRunDispatcher(
       const sessionRef = normalizeSessionRef({ scopeRef: run.scopeRef, laneRef: run.laneRef })
       const afterSeq = run.afterHrcSeq ?? 0
 
-      assistantMessage = readCompletedAssistantMessageAfterSeq({
-        hrcDbPath,
+      assistantMessage = await readCompletedAssistantMessageAfterSeq({
+        hrc,
         hostSessionId: run.hostSessionId,
         sessionRef,
         afterHrcSeq: afterSeq,
@@ -247,7 +246,7 @@ export function createInterfaceRunDispatcher(
 
       if (assistantMessage === undefined) {
         // No assistant message yet — check stale timeout
-        if (isStale(run, config.staleTimeoutMs, hrcDbPath)) {
+        if (await isStale(run, config.staleTimeoutMs, hrc)) {
           terminalFailureStatus = 'failed'
           errorCode = 'turn_timeout'
           errorMessage = `Run exceeded stale timeout (${Math.round(config.staleTimeoutMs / 1000)}s) with no assistant response`
@@ -256,7 +255,7 @@ export function createInterfaceRunDispatcher(
       }
     } else {
       // No correlation data — likely dispatch failed before persisting. Check stale.
-      if (isStale(run, config.staleTimeoutMs, hrcDbPath)) {
+      if (await isStale(run, config.staleTimeoutMs, hrc)) {
         terminalFailureStatus = 'failed'
         errorCode = 'turn_timeout'
         errorMessage = 'Run has no HRC correlation and exceeded stale timeout'
@@ -604,7 +603,7 @@ async function reconcileSemanticMessage(input: {
     return { state: 'failed', error }
   }
 
-  if (isStale(input.run, input.staleTimeoutMs)) {
+  if (await isStale(input.run, input.staleTimeoutMs)) {
     const message = `Federated HRC message ${input.correlation.requestMessageId} exceeded stale timeout (${Math.round(input.staleTimeoutMs / 1000)}s) without a response`
     return {
       state: 'failed',
@@ -631,15 +630,19 @@ function logFederatedInterfaceEvent(
   })
 }
 
-function isStale(run: StoredRun, staleTimeoutMs: number, hrcDbPath?: string): boolean {
+async function isStale(
+  run: StoredRun,
+  staleTimeoutMs: number,
+  hrc?: HrcRouteReader
+): Promise<boolean> {
   const activityAt =
-    hrcDbPath === undefined
+    hrc === undefined
       ? parseTimestampMs(run.updatedAt, Date.now())
-      : lastObservedActivityMs(run, hrcDbPath)
+      : await lastObservedActivityMs(run, hrc)
   return Date.now() - activityAt > staleTimeoutMs
 }
 
-export function lastObservedActivityMs(run: StoredRun, hrcDbPath: string): number {
+export async function lastObservedActivityMs(run: StoredRun, hrc: HrcRouteReader): Promise<number> {
   const now = Date.now()
   const runUpdatedAt = parseTimestampMs(run.updatedAt, now)
 
@@ -647,103 +650,100 @@ export function lastObservedActivityMs(run: StoredRun, hrcDbPath: string): numbe
     return runUpdatedAt
   }
 
-  const hrcEventAt = readLastCorrelatedHrcEventMs(run, hrcDbPath, now)
+  const hrcEventAt = await readLastCorrelatedHrcEventMs(run, hrc, now)
   return hrcEventAt === undefined ? runUpdatedAt : Math.max(runUpdatedAt, hrcEventAt)
 }
 
-function readLastCorrelatedHrcEventMs(
+/**
+ * The ts of the newest live HRC event correlated with the run, from
+ * `GET /v1/events/tail` with liveOnly and afterSeq (T-13244), keyed by run id
+ * or host session id so HRC answers locally. The returned row is re-checked
+ * against every selector: a row that fails (a daemon that ignored one) or a
+ * failed read means HRC cannot say, and the run counts as active now, so the
+ * stale and turn-timeout decisions never fire on evidence ACP could not see.
+ */
+async function readLastCorrelatedHrcEventMs(
   run: StoredRun,
-  hrcDbPath: string,
+  hrc: HrcRouteReader,
   now: number
-): number | undefined {
-  if (run.hrcRunId === undefined && run.hostSessionId === undefined) {
+): Promise<number | undefined> {
+  const correlation = buildHrcActivityQuery(run)
+  if (correlation === undefined) {
     return undefined
   }
 
-  const db = new Database(hrcDbPath, { readonly: true })
+  let rows: Awaited<ReturnType<HrcRouteReader['readEventTail']>>['events']
   try {
-    const row = readHrcEvidence(db, (actuatingClause) => {
-      const correlation = buildHrcActivityQuery(run, actuatingClause)
-      return correlation === undefined
-        ? undefined
-        : db
-            .query<{ ts: string }, Array<string | number>>(correlation.sql)
-            .get(...correlation.params)
-    })
-    if (row === null || row === undefined) {
-      return undefined
-    }
-
-    const parsed = Date.parse(row.ts)
-    if (!Number.isFinite(parsed)) {
-      return undefined
-    }
-
-    return Math.min(parsed, now)
-  } catch {
-    return undefined
-  } finally {
-    db.close()
+    rows = (await hrc.readEventTail(correlation.query)).events
+  } catch (error) {
+    logActivityUnknown(run, error)
+    return now
   }
+  const row = rows.at(-1)
+  if (row === undefined) {
+    return undefined
+  }
+  if (
+    rows.length > 1 ||
+    !eventMatches(row, correlation.check) ||
+    (correlation.query.afterSeq !== undefined && row.hrcSeq <= correlation.query.afterSeq)
+  ) {
+    logActivityUnknown(run, 'stray row')
+    return now
+  }
+
+  const parsed = Date.parse(row.ts)
+  if (!Number.isFinite(parsed)) {
+    return undefined
+  }
+
+  return Math.min(parsed, now)
+}
+
+function logActivityUnknown(run: StoredRun, cause: unknown): void {
+  writeLogLine({
+    level: 'warn',
+    component: 'interface-run-dispatcher',
+    event: 'hrc.evidence.unknown',
+    data: {
+      read: 'activity',
+      runId: run.runId,
+      cause: cause instanceof Error ? cause.message : String(cause),
+    },
+  })
 }
 
 // Activity decides stale/turn_timeout for every correlation key, including the
 // run's own hrcRunId: rows with an evidence origin never count as current activity.
 function buildHrcActivityQuery(
-  run: StoredRun,
-  actuatingClause: string
-): { sql: string; params: Array<string | number> } | undefined {
+  run: StoredRun
+): { query: HrcEventTailQuery; check: HrcEventTailQuery } | undefined {
   if (run.hrcRunId !== undefined) {
-    const clauses = ['run_id = ?']
-    const params: Array<string | number> = [run.hrcRunId]
-
-    if (run.hostSessionId !== undefined) {
-      clauses.push('host_session_id = ?')
-      params.push(run.hostSessionId)
+    const query: HrcEventTailQuery = {
+      runId: run.hrcRunId,
+      ...(run.hostSessionId !== undefined ? { hostSessionId: run.hostSessionId } : {}),
+      ...(run.generation !== undefined ? { generation: run.generation } : {}),
+      liveOnly: true,
+      limit: 1,
     }
-
-    if (run.generation !== undefined) {
-      clauses.push('generation = ?')
-      params.push(run.generation)
-    }
-
-    return {
-      sql: `SELECT ts
-        FROM hrc_events
-        WHERE ${clauses.join(' AND ')}
-          ${actuatingClause}
-        ORDER BY hrc_seq DESC
-        LIMIT 1`,
-      params,
-    }
+    return { query, check: query }
   }
 
   if (run.hostSessionId === undefined) {
     return undefined
   }
 
-  const clauses = ['host_session_id = ?', 'scope_ref = ?', 'lane_ref = ?', 'hrc_seq > ?']
-  const params: Array<string | number> = [
-    run.hostSessionId,
-    run.scopeRef,
-    run.laneRef,
-    run.afterHrcSeq ?? 0,
-  ]
-
-  if (run.generation !== undefined) {
-    clauses.push('generation = ?')
-    params.push(run.generation)
+  // A host session belongs to one scope and lane: scope and lane are
+  // re-checked on the row rather than sent, which keeps the read local
+  // (a scope-keyed tail is federation-routed and can answer 503).
+  const query: HrcEventTailQuery = {
+    hostSessionId: run.hostSessionId,
+    afterSeq: run.afterHrcSeq ?? 0,
+    ...(run.generation !== undefined ? { generation: run.generation } : {}),
+    liveOnly: true,
+    limit: 1,
   }
-
-  return {
-    sql: `SELECT ts
-      FROM hrc_events
-      WHERE ${clauses.join(' AND ')}
-        ${actuatingClause}
-      ORDER BY hrc_seq DESC
-      LIMIT 1`,
-    params,
-  }
+  return { query, check: { ...query, scopeRef: run.scopeRef, laneRef: run.laneRef } }
 }
 
 function parseTimestampMs(value: string, fallback: number): number {

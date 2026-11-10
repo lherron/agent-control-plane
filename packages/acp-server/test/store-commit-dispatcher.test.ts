@@ -1,8 +1,10 @@
+import { Database } from 'bun:sqlite'
 import { expect, test } from 'bun:test'
 import { openInterfaceStore } from 'acp-interface-store'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
 import { createInterfaceRunDispatcher } from '../src/integration/interface-run-dispatcher.js'
 import { StoreCommitBus } from '../src/store-commit-bus.js'
+import { createHrcRouteFake } from './fixtures/hrc-route-fake.js'
 
 test('real idle interface dispatcher scans only at startup until a commit', async () => {
   const bus = new StoreCommitBus()
@@ -18,7 +20,7 @@ test('real idle interface dispatcher scans only at startup until a commit', asyn
     commitBus: bus,
     runStore,
     interfaceStore,
-    hrcDbPath: '/unused-at-idle',
+    hrc: createHrcRouteFake(new Database(':memory:')),
     config: { intervalMs: 20, staleTimeoutMs: 10000 },
   })
   try {

@@ -82,15 +82,3 @@ export type HrcMailFailureNotice = {
   createdAt: string
   deliveredAt?: string | undefined
 }
-
-/**
- * The mail hint's decision (`POST /v1/internal/mail/hint-decision`).
- *
- * The count is the seat's OUTSTANDING ENQUEUE SUBMISSIONS: mail that has been
- * handed to the harness-local queue and will not be readable until the turn
- * ends. On a steer-capable seat that count is zero by construction, because a
- * steer lands inside the turn and needs no hint.
- */
-export type HrcMailHintDecision =
-  | { outcome: 'suppressed'; reason: 'no_outstanding_mail' | 'runtime_mismatch' | 'cadence' }
-  | { outcome: 'issued'; reason: 'first' | 'count_changed' | 'periodic'; outstandingCount: number }

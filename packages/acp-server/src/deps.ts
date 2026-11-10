@@ -285,6 +285,11 @@ export interface AcpServerDeps {
   verifyCommandTargetId?: string | undefined
   verifyCommandSessionRef?: SessionRef | undefined
   hrcClient?: AcpHrcClient | undefined
+  /**
+   * T-13243: HRC's read routes for launcher evidence, sweeps, the reaper and
+   * final output. Unset, readers build ACP's HRC client on the control socket.
+   */
+  hrcRoutes?: import('./hrc-route-reader.js').HrcRouteReader | undefined
   /** T-12207: C2 mobile cards host config; the routes answer home_unavailable without it. */
   c2?: AcpC2Config | undefined
   /**

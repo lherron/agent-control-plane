@@ -1,8 +1,9 @@
 import type { JobFlowStep, StepExpectation } from 'acp-core'
 import type { JobRecord, JobStepRunRecord, JobsStore } from 'acp-jobs-store'
-import { formatCanonicalSessionRef, resolveDatabasePath } from 'hrc-core'
+import { formatCanonicalSessionRef } from 'hrc-core'
 
 import type { ResolvedAcpServerDeps } from '../../deps.js'
+import { resolveHrcRoutes } from '../../hrc-client.js'
 import { dispatchStepThroughInputs } from '../dispatch-step.js'
 import {
   type RunOutcome,
@@ -113,7 +114,7 @@ export async function advanceAgentStep(
 
   return {
     state: 'terminal',
-    stepRun: reconcileTerminalStepRun(input, stepRun, terminal),
+    stepRun: await reconcileTerminalStepRun(input, stepRun, terminal),
   }
 }
 
@@ -231,17 +232,17 @@ function getTerminalRunOutcome(
   return mapRunStatusToOutcome(run.status)
 }
 
-function reconcileTerminalStepRun(
+async function reconcileTerminalStepRun(
   input: StepAdvanceInput<AgentRunnableStep>,
   stepRun: JobStepRunRecord,
   runOutcome: RunOutcome
-): JobStepRunRecord {
+): Promise<JobStepRunRecord> {
   const expectation: StepExpectation = input.step.expect ?? {}
   const parsedResult =
     expectation.resultBlock === undefined
       ? undefined
       : parseResultBlock(
-          readRunFinalAssistantText(input.deps, stepRun.runId),
+          await readRunFinalAssistantText(input.deps, stepRun.runId),
           expectation.resultBlock
         )
   const evaluation = evaluateExpectation(runOutcome, parsedResult, expectation)
@@ -255,20 +256,21 @@ function reconcileTerminalStepRun(
   })
 }
 
-function readRunFinalAssistantText(deps: ResolvedAcpServerDeps, runId: string | undefined): string {
+async function readRunFinalAssistantText(
+  deps: ResolvedAcpServerDeps,
+  runId: string | undefined
+): Promise<string> {
   if (runId === undefined) {
     return ''
   }
 
-  // Tests point `hrcDbPath` at a fixture HRC database; production resolves it.
-  const configured = (deps as ResolvedAcpServerDeps & { hrcDbPath?: string }).hrcDbPath
   return (
-    getRunFinalAssistantText(
+    (await getRunFinalAssistantText(
       {
         getRun: (id) => deps.runStore.getRun(id),
-        hrcDbPath: configured ?? resolveDatabasePath(),
+        hrc: resolveHrcRoutes(deps, 'acp-server:flow'),
       },
       runId
-    ) ?? ''
+    )) ?? ''
   )
 }

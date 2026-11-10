@@ -1,3 +1,7 @@
+/**
+ * Fixture tables for the route-backed HRC double (test/fixtures/hrc-route-fake.ts):
+ * the launcher tests seed these and read them back through HRC's routes.
+ */
 import type { Database } from 'bun:sqlite'
 
 export function createLauncherRunTables(db: Database): void {
@@ -7,12 +11,6 @@ export function createLauncherRunTables(db: Database): void {
         status TEXT NOT NULL,
         error_code TEXT,
         error_message TEXT
-      );
-      CREATE TABLE events (
-        seq INTEGER PRIMARY KEY AUTOINCREMENT,
-        run_id TEXT,
-        event_kind TEXT NOT NULL,
-        event_json TEXT NOT NULL
       );
   `)
 }

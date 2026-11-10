@@ -9,6 +9,11 @@ import {
   PROTECTED_ORPHAN_RECHECK_MS,
   createStaleOrphanReaper,
 } from '../src/integration/stale-orphan-reaper.js'
+import {
+  type HrcRouteFakeOptions,
+  createHrcRouteFake,
+  sessionHomeUnreachable,
+} from './fixtures/hrc-route-fake.js'
 
 const cleanup: (() => void)[] = []
 afterEach(() => {
@@ -16,7 +21,7 @@ afterEach(() => {
 })
 const now = Date.parse('2026-11-05T02:00:00Z')
 const old = '2026-06-01T00:00:00Z'
-function fixture() {
+function fixture(routes: HrcRouteFakeOptions = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'acp-orphan-'))
   cleanup.push(() => rmSync(dir, { recursive: true, force: true }))
   const state = openAcpStateStore({ dbPath: join(dir, 'acp.db') })
@@ -43,7 +48,7 @@ function fixture() {
     inputQueueStore: state.inputQueue,
     inputAdmissionStore: state.inputAdmissions,
     hrcClient: client,
-    hrcDbPath: join(dir, 'hrc.db'),
+    hrc: createHrcRouteFake(join(dir, 'hrc.db'), routes),
     now: () => now,
   }
   const reaper = createStaleOrphanReaper(reaperInput)
@@ -205,6 +210,46 @@ test('fails old unroutable work with dead identity while a newer scope runtime e
   })
 })
 
+// T-13243: the final corroboration reads HRC's routes. A row a selector
+// should have excluded, or a 503 from the scope-keyed runs read, protects.
+for (const variant of ['clear', 'stray', 'scope-503'] as const) {
+  test(`scope-arm corroboration over routes: ${variant}`, async () => {
+    const f = fixture(
+      variant === 'stray'
+        ? { ignoreNewSelectors: true }
+        : variant === 'scope-503'
+          ? {
+              fail: (c) =>
+                c.route === 'runs' && c.query['scopeRef'] !== undefined
+                  ? sessionHomeUnreachable()
+                  : undefined,
+            }
+          : {}
+    )
+    const { run } = f.seed('running')
+    // Neither runtime nor host identity: the scope arm decides.
+    f.state.sqlite.prepare('UPDATE runs SET updated_at = ?').run(old)
+    // A live runtime and an open run of another scope: excluded by exact
+    // scopeRef on a daemon with T-13244, returned by one without it.
+    f.hrc.exec(
+      "INSERT INTO runtimes VALUES ('rt-other','ready',NULL,'agent:other:project:x:task:primary','main')"
+    )
+    f.hrc.exec(
+      "INSERT INTO runs VALUES ('h-other','rt-other',NULL,'agent:other:project:x:task:primary','main','running',NULL)"
+    )
+    await f.reaper.runOnce()
+    if (variant === 'clear') {
+      expect(f.state.runs.getRun(run.runId)).toMatchObject({
+        status: 'failed',
+        errorCode: 'stale_unroutable',
+      })
+    } else {
+      expect(f.state.runs.getRun(run.runId)?.status).toBe('running')
+      expect(f.state.runs.getRun(run.runId)?.errorCode).toBeUndefined()
+    }
+  })
+}
+
 test('unchanged foreign candidates locate once across dispatcher ticks', async () => {
   const f = fixture()
   const { run } = f.seed('running')
@@ -361,7 +406,7 @@ test('jobs with deleted definitions reconcile terminal runs; abandoned claims ex
     runStore: f.state.runs,
     inputQueueStore: f.state.inputQueue,
     inputAdmissionStore: f.state.inputAdmissions,
-    hrcDbPath: '/nonexistent',
+    hrc: createHrcRouteFake('/nonexistent'),
     jobsStore: jobs,
     verifyJobNode: async () => 'max3',
     now: () => now,

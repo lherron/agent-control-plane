@@ -195,7 +195,7 @@ function addTaskCommands(program: Command, deps: CommandDependencies): void {
     .option('--hrc-detail <mode>')
     .option('--hrc-kinds <csv>')
     .option('--hrc-all-kinds')
-    .option('--hrc-store <path>')
+    .option('--hrc-socket <path>')
     .option('--hrc-anchor <mode>')
     .option('--hrc-event-window <seconds>')
     .option('--width <n>')

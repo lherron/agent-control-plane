@@ -3,6 +3,8 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { HrcRouteReader } from '../src/hrc-route-reader.js'
+import { createHrcRouteFake } from './fixtures/hrc-route-fake.js'
 
 import { createInMemoryAdminStore } from 'acp-admin-store'
 import { createInMemoryJobsStore } from 'acp-jobs-store'
@@ -15,7 +17,7 @@ import { withWiredServer } from './fixtures/wired-server.js'
 
 type LaunchCall = Parameters<NonNullable<AcpServerDeps['launchRoleScopedRun']>>[0]
 type WiredServerOverrides = Partial<Omit<AcpServerDeps, 'wrkqStore' | 'coordStore'>> & {
-  hrcDbPath?: string | undefined
+  hrcRoutes?: HrcRouteReader | undefined
 }
 
 type FlowLaunchOutcome =
@@ -24,7 +26,7 @@ type FlowLaunchOutcome =
 
 type HeadlessHrcFixture = {
   db: Database
-  hrcDbPath: string
+  hrcRoutes: HrcRouteReader
   cleanup(): void
 }
 
@@ -65,8 +67,8 @@ function createLaunchOverrides(calls: LaunchCall[]): Partial<AcpServerDeps> {
 
 function createHeadlessHrcDb(): HeadlessHrcFixture {
   const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-admin-jobs-flow-'))
-  const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-  const db = new Database(hrcDbPath)
+  const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+  const db = new Database(hrcFixture)
 
   db.exec(`
     CREATE TABLE runs (
@@ -74,12 +76,6 @@ function createHeadlessHrcDb(): HeadlessHrcFixture {
       status TEXT NOT NULL,
       error_code TEXT,
       error_message TEXT
-    );
-    CREATE TABLE events (
-      seq INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT,
-      event_kind TEXT NOT NULL,
-      event_json TEXT NOT NULL
     );
     CREATE TABLE hrc_events (
       hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,7 +87,7 @@ function createHeadlessHrcDb(): HeadlessHrcFixture {
 
   return {
     db,
-    hrcDbPath,
+    hrcRoutes: createHrcRouteFake(hrcFixture),
     cleanup() {
       db.close()
       rmSync(fixtureDir, { recursive: true, force: true })
@@ -111,18 +107,6 @@ function insertHrcRun(
   )
 
   if (outcome.text !== undefined) {
-    hrc.db.run(
-      'INSERT INTO events (run_id, event_kind, event_json) VALUES (?, ?, ?)',
-      hrcRunId,
-      'message_end',
-      JSON.stringify({
-        type: 'message_end',
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: outcome.text }],
-        },
-      })
-    )
     hrc.db.run(
       'INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)',
       hrcRunId,
@@ -844,7 +828,7 @@ describe('admin jobs routes', () => {
           adminStore,
           jobsStore,
           inputAttemptStore,
-          hrcDbPath: hrc.hrcDbPath,
+          hrcRoutes: hrc.hrcRoutes,
           ...createFlowLaunchOverrides(
             hrc,
             [
@@ -918,7 +902,7 @@ describe('admin jobs routes', () => {
         },
         serverOverrides({
           jobsStore,
-          hrcDbPath: hrc.hrcDbPath,
+          hrcRoutes: hrc.hrcRoutes,
           hrcClient: {
             resolveSession: async (request: unknown) => {
               order.push('resolveSession')
@@ -1024,7 +1008,7 @@ describe('admin jobs routes', () => {
         },
         serverOverrides({
           jobsStore,
-          hrcDbPath: hrc.hrcDbPath,
+          hrcRoutes: hrc.hrcRoutes,
           ...createFlowLaunchOverrides(hrc, [
             { status: 'completed', text: 'RESULT\n{"ready":true}' },
             { status: 'completed', text: 'RESULT\n{"ready":false}' },
@@ -1079,7 +1063,7 @@ describe('admin jobs routes', () => {
         },
         serverOverrides({
           jobsStore,
-          hrcDbPath: hrc.hrcDbPath,
+          hrcRoutes: hrc.hrcRoutes,
           ...createFlowLaunchOverrides(hrc, [
             { status: 'completed', text: 'No structured result was provided.' },
           ]),
@@ -1138,7 +1122,7 @@ describe('admin jobs routes', () => {
             deps: {
               ...fixture,
               jobsStore,
-              hrcDbPath: hrc.hrcDbPath,
+              hrcRoutes: hrc.hrcRoutes,
               ...flowLaunchOverrides,
               defaultActor: { kind: 'system', id: 'test' },
               authorize: () => 'allow',
@@ -1165,7 +1149,7 @@ describe('admin jobs routes', () => {
         },
         serverOverrides({
           jobsStore,
-          hrcDbPath: hrc.hrcDbPath,
+          hrcRoutes: hrc.hrcRoutes,
           ...flowLaunchOverrides,
         })
       )

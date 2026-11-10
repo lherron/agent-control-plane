@@ -1,6 +1,8 @@
+import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 
 import { createInterfaceRunDispatcher } from '../src/integration/interface-run-dispatcher.js'
+import { createHrcRouteFake } from './fixtures/hrc-route-fake.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('POST /v1/inputs and GET /v1/runs/:runId', () => {
@@ -128,7 +130,7 @@ describe('POST /v1/inputs and GET /v1/runs/:runId', () => {
       const dispatcher = createInterfaceRunDispatcher({
         runStore: fixture.runStore,
         interfaceStore: fixture.interfaceStore,
-        hrcDbPath: '/tmp/t06805-unused-hrc.sqlite',
+        hrc: createHrcRouteFake(new Database(':memory:')),
         hrcClient: {
           waitMessage: async () => ({
             matched: true as const,

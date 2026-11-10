@@ -71,7 +71,7 @@ describe('interface run dispatcher completion and delivery', () => {
     const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
       runStore,
       interfaceStore,
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       config: { intervalMs: 1, staleTimeoutMs: 60_000 },
     })
 
@@ -115,7 +115,7 @@ describe('interface run dispatcher completion and delivery', () => {
     const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
       runStore,
       interfaceStore,
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       config: { intervalMs: 1, staleTimeoutMs: 60_000 },
     })
 
@@ -174,7 +174,7 @@ describe('interface run dispatcher completion and delivery', () => {
     const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
       runStore,
       interfaceStore,
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       config: { intervalMs: 1, staleTimeoutMs: 60_000 },
     })
 
@@ -264,7 +264,7 @@ describe('interface run dispatcher completion and delivery', () => {
     const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
       runStore,
       interfaceStore,
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       config: { intervalMs: 1, staleTimeoutMs: 60_000 },
     })
 
@@ -298,7 +298,7 @@ describe('interface run dispatcher completion and delivery', () => {
     // This fences retained evidence, not staleness. Keep a loaded runner from
     // expiring the fresh run on the helper's 10 ms stale deadline.
     const fx = createTmuxActuationFixture({
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       generation: 7,
       staleTimeoutMs: 10 * 60_000,
     })
@@ -328,7 +328,7 @@ describe('interface run dispatcher completion and delivery', () => {
   ]) {
     test(`T1 ${control.id} ordinary-origin completion still finalizes and delivers`, async () => {
       const hrc = createEvidenceHrcDb()
-      const fx = createTmuxActuationFixture({ hrcDbPath: hrc.hrcDbPath, generation: 7 })
+      const fx = createTmuxActuationFixture({ hrc: hrc.routes, generation: 7 })
       insertCompletedPair(hrc.db, {
         firstSeq: 11,
         text: 'OLD-REPLY',
@@ -350,7 +350,7 @@ describe('interface run dispatcher completion and delivery', () => {
 
   test('T1b a live completion after retained history finalizes exactly once with live text', async () => {
     const hrc = createEvidenceHrcDb()
-    const fx = createTmuxActuationFixture({ hrcDbPath: hrc.hrcDbPath, generation: 7 })
+    const fx = createTmuxActuationFixture({ hrc: hrc.routes, generation: 7 })
     insertCompletedPair(hrc.db, {
       firstSeq: 11,
       text: 'OLD-REPLY',
@@ -378,7 +378,7 @@ describe('interface run dispatcher completion and delivery', () => {
   test('K1 own terminal run may finalize from its retained final output', async () => {
     const hrc = createEvidenceHrcDb()
     const fx = createTmuxActuationFixture({
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       generation: 7,
       hrcRunId: 'run-own',
     })
@@ -442,7 +442,7 @@ test('commit bus keeps reconciliation cadence for an HRC-only completion', async
     commitBus: bus,
     runStore,
     interfaceStore,
-    hrcDbPath: hrc.hrcDbPath,
+    hrc: hrc.routes,
     config: { intervalMs: 2000, staleTimeoutMs: 60000 },
   })
   try {

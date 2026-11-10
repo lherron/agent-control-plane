@@ -1,7 +1,7 @@
 import { writeLogLine } from 'acp-core'
 import type { JobsStore } from 'acp-jobs-store'
 import { type SessionRef, parseScopeRef } from 'agent-scope'
-import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
+import { resolveControlSocketPath } from 'hrc-core'
 import type { createAcpServer } from './create-acp-server.js'
 import type {
   AcpHrcClient,
@@ -9,7 +9,6 @@ import type {
   HrcAgentSources,
   InputAttemptStore,
 } from './deps.js'
-import { createDevFlowLauncher } from './dev-flow-launcher.js'
 import { createEchoLauncher } from './echo-launcher.js'
 import { AcpHrcSdkClient } from './hrc-client.js'
 import { lastObservedActivityMs } from './integration/interface-run-dispatcher.js'
@@ -127,7 +126,6 @@ export function resolveLauncherDeps(
 ): Partial<Parameters<typeof createAcpServer>[0]> {
   const useRealLauncher = env['ACP_REAL_HRC_LAUNCHER'] === '1'
   const useEchoLauncher = env['ACP_DEV_ECHO_LAUNCHER'] === '1'
-  const useDevFlowLauncher = env['ACP_DEV_FLOW_LAUNCHER'] === '1'
 
   if (useRealLauncher) {
     if (useEchoLauncher) {
@@ -136,14 +134,6 @@ export function resolveLauncherDeps(
         component: 'acp-server',
         event: 'server.config.ignored',
         data: { variable: 'ACP_DEV_ECHO_LAUNCHER', reason: 'ACP_REAL_HRC_LAUNCHER=1' },
-      })
-    }
-    if (useDevFlowLauncher) {
-      writeLogLine({
-        level: 'warn',
-        component: 'acp-server',
-        event: 'server.config.ignored',
-        data: { variable: 'ACP_DEV_FLOW_LAUNCHER', reason: 'ACP_REAL_HRC_LAUNCHER=1' },
       })
     }
 
@@ -168,6 +158,12 @@ export function resolveLauncherDeps(
             : {}),
         }))
     const hrcClient: AcpHrcClient = createHrcClient(socketPath)
+    // T-13243: launcher evidence, sweeps and the reaper read HRC's routes.
+    const hrcRoutes = new AcpHrcSdkClient({
+      socketPath,
+      userAgent: ACP_SERVER_USER_AGENT,
+      caller: 'acp-server:evidence',
+    })
     const hrcAgentSources = readHrcAgentSources(env)
     const triageCommandTargetId = readCommandTargetId(env, 'ACP_TRIAGE_COMMAND_TARGET_ID')
     const implCommandTargetId = readCommandTargetId(env, 'ACP_IMPL_COMMAND_TARGET_ID')
@@ -184,8 +180,9 @@ export function resolveLauncherDeps(
           ? { jobFirstBirthAuthority: createJobFirstBirthAuthority(_options.jobsStore) }
           : {}),
       }),
-      runLivenessResolver: (run) =>
-        new Date(lastObservedActivityMs(run, resolveDatabasePath())).toISOString(),
+      hrcRoutes,
+      runLivenessResolver: async (run) =>
+        new Date(await lastObservedActivityMs(run, hrcRoutes)).toISOString(),
       ...(triageCommandTargetId !== undefined ? { triageCommandTargetId } : {}),
       ...(implCommandTargetId !== undefined ? { implCommandTargetId } : {}),
       ...(verifyCommandTargetId !== undefined ? { verifyCommandTargetId } : {}),
@@ -235,13 +232,6 @@ export function resolveLauncherDeps(
         // to undefined so the resolver's not-found contract is honored.
         return result.found ? result.hostSessionId : undefined
       },
-    }
-  }
-
-  if (useDevFlowLauncher) {
-    return {
-      launchRoleScopedRun: createDevFlowLauncher(),
-      agentRootResolver: ({ agentId }) => `/tmp/acp-dev-flow/${agentId}`,
     }
   }
 

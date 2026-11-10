@@ -8,7 +8,7 @@ import {
   truncateText,
 } from 'agent-action-render'
 
-import type { HrcEvent } from '../hrc-store-reader.js'
+import type { HrcEvent } from '../hrc-event-reader.js'
 import { asRecord, stringField } from './json-narrow.js'
 import type { HrcDetailMode } from './timeline-hrc-join.js'
 import type { HrcTimelineRow } from './timeline-project.js'

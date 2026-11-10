@@ -11,6 +11,7 @@ import { createStoreScanLoop } from './store-scan-loop.js'
 
 import type { LaunchRoleScopedRun, ResolvedAcpServerDeps } from '../deps.js'
 import type { RunStore, StoredRun } from '../domain/run-store.js'
+import type { HrcRouteReader } from '../hrc-route-reader.js'
 import {
   admissionStatusForQueueStatus,
   admissionStatusForRunStatus,
@@ -24,12 +25,12 @@ import { causationLaunchEnvFromRunMetadata } from '../jobs/causation-env.js'
 import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import {
-  type RecentlyCompletedHrcRunEvidence,
   hasInFlightHrcRunSince as defaultHasInFlightHrcRunSince,
   hasRecentlyCompletedHrcRunSince as defaultHasRecentlyCompletedHrcRunSince,
   launchCorrelationUntilIso,
 } from '../launcher-run-evidence.js'
 import {
+  type RecentlyCompletedLookup,
   hasActiveTerminalCorrelationGrace,
   hasExpiredTerminalCorrelationGrace,
   protectWithTerminalCorrelationGrace,
@@ -66,19 +67,18 @@ export type InputQueueDispatcherDeps = Pick<
   commitBus?: StoreCommitBus | undefined
   launchRoleScopedRun: NonNullable<LaunchRoleScopedRun>
   config: InputQueueDispatcherConfig
-  hrcDbPath?: string | undefined
-  hasInFlightHrcRunSince?:
-    | ((hrcDbPath: string, hostSessionId: string, since: string, until?: string) => boolean)
-    | undefined
-  hasRecentlyCompletedHrcRunSince?:
-    | ((
-        hrcDbPath: string,
-        hostSessionId: string,
-        since: string,
-        until?: string
-      ) => RecentlyCompletedHrcRunEvidence | undefined)
-    | undefined
+  /** HRC's read routes (T-13243): ACP never opens HRC's store. */
+  hrc?: HrcRouteReader | undefined
+  hasInFlightHrcRunSince?: InFlightLookup | undefined
+  hasRecentlyCompletedHrcRunSince?: RecentlyCompletedLookup | undefined
 }
+
+type InFlightLookup = (
+  hrc: HrcRouteReader,
+  hostSessionId: string,
+  since: string,
+  until?: string
+) => Promise<boolean>
 
 function stalePendingRunTimeoutMs(deps: InputQueueDispatcherDeps): number {
   return deps.config.stalePendingRunTimeoutMs ?? 45_000
@@ -96,18 +96,10 @@ type ClassifyStalePendingRunBlockerInput = {
   admission?: InputAdmissionRecord | undefined
   queueItem?: InputQueueItem | undefined
   timeoutMs: number
-  hrcDbPath?: string | undefined
-  hasInFlightHrcRunSince?:
-    | ((hrcDbPath: string, hostSessionId: string, since: string, until?: string) => boolean)
-    | undefined
-  hasRecentlyCompletedHrcRunSince?:
-    | ((
-        hrcDbPath: string,
-        hostSessionId: string,
-        since: string,
-        until?: string
-      ) => RecentlyCompletedHrcRunEvidence | undefined)
-    | undefined
+  /** HRC's read routes (T-13243): ACP never opens HRC's store. */
+  hrc?: HrcRouteReader | undefined
+  hasInFlightHrcRunSince?: InFlightLookup | undefined
+  hasRecentlyCompletedHrcRunSince?: RecentlyCompletedLookup | undefined
   intervalMs?: number | undefined
   terminalCorrelationGraceMs?: number | undefined
   runStore?: RunStore | undefined
@@ -154,10 +146,10 @@ function isDeliberatelyHeldAdmission(
   )
 }
 
-function classifyStalePendingRunBlocker(
+async function classifyStalePendingRunBlocker(
   input: ClassifyStalePendingRunBlockerInput
-): StaleBlockerKind | undefined {
-  const { run, siblings, admission, queueItem, timeoutMs, hrcDbPath } = input
+): Promise<StaleBlockerKind | undefined> {
+  const { run, siblings, admission, queueItem, timeoutMs, hrc } = input
   if (run.status !== 'pending') {
     return undefined
   }
@@ -180,21 +172,21 @@ function classifyStalePendingRunBlocker(
   }
   const hasInFlightHrcRunSince = input.hasInFlightHrcRunSince ?? defaultHasInFlightHrcRunSince
   if (
-    hrcDbPath !== undefined &&
+    hrc !== undefined &&
     run.hostSessionId !== undefined &&
-    hasInFlightHrcRunSince(
-      hrcDbPath,
+    (await hasInFlightHrcRunSince(
+      hrc,
       run.hostSessionId,
       run.createdAt,
       launchCorrelationUntilIso(run.createdAt)
-    )
+    ))
   ) {
     return undefined
   }
   if (
     run.hostSessionId !== undefined &&
     !terminalGraceExpired &&
-    protectWithTerminalCorrelationGrace({
+    (await protectWithTerminalCorrelationGrace({
       run,
       config: {
         intervalMs: input.intervalMs ?? timeoutMs,
@@ -203,18 +195,18 @@ function classifyStalePendingRunBlocker(
           : {}),
       },
       runStore: input.runStore,
-      hrcDbPath,
+      hrc,
       nowMs,
       hasRecentlyCompletedHrcRunSince:
         input.hasRecentlyCompletedHrcRunSince ?? defaultHasRecentlyCompletedHrcRunSince,
-    })
+    }))
   ) {
     return undefined
   }
   return run.hostSessionId === undefined ? 'no_correlation' : 'partial_correlation'
 }
 
-function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): void {
+async function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): Promise<void> {
   const timeoutMs = stalePendingRunTimeoutMs(deps)
   const pendingRuns = deps.runStore.listRunsByStatus('pending')
   const siblingsBySession = new Map<string, readonly StoredRun[]>()
@@ -228,13 +220,13 @@ function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): void {
       siblingsBySession.set(sessionKey, siblings)
     }
     const queueItem = deps.inputQueueStore.getByRunId(run.runId)
-    const blockerKind = classifyStalePendingRunBlocker({
+    const blockerKind = await classifyStalePendingRunBlocker({
       run,
       siblings,
       admission: deps.inputAdmissionStore.getByRunId(run.runId),
       queueItem,
       timeoutMs,
-      hrcDbPath: deps.hrcDbPath,
+      hrc: deps.hrc,
       hasInFlightHrcRunSince: deps.hasInFlightHrcRunSince,
       hasRecentlyCompletedHrcRunSince: deps.hasRecentlyCompletedHrcRunSince,
       intervalMs: deps.config.intervalMs,
@@ -242,6 +234,17 @@ function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): void {
       runStore: deps.runStore,
     })
     if (blockerKind === undefined) {
+      continue
+    }
+    // The HRC reads above awaited; fail the run only if ACP did not move it meanwhile.
+    const current = deps.runStore.getRun(run.runId)
+    if (
+      current === undefined ||
+      current.status !== 'pending' ||
+      current.updatedAt !== run.updatedAt ||
+      current.hrcRunId !== undefined ||
+      current.runtimeId !== undefined
+    ) {
       continue
     }
 
@@ -664,7 +667,7 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
 
   async function runOnce(): Promise<void> {
     await deps.reapStaleOrphans?.()
-    failStalePendingRunBlockers(deps)
+    await failStalePendingRunBlockers(deps)
 
     // Fair-by-session: scan one queued head per (scopeRef, laneRef) so blocked sessions
     // never starve later ones, even when total queued items exceed the global page limit.

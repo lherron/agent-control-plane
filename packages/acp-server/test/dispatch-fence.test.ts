@@ -6,8 +6,10 @@ import { join } from 'node:path'
 
 import { HrcConflictError, HrcErrorCode } from 'hrc-core'
 
+import type { HrcRouteReader } from '../src/hrc-route-reader.js'
 import { createRealLauncher } from '../src/real-launcher.js'
 
+import { createHrcRouteFake } from './fixtures/hrc-route-fake.js'
 import { type WiredServerFixture, withWiredServer } from './fixtures/wired-server.js'
 
 function addInterfaceBinding(fixture: WiredServerFixture): void {
@@ -24,10 +26,15 @@ function addInterfaceBinding(fixture: WiredServerFixture): void {
   })
 }
 
-function createHeadlessHrcDb(): { db: Database; hrcDbPath: string; cleanup(): void } {
+function createHeadlessHrcDb(): {
+  db: Database
+  hrcFixture: string
+  routes: HrcRouteReader
+  cleanup(): void
+} {
   const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-dispatch-fence-headless-'))
-  const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-  const db = new Database(hrcDbPath)
+  const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+  const db = new Database(hrcFixture)
 
   db.exec(`
     CREATE TABLE runs (
@@ -35,12 +42,6 @@ function createHeadlessHrcDb(): { db: Database; hrcDbPath: string; cleanup(): vo
       status TEXT NOT NULL,
       error_code TEXT,
       error_message TEXT
-    );
-    CREATE TABLE events (
-      seq INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT,
-      event_kind TEXT NOT NULL,
-      event_json TEXT NOT NULL
     );
     CREATE TABLE hrc_events (
       hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +53,8 @@ function createHeadlessHrcDb(): { db: Database; hrcDbPath: string; cleanup(): vo
 
   return {
     db,
-    hrcDbPath,
+    hrcFixture,
+    routes: createHrcRouteFake(hrcFixture),
     cleanup() {
       db.close()
       rmSync(fixtureDir, { recursive: true, force: true })
@@ -60,10 +62,15 @@ function createHeadlessHrcDb(): { db: Database; hrcDbPath: string; cleanup(): vo
   }
 }
 
-function createTmuxHrcDb(): { db: Database; hrcDbPath: string; cleanup(): void } {
+function createTmuxHrcDb(): {
+  db: Database
+  hrcFixture: string
+  routes: HrcRouteReader
+  cleanup(): void
+} {
   const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-dispatch-fence-tmux-'))
-  const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-  const db = new Database(hrcDbPath)
+  const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+  const db = new Database(hrcFixture)
 
   db.exec(`
     CREATE TABLE continuities (
@@ -111,7 +118,8 @@ function createTmuxHrcDb(): { db: Database; hrcDbPath: string; cleanup(): void }
 
   return {
     db,
-    hrcDbPath,
+    hrcFixture,
+    routes: createHrcRouteFake(hrcFixture),
     cleanup() {
       db.close()
       rmSync(fixtureDir, { recursive: true, force: true })
@@ -139,7 +147,7 @@ describe('ACP dispatch fences', () => {
   test('passes a concrete fence from resolveSession into dispatchTurn', async () => {
     const dispatchCalls: unknown[] = []
     const launcher = createRealLauncher({
-      hrcDbPath: ':memory:',
+      hrc: createHrcRouteFake(new Database(':memory:')),
       createClient: () =>
         ({
           resolveSession: async () => ({ found: true, hostSessionId: 'hsid-123', generation: 4 }),
@@ -201,7 +209,7 @@ describe('ACP dispatch fences', () => {
   test('records a stale fence rejection on the ACP run when dispatch sees a rotated host session', async () => {
     const dispatchCalls: unknown[] = []
     const launcher = createRealLauncher({
-      hrcDbPath: ':memory:',
+      hrc: createHrcRouteFake(new Database(':memory:')),
       createClient: () =>
         ({
           resolveSession: async () => ({ found: true, hostSessionId: 'hsid-old', generation: 5 }),
@@ -265,7 +273,7 @@ describe('ACP dispatch fences', () => {
     const resolveCalls: unknown[] = []
     const deliverCalls: unknown[] = []
     const launcher = createRealLauncher({
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       createClient: () =>
         ({
           resolveSession: async (input: unknown) => {
@@ -361,7 +369,7 @@ describe('ACP dispatch fences', () => {
     const hrc = createHeadlessHrcDb()
     const dispatchCalls: unknown[] = []
     const launcher = createRealLauncher({
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       pollIntervalMs: 1,
       watchTimeoutMs: 250,
       createClient: () =>
@@ -393,18 +401,6 @@ describe('ACP dispatch fences', () => {
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
               'hrc-run-follow',
               'completed'
-            )
-            hrc.db.run(
-              'INSERT INTO events (run_id, event_kind, event_json) VALUES (?, ?, ?)',
-              'hrc-run-follow',
-              'message_end',
-              JSON.stringify({
-                type: 'message_end',
-                message: {
-                  role: 'assistant',
-                  content: [{ type: 'text', text: 'Used followLatest.' }],
-                },
-              })
             )
             hrc.db.run(
               'INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)',

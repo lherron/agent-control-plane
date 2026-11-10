@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { type AcpServerDeps, InMemoryInputAttemptStore } from 'acp-server'
+import { type AcpServerDeps, type HrcRouteReader, InMemoryInputAttemptStore } from 'acp-server'
 
 import type { SeedStack } from './seed-stack.js'
 
@@ -17,7 +17,8 @@ export type FlowLaunchOutcome = {
 
 export type HeadlessHrcFixture = {
   db: Database
-  hrcDbPath: string
+  /** HRC's read routes, served from this fixture's tables (T-13243). */
+  hrcRoutes: HrcRouteReader
   cleanup(): void
 }
 
@@ -68,10 +69,70 @@ export class RecordingInputAttemptStore extends InMemoryInputAttemptStore {
   }
 }
 
+/**
+ * HRC's `/v1/runs` and `/v1/events` routes over this fixture's tables, in the
+ * wire shape real calls return (T-13243): the jobflow path reads a headless
+ * run's status and its turn.message/turn.completed events by run id.
+ */
+function fixtureRoutes(db: Database): HrcRouteReader {
+  type RunRow = {
+    run_id: string
+    status: string
+    error_code: string | null
+    error_message: string | null
+  }
+  type EventRow = {
+    hrc_seq: number
+    run_id: string | null
+    event_kind: string
+    payload_json: string
+  }
+  return {
+    async readRuns(q) {
+      return db
+        .query<RunRow, []>('SELECT * FROM runs')
+        .all()
+        .filter((r) => q.runId === undefined || r.run_id === q.runId)
+        .map((r) => ({
+          runId: r.run_id,
+          status: r.status,
+          ...(r.error_code !== null ? { errorCode: r.error_code } : {}),
+          ...(r.error_message !== null ? { errorMessage: r.error_message } : {}),
+        }))
+    },
+    async readEvents(q) {
+      return db
+        .query<EventRow, []>('SELECT * FROM hrc_events ORDER BY hrc_seq')
+        .all()
+        .filter(
+          (e) =>
+            (q.runId === undefined || e.run_id === q.runId) &&
+            (q.eventKind === undefined || q.eventKind.includes(e.event_kind))
+        )
+        .map((e) => ({
+          hrcSeq: e.hrc_seq,
+          ts: '2026-01-01T00:00:00.000Z',
+          eventKind: e.event_kind,
+          ...(e.run_id !== null ? { runId: e.run_id } : {}),
+          payload: JSON.parse(e.payload_json),
+        }))
+    },
+    async readEventTail() {
+      return { events: [], headHrcSeq: 0, truncated: false }
+    },
+    async readRuntimes() {
+      return []
+    },
+    async readActiveHostSessionId() {
+      return undefined
+    },
+  }
+}
+
 export function createHeadlessHrcDb(prefix = 'acp-e2e-jobflow-'): HeadlessHrcFixture {
   const fixtureDir = mkdtempSync(join(tmpdir(), prefix))
-  const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-  const db = new Database(hrcDbPath)
+  const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+  const db = new Database(hrcFixture)
 
   db.exec(`
     CREATE TABLE runs (
@@ -79,12 +140,6 @@ export function createHeadlessHrcDb(prefix = 'acp-e2e-jobflow-'): HeadlessHrcFix
       status TEXT NOT NULL,
       error_code TEXT,
       error_message TEXT
-    );
-    CREATE TABLE events (
-      seq INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT,
-      event_kind TEXT NOT NULL,
-      event_json TEXT NOT NULL
     );
     CREATE TABLE hrc_events (
       hrc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,7 +151,7 @@ export function createHeadlessHrcDb(prefix = 'acp-e2e-jobflow-'): HeadlessHrcFix
 
   return {
     db,
-    hrcDbPath,
+    hrcRoutes: fixtureRoutes(db),
     cleanup() {
       db.close()
       rmSync(fixtureDir, { recursive: true, force: true })
@@ -114,17 +169,6 @@ export function insertTerminalHrcRun(
       'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)'
     )
     .run(hrcRunId, outcome.status)
-  hrc.db.prepare('INSERT INTO events (run_id, event_kind, event_json) VALUES (?, ?, ?)').run(
-    hrcRunId,
-    'message_end',
-    JSON.stringify({
-      type: 'message_end',
-      message: {
-        role: 'assistant',
-        content: [{ type: 'text', text: outcome.text }],
-      },
-    })
-  )
   hrc.db
     .prepare('INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)')
     .run(hrcRunId, 'turn.completed', JSON.stringify({ finalOutput: outcome.text }))

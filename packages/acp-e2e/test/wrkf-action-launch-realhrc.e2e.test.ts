@@ -6,8 +6,7 @@ import { ownerBinary } from '../../../scripts/lib/owner-binaries.js'
  * REAL `launchAction` adapter against:
  *   - the REAL spawned `wrkf` binary (via `createWrkfClientLifecycle` over an
  *     isolated, freshly-migrated wrkq DB), AND
- *   - a REAL HRC daemon owned by this suite (real scratch `hrc.sock`, real
- *     scratch `state.sqlite`).
+ *   - a REAL HRC daemon owned by this suite (real scratch `hrc.sock` and store).
  *
  * The prior C-0004 e2e proved action-start / bind idempotency against the real
  * wrkf binary, but stubbed the HRC launch behind a `countingLauncher` returning a
@@ -26,10 +25,10 @@ import { ownerBinary } from '../../../scripts/lib/owner-binaries.js'
  * synthetic constant.
  *
  * The launcher is still wrapped to COUNT invocations — that counter remains the
- * proof of "no duplicate HRC launch". On top of it, EACH scenario opens the REAL
- * scratch `state.sqlite` (readonly `bun:sqlite`) and asserts exactly ONE `sessions` row
- * and ONE `continuities` row exist for the test scope — proving no duplicate
- * launch at the real daemon, not merely in the in-process seam.
+ * proof of "no duplicate HRC launch". On top of it, EACH scenario reads the REAL
+ * scratch daemon's session routes and asserts exactly ONE host session exists for
+ * the test scope and its continuity points at it — proving no duplicate launch at
+ * the real daemon, not merely in the in-process seam.
  *
  * Each scenario uses a UNIQUE scopeRef (a per-run nonce + the seeded taskId),
  * while the whole HRC support root is isolated and deleted in `afterAll`. The
@@ -45,7 +44,6 @@ import { ownerBinary } from '../../../scripts/lib/owner-binaries.js'
  * HRC: installed `rusthrc server serve` spawned under a scratch support root.
  */
 
-import { Database } from 'bun:sqlite'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -168,7 +166,6 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
   let dbPath: string
   let lc: WrkfLifecycle | undefined
   let childEnv: Record<string, string | undefined>
-  let hrcDbPath: string
   let hrcClient: HrcClient
   let scratchHrc: ScratchHrcDaemon | undefined
   const seededTaskIds: string[] = []
@@ -193,9 +190,8 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
       clientInfo: { name: 'action-launch-realhrc-e2e', version: '0.1.0' },
     })
 
-    // Real HRC daemon: real socket + state.sqlite, isolated under a scratch root.
+    // Real HRC daemon: real socket and store, isolated under a scratch root.
     scratchHrc = await createScratchHrcDaemon('acp-action-launch-realhrc-')
-    hrcDbPath = scratchHrc.databasePath
     hrcClient = scratchHrc.client
   })
 
@@ -336,52 +332,24 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
     return res.items
   }
 
-  /** Real-HRC proof: open the scratch daemon's state.sqlite readonly and count rows. */
-  function countHrcSessions(ref: SessionRef): number {
-    const db = new Database(hrcDbPath, { readonly: true })
-    try {
-      const row = db
-        .query<{ c: number }, [string, string]>(
-          'SELECT COUNT(*) AS c FROM sessions WHERE scope_ref = ? AND lane_ref = ?'
-        )
-        .get(ref.scopeRef, ref.laneRef)
-      return row?.c ?? 0
-    } finally {
-      db.close()
-    }
-  }
-
-  function countHrcContinuities(ref: SessionRef): number {
-    const db = new Database(hrcDbPath, { readonly: true })
-    try {
-      const row = db
-        .query<{ c: number }, [string, string]>(
-          'SELECT COUNT(*) AS c FROM continuities WHERE scope_ref = ? AND lane_ref = ?'
-        )
-        .get(ref.scopeRef, ref.laneRef)
-      return row?.c ?? 0
-    } finally {
-      db.close()
-    }
-  }
-
-  function assertExactlyOneHostSession(ref: SessionRef, hostSessionId: string): void {
-    // Exactly one host session + one continuity for the scope: no duplicate
-    // HRC launch at the REAL daemon.
-    expect(countHrcSessions(ref)).toBe(1)
-    expect(countHrcContinuities(ref)).toBe(1)
-    // And the active continuity points at the run's minted host session.
-    const db = new Database(hrcDbPath, { readonly: true })
-    try {
-      const row = db
-        .query<{ activeHostSessionId: string }, [string, string]>(
-          'SELECT active_host_session_id AS activeHostSessionId FROM continuities WHERE scope_ref = ? AND lane_ref = ?'
-        )
-        .get(ref.scopeRef, ref.laneRef)
-      expect(row?.activeHostSessionId).toBe(hostSessionId)
-    } finally {
-      db.close()
-    }
+  /**
+   * Real-HRC proof over the scratch daemon's routes (T-13243: ACP reads HRC
+   * through its HTTP surface, never its store): exactly one host session for
+   * the scope, and its continuity points at the run's minted host session.
+   */
+  async function assertExactlyOneHostSession(
+    ref: SessionRef,
+    hostSessionId: string
+  ): Promise<void> {
+    const sessions = (
+      await hrcClient.listSessions({ scopeRef: ref.scopeRef, laneRef: ref.laneRef, all: true })
+    ).filter((session) => session.scopeRef === ref.scopeRef && session.laneRef === ref.laneRef)
+    expect(sessions.map((session) => session.hostSessionId)).toEqual([hostSessionId])
+    const continuity = await hrcClient.getSessionByContinuity({
+      scopeRef: ref.scopeRef,
+      laneRef: ref.laneRef,
+    })
+    expect(continuity.generation?.hostSessionId).toBe(hostSessionId)
     // The minted id is a real HRC host session id, not a synthetic constant.
     expect(hostSessionId.startsWith('hsid-')).toBe(true)
   }
@@ -433,7 +401,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
       expect(runs[0]?.externalRunRef).toBe(`hrc:${hsid}`)
       expect(runs[0]?.runId).toBe(result.wrkfRunId)
 
-      assertExactlyOneHostSession(ref, hsid as string)
+      await assertExactlyOneHostSession(ref, hsid as string)
     },
     T
   )
@@ -496,7 +464,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
       expect(runs).toHaveLength(1)
       expect(runs[0]?.externalRunRef).toBe(`hrc:${hostSessionId}`)
 
-      assertExactlyOneHostSession(ref, hostSessionId)
+      await assertExactlyOneHostSession(ref, hostSessionId)
     },
     T
   )
@@ -575,7 +543,7 @@ describe('wrkf action launch/bind adapter — REAL HRC e2e (C-0004 closure)', ()
       expect(runs).toHaveLength(1)
       expect(runs[0]?.externalRunRef).toBe(`hrc:${hsid}`)
 
-      assertExactlyOneHostSession(ref, hsid as string)
+      await assertExactlyOneHostSession(ref, hsid as string)
     },
     T
   )

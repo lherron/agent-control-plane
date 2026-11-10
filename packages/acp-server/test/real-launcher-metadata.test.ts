@@ -1,8 +1,10 @@
+import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import type { HrcDispatchOrigin } from 'hrc-core'
 import { InMemoryInputAttemptStore } from '../src/domain/input-attempt-store.js'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
 import { createRealLauncher } from '../src/real-launcher.js'
+import { createHrcRouteFake } from './fixtures/hrc-route-fake.js'
 
 async function captureDispatchOrigin(input: {
   actor: { kind: 'human' | 'agent' | 'system'; id: string }
@@ -31,7 +33,7 @@ async function captureDispatchOrigin(input: {
   })
   let origin: HrcDispatchOrigin | undefined
   const launcher = createRealLauncher({
-    hrcDbPath: ':memory:',
+    hrc: createHrcRouteFake(new Database(':memory:')),
     inputAttemptStore,
     createClient: () =>
       ({
@@ -150,7 +152,7 @@ describe('real launcher dispatch metadata', () => {
       let captured: number | undefined
       try {
         const launcher = createRealLauncher({
-          hrcDbPath: ':memory:',
+          hrc: createHrcRouteFake(new Database(':memory:')),
           inputAttemptStore,
           createClient: () =>
             ({

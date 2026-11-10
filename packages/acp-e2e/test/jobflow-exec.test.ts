@@ -169,7 +169,7 @@ describe('jobflow-exec e2e', () => {
             jobsStore,
             runStore,
             inputAttemptStore,
-            hrcDbPath: hrc.hrcDbPath,
+            hrcRoutes: hrc.hrcRoutes,
             runtimeResolver: createRuntimeResolver(cwd),
             launchRoleScopedRun: createTerminalFlowLauncher(hrc, [], launchCalls),
           }
@@ -247,7 +247,7 @@ describe('jobflow-exec e2e', () => {
             jobsStore,
             runStore,
             inputAttemptStore,
-            hrcDbPath: hrc.hrcDbPath,
+            hrcRoutes: hrc.hrcRoutes,
             runtimeResolver: createRuntimeResolver(cwd),
             launchRoleScopedRun: createTerminalFlowLauncher(
               hrc,
@@ -303,7 +303,7 @@ describe('jobflow-exec e2e', () => {
             jobsStore,
             runStore,
             inputAttemptStore,
-            hrcDbPath: hrc.hrcDbPath,
+            hrcRoutes: hrc.hrcRoutes,
             runtimeResolver: createRuntimeResolver(cwd),
             launchRoleScopedRun: createTerminalFlowLauncher(hrc, [], launchCalls),
           }

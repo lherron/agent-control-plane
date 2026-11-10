@@ -29,6 +29,8 @@ export type CommandDependencies = {
   fetchImpl?: FetchLike | undefined
   createWorkClient?: (() => Promise<WorkClient>) | undefined
   attach?: ((descriptor: AttachDescriptor) => Promise<number>) | undefined
+  /** `acp task-timeline`: HRC's `/v1/events` route; defaults to the HRC control socket. */
+  hrcEvents?: import('../hrc-event-reader.js').HrcTimelineEventSource | undefined
 }
 
 export type { CommandOutput }

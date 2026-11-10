@@ -5,17 +5,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
 import { createRealLauncher } from '../src/real-launcher.js'
+import { createHrcRouteFake } from './fixtures/hrc-route-fake.js'
 import { createLauncherRunTables } from './fixtures/launcher-schema.js'
 
 describe('real launcher completion failure', () => {
   test('throws the persisted run failure details when the HRC run fails', async () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-failed-db-'))
-    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-    const db = new Database(hrcDbPath)
+    const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcFixture)
     createLauncherRunTables(db)
 
     const launcher = createRealLauncher({
-      hrcDbPath,
+      hrc: createHrcRouteFake(hrcFixture),
       pollIntervalMs: 1,
       createClient: () =>
         ({
@@ -71,8 +72,8 @@ describe('real launcher completion failure', () => {
 
   test('maps a terminated HRC run to failed without waiting for the completion timeout', async () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-terminated-db-'))
-    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-    const db = new Database(hrcDbPath)
+    const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcFixture)
     createLauncherRunTables(db)
 
     const runStore = new InMemoryRunStore()
@@ -84,7 +85,7 @@ describe('real launcher completion failure', () => {
       status: 'pending',
     })
     const launcher = createRealLauncher({
-      hrcDbPath,
+      hrc: createHrcRouteFake(hrcFixture),
       watchTimeoutMs: 50,
       pollIntervalMs: 1,
       createClient: () =>

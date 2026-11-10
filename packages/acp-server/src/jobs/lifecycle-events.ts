@@ -28,8 +28,10 @@ export type JobLifecycleEmitter = {
    * Project lifecycle events for a single job-run transition. Idempotent: safe to
    * call repeatedly with the same run across ticks. `job` may be passed when the
    * caller already has it (avoids a store read); otherwise it is resolved by id.
+   * The final response is read from HRC's routes, so this resolves after that
+   * read; the exactly-once check and the append stay one synchronous step.
    */
-  reconcile(run: JobRunRecord, job?: JobRecord | undefined): void
+  reconcile(run: JobRunRecord, job?: JobRecord | undefined): Promise<void>
 }
 
 /** Max chars of captured agent response carried in the job.completed payload.
@@ -44,7 +46,9 @@ export function createJobLifecycleEmitter(input: {
   /** Optional: resolve the final assistant text for a completed run's HRC run id
    * (see getRunFinalAssistantText). When provided, succeeded job.completed events
    * carry a truncated `finalResponse`. Best-effort — never throws into emission. */
-  resolveFinalText?: ((runId: string) => string | undefined) | undefined
+  resolveFinalText?:
+    | ((runId: string) => string | undefined | Promise<string | undefined>)
+    | undefined
 }): JobLifecycleEmitter {
   const now = input.now ?? (() => new Date())
 
@@ -61,13 +65,13 @@ export function createJobLifecycleEmitter(input: {
     }
   }
 
-  function captureFinalResponse(run: JobRunRecord): string | undefined {
+  async function captureFinalResponse(run: JobRunRecord): Promise<string | undefined> {
     const runId = finalResponseRunId(run)
     if (input.resolveFinalText === undefined || runId === undefined) {
       return undefined
     }
     try {
-      const text = input.resolveFinalText(runId)
+      const text = await input.resolveFinalText(runId)
       if (text === undefined) {
         return undefined
       }
@@ -134,7 +138,7 @@ export function createJobLifecycleEmitter(input: {
     })
   }
 
-  function reconcile(run: JobRunRecord, jobMaybe?: JobRecord | undefined): void {
+  async function reconcile(run: JobRunRecord, jobMaybe?: JobRecord | undefined): Promise<void> {
     const job = jobMaybe ?? input.jobsStore.getJob(run.jobId).job
     if (job === undefined) {
       return
@@ -157,7 +161,16 @@ export function createJobLifecycleEmitter(input: {
     if (terminal) {
       // Capture the agent's final response for succeeded runs (carried in the
       // payload; not rendered on the card yet).
-      const finalResponse = run.status === 'succeeded' ? captureFinalResponse(run) : undefined
+      if (
+        input.systemEvents.existsWithPayloadField({
+          kind: JOB_COMPLETED_EVENT,
+          field: 'jobRunId',
+          value: run.jobRunId,
+        })
+      ) {
+        return
+      }
+      const finalResponse = run.status === 'succeeded' ? await captureFinalResponse(run) : undefined
       emitOnce(
         JOB_COMPLETED_EVENT,
         run,

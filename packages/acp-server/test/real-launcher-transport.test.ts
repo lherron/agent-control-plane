@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
 import { type RealLauncherClient, createRealLauncher } from '../src/real-launcher.js'
+import { createHrcRouteFake } from './fixtures/hrc-route-fake.js'
 import {
   createLauncherEventTable,
   createLauncherRunTables,
@@ -14,8 +15,8 @@ import {
 describe('real launcher transport', () => {
   test('uses live tmux runtime as the default transport for interface turns', async () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-tmux-db-'))
-    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-    const db = new Database(hrcDbPath)
+    const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcFixture)
     createLauncherRuntimeTables(db)
     createLauncherEventTable(db, 'session')
     db.run(
@@ -52,7 +53,7 @@ describe('real launcher transport', () => {
     const calls: string[] = []
     const seenEvents: unknown[] = []
     const launcher = createRealLauncher({
-      hrcDbPath,
+      hrc: createHrcRouteFake(hrcFixture),
       pollIntervalMs: 1,
       watchTimeoutMs: 250,
       createClient: () =>
@@ -194,8 +195,8 @@ describe('real launcher transport', () => {
   // hrcpty runtime must not be matched and the turn goes over broker dispatchTurn.
   test('a live hrcpty runtime takes broker dispatchTurn, never the tmux literal path', async () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-hrcpty-db-'))
-    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-    const db = new Database(hrcDbPath)
+    const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcFixture)
     createLauncherRuntimeTables(db)
     createLauncherRunTables(db)
     createLauncherEventTable(db, 'run')
@@ -275,7 +276,7 @@ describe('real launcher transport', () => {
       },
     }
     const launcher = createRealLauncher({
-      hrcDbPath,
+      hrc: createHrcRouteFake(hrcFixture),
       pollIntervalMs: 1,
       createClient: () => client,
     })
@@ -312,8 +313,8 @@ describe('real launcher transport', () => {
 
   test('persists the exact HRC run returned by broker literal dispatch', async () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-tmux-correlation-'))
-    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-    const db = new Database(hrcDbPath)
+    const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcFixture)
     createLauncherRuntimeTables(db)
     createLauncherEventTable(db, 'session')
     db.run(
@@ -343,7 +344,7 @@ describe('real launcher transport', () => {
     const acpRun = runStore.createRun({ sessionRef, status: 'pending' })
     let deliveryCount = 0
     const launcher = createRealLauncher({
-      hrcDbPath,
+      hrc: createHrcRouteFake(hrcFixture),
       createClient: () =>
         ({
           resolveSession: async () => ({

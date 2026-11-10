@@ -2,7 +2,7 @@
  * "What happened to EN-xxxxx on the HRC side?" — answered by one read (§6).
  *
  * Before this existed the answer required joining four sources by hand: the
- * wrkq envelope row, `hrc-server.err.log`, several tables in `state.sqlite`,
+ * wrkq envelope row, `hrc-server.err.log`, several tables in HRC's store,
  * and the broker ledger. A sender who cannot do that has no way to tell a reply
  * that is still coming from one that will never come, and on 2026-09-03 the
  * difference went unnoticed for an hour.

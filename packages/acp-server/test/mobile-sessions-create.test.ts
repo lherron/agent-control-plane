@@ -1039,11 +1039,7 @@ describe('launcher agent sources (T-08572 U-8)', () => {
     ).toBeUndefined()
   })
 
-  test('dev and echo launcher modes leave hrcAgentSources undefined', () => {
-    expect(
-      resolveLauncherDeps({ ...process.env, ACP_DEV_FLOW_LAUNCHER: '1' }, '/tmp', {})
-        .hrcAgentSources
-    ).toBeUndefined()
+  test('echo launcher mode leaves hrcAgentSources undefined', () => {
     expect(
       resolveLauncherDeps({ ...process.env, ACP_DEV_ECHO_LAUNCHER: '1' }, '/tmp', {})
         .hrcAgentSources

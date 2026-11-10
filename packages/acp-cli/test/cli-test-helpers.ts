@@ -1,5 +1,5 @@
 import { main } from '../src/cli.js'
-import type { AttachDescriptor } from '../src/commands/shared.js'
+import type { AttachDescriptor, CommandDependencies } from '../src/commands/shared.js'
 
 export type CliResult = {
   stdout: string
@@ -28,6 +28,7 @@ export async function runCli(
     fetchImpl?: (input: Request | string | URL, init?: RequestInit) => Promise<Response>
     env?: NodeJS.ProcessEnv | undefined
     attach?: (descriptor: AttachDescriptor) => Promise<number>
+    hrcEvents?: CommandDependencies['hrcEvents']
   } = {}
 ): Promise<CliResult> {
   const stdout: string[] = []
@@ -59,6 +60,7 @@ export async function runCli(
       ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
       ...(options.env !== undefined ? { env: options.env } : {}),
       ...(options.attach !== undefined ? { attach: options.attach } : {}),
+      ...(options.hrcEvents !== undefined ? { hrcEvents: options.hrcEvents } : {}),
     })
     return { stdout: stdout.join(''), stderr: stderr.join(''), exitCode: 0 }
   } catch (error) {

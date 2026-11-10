@@ -45,7 +45,7 @@ describe('interface run dispatcher federated message reconciliation', () => {
     const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
       runStore,
       interfaceStore,
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       hrcClient: {
         waitMessage: async (request: unknown) => {
           waitCalls.push(request)
@@ -131,7 +131,7 @@ describe('interface run dispatcher federated message reconciliation', () => {
     const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
       runStore,
       interfaceStore,
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       hrcClient: {
         waitMessage: async () => ({
           matched: false as const,
@@ -201,7 +201,7 @@ describe('interface run dispatcher federated message reconciliation', () => {
       const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
         runStore,
         interfaceStore,
-        hrcDbPath: hrc.hrcDbPath,
+        hrc: hrc.routes,
         hrcClient: {
           waitMessage: async () =>
             ({
@@ -272,7 +272,7 @@ describe('interface run dispatcher federated message reconciliation', () => {
     const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
       runStore,
       interfaceStore,
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       hrcClient: {
         waitMessage: async () => ({ matched: false as const, reason: 'timeout' as const }),
       },
@@ -333,7 +333,7 @@ describe('interface run dispatcher federated message reconciliation', () => {
     const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
       runStore,
       interfaceStore,
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       hrcClient: {
         waitMessage: async () => {
           await waitGate

@@ -4,20 +4,21 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRealLauncher } from '../src/real-launcher.js'
+import { createHrcRouteFake } from './fixtures/hrc-route-fake.js'
 import { createLauncherEventTable, createLauncherRunTables } from './fixtures/launcher-schema.js'
 
 describe('real launcher prompt dispatch', () => {
   test('headless prompt dispatches one fenced dispatchTurn and emits the assistant message_end', async () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-db-'))
-    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-    const db = new Database(hrcDbPath)
+    const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcFixture)
     createLauncherRunTables(db)
     createLauncherEventTable(db, 'run')
 
     const calls: string[] = []
     const seenEvents: unknown[] = []
     const launcher = createRealLauncher({
-      hrcDbPath,
+      hrc: createHrcRouteFake(hrcFixture),
       pollIntervalMs: 1,
       createClient: () =>
         ({
@@ -59,18 +60,6 @@ describe('real launcher prompt dispatch', () => {
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
               'run-123',
               'completed'
-            )
-            db.run(
-              'INSERT INTO events (run_id, event_kind, event_json) VALUES (?, ?, ?)',
-              'run-123',
-              'message_end',
-              JSON.stringify({
-                type: 'message_end',
-                message: {
-                  role: 'assistant',
-                  content: [{ type: 'text', text: 'chartreuse' }],
-                },
-              })
             )
             db.run(
               'INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)',
@@ -143,7 +132,7 @@ describe('real launcher prompt dispatch', () => {
   test('whitespace-only prompt resolves the session and skips dispatch', async () => {
     const calls: string[] = []
     const launcher = createRealLauncher({
-      hrcDbPath: ':memory:',
+      hrc: createHrcRouteFake(new Database(':memory:')),
       createClient: () =>
         ({
           resolveSession: async () => {

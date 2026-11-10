@@ -83,3 +83,5 @@ export {
 } from './c2/scope.js'
 
 export { WrkqCommitWaker, type CommitWaker } from './wrkq-commit-waker.js'
+export { AcpHrcSdkClient, createAcpHrcRouteReader } from './hrc-client.js'
+export type { HrcEventQuery, HrcEventRow, HrcRouteReader } from './hrc-route-reader.js'

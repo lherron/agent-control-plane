@@ -37,7 +37,7 @@ export type JobOutputReconcilerInput = {
    * transition (non-flow completion path). Used to project job.completed lifecycle
    * telemetry. Must never throw back into reconciliation or mutate job state.
    */
-  onJobRunSettled?: ((run: JobRunRecord, job: JobRecord) => void) | undefined
+  onJobRunSettled?: ((run: JobRunRecord, job: JobRecord) => void | Promise<void>) | undefined
 }
 
 export type JobOutputReconciler = {
@@ -114,9 +114,7 @@ export function createJobOutputReconciler(input: JobOutputReconcilerInput): JobO
     // committed job-run state (jobs store remains source of truth).
     const settle = (patch: Parameters<JobsStore['updateJobRun']>[1]): void => {
       const { jobRun: settled } = input.jobsStore.updateJobRun(jobRun.jobRunId, patch)
-      try {
-        input.onJobRunSettled?.(settled, job)
-      } catch (error) {
+      const failed = (error: unknown): void =>
         writeLogLine({
           level: 'error',
           component: 'job-output-reconciler',
@@ -124,6 +122,10 @@ export function createJobOutputReconciler(input: JobOutputReconcilerInput): JobO
           data: { jobRunId: settled.jobRunId },
           err: error,
         })
+      try {
+        void Promise.resolve(input.onJobRunSettled?.(settled, job)).catch(failed)
+      } catch (error) {
+        failed(error)
       }
     }
 

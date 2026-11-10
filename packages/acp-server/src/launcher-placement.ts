@@ -1,7 +1,7 @@
-import { Database } from 'bun:sqlite'
 import type { SessionRef } from 'agent-scope'
 import type { HrcHarnessIntent, HrcRuntimeIntent, ScopeLocation } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
+import type { HrcRouteReader } from './hrc-route-reader.js'
 import {
   type FetchPlacementResolution,
   daemonHarnessToHrcHarness,
@@ -96,45 +96,35 @@ export async function normalizeRealLauncherIntent(input: {
   }
 }
 
-export function findLiveTmuxRuntimeForSessionRef(
-  hrcDbPath: string,
+/**
+ * A live tmux runtime on the session's active host session: `GET
+ * /v1/sessions/get` for the continuity, then `GET /v1/runtimes?hostSessionId=
+ * &transport=tmux&all=true` (all, because HRC's default terminal set differs
+ * from ACP's), newest updatedAt first, with tmux facts and not unavailable.
+ * Read failures yield undefined, as the SQL read did.
+ */
+export async function findLiveTmuxRuntimeForSessionRef(
+  hrc: HrcRouteReader,
   sessionRef: SessionRef
-): LiveTmuxRuntime | undefined {
-  if (hrcDbPath === ':memory:') {
-    return undefined
-  }
-
-  const db = new Database(hrcDbPath, { readonly: true })
+): Promise<LiveTmuxRuntime | undefined> {
   try {
-    const continuity = db
-      .query<{ hostSessionId: string }, [string, string]>(
-        `SELECT active_host_session_id AS hostSessionId
-          FROM continuities
-          WHERE scope_ref = ? AND lane_ref = ?`
-      )
-      .get(sessionRef.scopeRef, sessionRef.laneRef)
-    const hostSessionId = continuity?.hostSessionId
+    const hostSessionId = await hrc.readActiveHostSessionId(sessionRef)
     if (hostSessionId === undefined) {
       return undefined
     }
-
-    const runtime = db
-      .query<{ runtimeId: string; status: string }, [string]>(
-        `SELECT runtime_id AS runtimeId, status
-          FROM runtimes
-          WHERE host_session_id = ?
-            AND transport = 'tmux'
-            AND tmux_json IS NOT NULL
-          ORDER BY updated_at DESC`
+    const runtime = (await hrc.readRuntimes({ hostSessionId, transport: 'tmux', all: true }))
+      .filter(
+        (row) =>
+          row.hostSessionId === hostSessionId &&
+          row.transport === 'tmux' &&
+          row.tmuxJson !== undefined &&
+          row.tmuxJson !== null
       )
-      .all(hostSessionId)
+      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
       .find((row) => !UNAVAILABLE_TMUX_STATUSES.has(row.status))
-
     return runtime === undefined ? undefined : { hostSessionId, runtimeId: runtime.runtimeId }
   } catch {
     return undefined
-  } finally {
-    db.close()
   }
 }
 

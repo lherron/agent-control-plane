@@ -2,6 +2,7 @@ import type { SessionRef } from 'agent-scope'
 import type { HrcClient } from 'hrc-sdk'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 import type { RunStore } from './deps.js'
+import type { HrcRouteReader } from './hrc-route-reader.js'
 import {
   readAssistantMessageAfterSeq,
   readCompletedAssistantMessageFromHrcEvents,
@@ -19,7 +20,7 @@ const RUN_TERMINAL_EVENT_KINDS = new Set([
 ])
 
 export async function waitForTmuxAssistantMessage(options: {
-  hrcDbPath: string
+  hrc: HrcRouteReader
   deliveredHrcRunId: string | undefined
   hostSessionId: string
   sessionRef: SessionRef
@@ -33,7 +34,7 @@ export async function waitForTmuxAssistantMessage(options: {
     // Compatibility fallback for older HRC servers that do not return the
     // broker-created run ID from literal Enter dispatch.
     return pollAssistantMessageAfterSeq({
-      hrcDbPath: options.hrcDbPath,
+      hrc: options.hrc,
       hostSessionId: options.hostSessionId,
       sessionRef: options.sessionRef,
       afterHrcSeq: options.afterHrcSeq,
@@ -42,7 +43,7 @@ export async function waitForTmuxAssistantMessage(options: {
   }
 
   const completedRun = await waitForRunCompletion({
-    hrcDbPath: options.hrcDbPath,
+    hrc: options.hrc,
     runId: options.deliveredHrcRunId,
     timeoutMs: options.timeoutMs,
     client: options.client,
@@ -63,14 +64,14 @@ export async function waitForTmuxAssistantMessage(options: {
     throw createHrcRunTerminalError(options.deliveredHrcRunId, completedRun)
   }
   return pollCompletedAssistantMessage({
-    hrcDbPath: options.hrcDbPath,
+    hrc: options.hrc,
     runId: options.deliveredHrcRunId,
     timeoutMs: RAW_EVENT_POLL_GRACE_MS,
   })
 }
 
 export async function waitForRunCompletion(options: {
-  hrcDbPath: string
+  hrc: HrcRouteReader
   runId: string
   timeoutMs: number
   client: Pick<HrcClient, 'tailEvents' | 'watchBoundedEvents'>
@@ -84,7 +85,8 @@ export async function waitForRunCompletion(options: {
   let backoffMs = 250
   while (Date.now() < deadline) {
     // Bootstrap/reconnect is authoritative. Never settle from event payloads.
-    const run = readRunStatus(options.hrcDbPath, options.runId)
+    // A failed read is not terminal; the stream below and the backoff retry it.
+    const run = await readRunStatus(options.hrc, options.runId).catch(() => undefined)
     if (run !== undefined && mapHrcRunTerminalStatus(run) !== undefined) return run
     const abort = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -124,7 +126,7 @@ export async function waitForRunCompletion(options: {
                 !RUN_TERMINAL_EVENT_KINDS.has(record.event.eventKind))
             )
               continue
-            const current = readRunStatus(options.hrcDbPath, options.runId)
+            const current = await readRunStatus(options.hrc, options.runId)
             if (current !== undefined && mapHrcRunTerminalStatus(current) !== undefined)
               return current
             if (record.type !== 'ready') backoffMs = 250
@@ -185,25 +187,25 @@ export function createHrcRunTerminalError(
 }
 
 export async function pollCompletedAssistantMessage(options: {
-  hrcDbPath: string
+  hrc: HrcRouteReader
   runId: string
   timeoutMs: number
 }): Promise<UnifiedSessionEvent | undefined> {
   const deadline = Date.now() + options.timeoutMs
 
   while (Date.now() <= deadline) {
-    const message = readCompletedAssistantMessageFromHrcEvents(options.hrcDbPath, options.runId)
+    const message = await readCompletedAssistantMessageFromHrcEvents(options.hrc, options.runId)
     if (message !== undefined) {
       return message
     }
     await Bun.sleep(RAW_EVENT_POLL_INTERVAL_MS)
   }
 
-  return readCompletedAssistantMessageFromHrcEvents(options.hrcDbPath, options.runId)
+  return readCompletedAssistantMessageFromHrcEvents(options.hrc, options.runId)
 }
 
 async function pollAssistantMessageAfterSeq(options: {
-  hrcDbPath: string
+  hrc: HrcRouteReader
   hostSessionId: string
   sessionRef: SessionRef
   afterHrcSeq: number
@@ -212,7 +214,7 @@ async function pollAssistantMessageAfterSeq(options: {
   const deadline = Date.now() + options.timeoutMs
 
   while (Date.now() <= deadline) {
-    const message = readAssistantMessageAfterSeq(options)
+    const message = await readAssistantMessageAfterSeq(options)
     if (message !== undefined) {
       return message
     }

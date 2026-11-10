@@ -2,8 +2,8 @@
 import { Database } from 'bun:sqlite'
 import { parseArgs } from 'node:util'
 import { InputAdmissionRepo, InputApplicationRepo, InputQueueRepo, RunRepo } from 'acp-state-store'
-import { resolveControlSocketPath, resolveDatabasePath } from 'hrc-core'
-import { HrcClient } from 'hrc-sdk'
+import { resolveControlSocketPath } from 'hrc-core'
+import { AcpHrcSdkClient } from '../packages/acp-server/src/hrc-client.js'
 import {
   STALE_NEVER_DISPATCHED_MS,
   STALE_UNROUTABLE_MS,
@@ -14,7 +14,6 @@ const { values } = parseArgs({
   options: {
     'state-db': { type: 'string', default: '/Users/lherron/praesidium/var/db/acp-state.db' },
     'jobs-db': { type: 'string', default: '/Users/lherron/praesidium/var/db/acp-jobs.db' },
-    'hrc-db': { type: 'string', default: resolveDatabasePath() },
     'hrc-socket': { type: 'string', default: resolveControlSocketPath() },
   },
 })
@@ -45,7 +44,7 @@ function openReadOnly(path: string) {
 }
 const { db, sqlite } = openReadOnly(values['state-db'])
 const jobs = openReadOnly(values['jobs-db'])
-const client = new HrcClient({ socketPath: values['hrc-socket'], caller: 'acp-server' })
+const client = new AcpHrcSdkClient({ socketPath: values['hrc-socket'], caller: 'acp-server' })
 try {
   const context = { sqlite }
   const report = await createStaleOrphanReaper({
@@ -54,7 +53,7 @@ try {
     inputQueueStore: new InputQueueRepo(context),
     inputAdmissionStore: new InputAdmissionRepo(context),
     inputApplicationStore: new InputApplicationRepo(context),
-    hrcDbPath: values['hrc-db'],
+    hrc: client,
     hrcClient: client,
     jobsStore: {
       sqlite: jobs.sqlite,

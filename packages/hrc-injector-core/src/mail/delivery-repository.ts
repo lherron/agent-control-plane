@@ -44,7 +44,6 @@ import type {
   HrcMailDeliveryForm,
   HrcMailDeliveryIntent,
   HrcMailFailureNotice,
-  HrcMailHintDecision,
   HrcMailPresentation,
 } from './delivery-types.js'
 
@@ -55,11 +54,8 @@ export type {
   HrcMailDeliveryIntent,
   HrcMailDriveWakeReason,
   HrcMailFailureNotice,
-  HrcMailHintDecision,
   HrcMailPresentation,
 } from './delivery-types.js'
-
-const HINT_CADENCE_MS = 120_000
 
 export class HrcMailDeliveryRepository {
   constructor(private readonly db: Database) {}
@@ -729,72 +725,6 @@ export class HrcMailDeliveryRepository {
           normalizeTarget(targetSessionRef)
         ).changes > 0
     )
-  }
-
-  // ── The mail hint ──────────────────────────────────────────────────────────
-
-  /**
-   * Should this seat be told mail is waiting, and how much?
-   *
-   * Only ENQUEUE submissions count: those are the ones the harness holds until
-   * the boundary, so the seat cannot read them from inside the turn. A steer
-   * has already landed in the turn and needs no hint about itself.
-   */
-  evaluateSeatHint(
-    targetSessionRef: string,
-    runtimeId: string,
-    now = new Date()
-  ): HrcMailHintDecision {
-    const target = normalizeTarget(targetSessionRef)
-    return this.db
-      .transaction(() => {
-        // T-08611: the hint counts durable submission admissions, not the
-        // write-ahead delivery intents. An outstanding enqueue submission is
-        // one admitted with a mail envelope that has no landed disposition
-        // yet — the pre-admission window, a landed submission, and a
-        // disposition committed before the admission attach all count nothing.
-        const row = this.db
-          .query<{ count: number }, [string]>(
-            `SELECT COUNT(*) AS count FROM submission_admissions
-              WHERE runtime_id = ? AND door = 'enqueue'
-                AND envelope_id IS NOT NULL AND disposition IS NULL`
-          )
-          .get(runtimeId)
-        const outstandingCount = row?.count ?? 0
-        if (outstandingCount === 0) {
-          return { outcome: 'suppressed', reason: 'no_outstanding_mail' }
-        }
-        const state = this.db
-          .query<{ hint_count: number; last_hint_at: string | null; last_count: number }, [string]>(
-            `SELECT hint_count, last_hint_at, last_count FROM hrcmail_seat_hints
-              WHERE runtime_id = ?`
-          )
-          .get(runtimeId)
-        const lastHintMs = state?.last_hint_at === null ? 0 : Date.parse(state?.last_hint_at ?? '')
-        const reason =
-          state === null || state === undefined
-            ? 'first'
-            : state.last_count !== outstandingCount
-              ? 'count_changed'
-              : Number.isFinite(lastHintMs) && now.getTime() - lastHintMs >= HINT_CADENCE_MS
-                ? 'periodic'
-                : undefined
-        if (reason === undefined) return { outcome: 'suppressed', reason: 'cadence' }
-        const at = now.toISOString()
-        this.db
-          .query(
-            `INSERT INTO hrcmail_seat_hints (runtime_id, target_session_ref, hint_count, last_hint_at, last_count)
-             VALUES (?, ?, 1, ?, ?)
-             ON CONFLICT(runtime_id) DO UPDATE SET
-               target_session_ref = excluded.target_session_ref,
-               hint_count = hrcmail_seat_hints.hint_count + 1,
-               last_hint_at = excluded.last_hint_at,
-               last_count = excluded.last_count`
-          )
-          .run(runtimeId, target, at, outstandingCount)
-        return { outcome: 'issued', reason, outstandingCount }
-      })
-      .immediate() as HrcMailHintDecision
   }
 
   // ── §5 sender-side failure notices ─────────────────────────────────────────

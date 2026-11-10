@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type RealLauncherClient, createRealLauncher } from '../src/real-launcher.js'
+import { createHrcRouteFake } from './fixtures/hrc-route-fake.js'
 
 for (const scenario of [
   'event',
@@ -17,8 +18,8 @@ for (const scenario of [
 ] as const) {
   test(`launcher completion stream: ${scenario}`, async () => {
     const dir = mkdtempSync(join(tmpdir(), 'acp-completion-stream-'))
-    const hrcDbPath = join(dir, 'hrc.sqlite')
-    const db = new Database(hrcDbPath)
+    const hrcFixture = join(dir, 'hrc.sqlite')
+    const db = new Database(hrcFixture)
     db.exec(
       'CREATE TABLE runs (run_id TEXT PRIMARY KEY, status TEXT, error_code TEXT, error_message TEXT)'
     )
@@ -74,7 +75,7 @@ for (const scenario of [
       },
     } as unknown as RealLauncherClient
     const launcher = createRealLauncher({
-      hrcDbPath,
+      hrc: createHrcRouteFake(hrcFixture),
       socketPath: join(dir, 'unused.sock'),
       watchTimeoutMs: scenario.endsWith('timeout') ? 80 : 3000,
       createClient: () => client,

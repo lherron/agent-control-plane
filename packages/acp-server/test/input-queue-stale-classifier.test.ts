@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { createInMemoryAdminStore } from 'acp-admin-store'
 import type { InputAdmissionRecord, InputQueueItem } from 'acp-core'
 
+import type { HrcRouteReader } from '../src/hrc-route-reader.js'
 import {
   InMemoryInputAdmissionStore,
   InMemoryInputQueueStore,
@@ -12,6 +13,9 @@ import * as inputQueueDispatcherModule from '../src/integration/input-queue-disp
 import { createInputQueueDispatcher } from '../src/integration/input-queue-dispatcher.js'
 import { LAUNCH_CORRELATION_WINDOW_MS } from '../src/launcher-run-evidence.js'
 
+/** The injected lookups below stand in for HRC; this token is what they receive. */
+const HRC = { token: 'hrc-routes' } as unknown as HrcRouteReader
+
 type DispatcherDeps = Parameters<typeof createInputQueueDispatcher>[0]
 type DispatcherTestHooks = {
   classifyStalePendingRunBlocker: (input: {
@@ -20,39 +24,39 @@ type DispatcherTestHooks = {
     admission?: InputAdmissionRecord | undefined
     queueItem?: InputQueueItem | undefined
     timeoutMs: number
-    hrcDbPath?: string | undefined
+    hrc?: HrcRouteReader | undefined
     hasInFlightHrcRunSince?: (
-      hrcDbPath: string,
+      hrc: HrcRouteReader,
       hostSessionId: string,
       since: string,
       until?: string
-    ) => boolean
+    ) => Promise<boolean>
     hasRecentlyCompletedHrcRunSince?: (
-      hrcDbPath: string,
+      hrc: HrcRouteReader,
       hostSessionId: string,
       since: string,
       until?: string
-    ) => { runId: string; acceptedAt: string; completedAt: string } | undefined
+    ) => Promise<{ runId: string; acceptedAt: string; completedAt: string } | 'unknown' | undefined>
     terminalCorrelationGraceMs?: number | undefined
-  }) => 'no_correlation' | 'partial_correlation' | undefined
+  }) => Promise<'no_correlation' | 'partial_correlation' | undefined>
   sameSessionHasActiveRun: (deps: DispatcherDeps, item: InputQueueItem) => boolean
 }
 
 function createDeps(
   overrides: Partial<DispatcherDeps> & {
-    hrcDbPath?: string | undefined
+    hrc?: HrcRouteReader | undefined
     hasInFlightHrcRunSince?: (
-      hrcDbPath: string,
+      hrc: HrcRouteReader,
       hostSessionId: string,
       since: string,
       until?: string
-    ) => boolean
+    ) => Promise<boolean>
     hasRecentlyCompletedHrcRunSince?: (
-      hrcDbPath: string,
+      hrc: HrcRouteReader,
       hostSessionId: string,
       since: string,
       until?: string
-    ) => { runId: string; acceptedAt: string; completedAt: string } | undefined
+    ) => Promise<{ runId: string; acceptedAt: string; completedAt: string } | 'unknown' | undefined>
     terminalCorrelationGraceMs?: number | undefined
   } = {}
 ): DispatcherDeps {
@@ -243,15 +247,15 @@ describe('input queue stale pending classifier', () => {
 
   test('R4 in-flight HRC-run evidence protects a partial-correlation run without ACP siblings', async () => {
     const acceptedChecks: Array<{
-      hrcDbPath: string
+      hrc: HrcRouteReader
       hostSessionId: string
       since: string
       until?: string
     }> = []
     const deps = createDeps({
-      hrcDbPath: '/tmp/hrc-r4.sqlite',
-      hasInFlightHrcRunSince: (hrcDbPath, hostSessionId, since, until) => {
-        acceptedChecks.push({ hrcDbPath, hostSessionId, since, until })
+      hrc: HRC,
+      hasInFlightHrcRunSince: async (hrc, hostSessionId, since, until) => {
+        acceptedChecks.push({ hrc, hostSessionId, since, until })
         return true
       },
     })
@@ -270,7 +274,7 @@ describe('input queue stale pending classifier', () => {
     // later turns on the same host session cannot resurrect a dead pending run.
     expect(acceptedChecks).toEqual([
       {
-        hrcDbPath: '/tmp/hrc-r4.sqlite',
+        hrc: HRC,
         hostSessionId: 'hsid-r4-parked',
         since: partial.createdAt,
         until: new Date(Date.parse(partial.createdAt) + LAUNCH_CORRELATION_WINDOW_MS).toISOString(),
@@ -285,8 +289,9 @@ describe('input queue stale pending classifier', () => {
     // window (the 15:03 failure vs. unrelated 17:18 turns). The bounded query
     // returns false for that out-of-window evidence, so the blocker is failed.
     const deps = createDeps({
-      hrcDbPath: '/tmp/hrc-t04297.sqlite',
-      hasInFlightHrcRunSince: (_hrcDbPath, _hostSessionId, since, until) => {
+      hrc: HRC,
+      hasRecentlyCompletedHrcRunSince: async () => undefined,
+      hasInFlightHrcRunSince: async (_hrc, _hostSessionId, since, until) => {
         // Out-of-window evidence: an HRC run accepted 2h after `since`, i.e.
         // AFTER `until`. A correctly-bounded query finds nothing → returns false.
         const acceptedAtMs = Date.parse(since) + 2 * 60 * 60_000
@@ -317,9 +322,10 @@ describe('input queue stale pending classifier', () => {
     // never wrote back hrcRunId. `hasInFlightHrcRunSince` returns false for a
     // terminal HRC run, so the phantom is no longer protected and the lane unjams.
     const deps = createDeps({
-      hrcDbPath: '/tmp/hrc-t04935.sqlite',
+      hrc: HRC,
       // Simulate the completed-but-uncorrelated HRC run: no IN-FLIGHT run exists.
-      hasInFlightHrcRunSince: () => false,
+      hasRecentlyCompletedHrcRunSince: async () => undefined,
+      hasInFlightHrcRunSince: async () => false,
     })
     const sessionRef = {
       scopeRef: 'agent:mneme:project:media-ingest:task:primary',
@@ -347,19 +353,18 @@ describe('input queue stale pending classifier', () => {
       scopeRef: 'agent:smokey:project:agent-control-plane:task:T-05343:role:red',
       laneRef: 'main',
     }
-    const hrcDbPath = '/tmp/hrc-t05343-terminal-grace.sqlite'
     const acceptedChecks: Array<{
-      hrcDbPath: string
+      hrc: HrcRouteReader
       hostSessionId: string
       since: string
       until?: string | undefined
     }> = []
     const deps = createDeps({
-      hrcDbPath,
+      hrc: HRC,
       terminalCorrelationGraceMs: 60_000,
-      hasInFlightHrcRunSince: () => false,
-      hasRecentlyCompletedHrcRunSince: (dbPath, hostSessionId, since, until) => {
-        acceptedChecks.push({ hrcDbPath: dbPath, hostSessionId, since, until })
+      hasInFlightHrcRunSince: async () => false,
+      hasRecentlyCompletedHrcRunSince: async (hrc, hostSessionId, since, until) => {
+        acceptedChecks.push({ hrc, hostSessionId, since, until })
         return {
           runId: 'hrc-run-t05343-fast-terminal',
           acceptedAt: new Date(Date.parse(since) + 1_000).toISOString(),
@@ -400,7 +405,7 @@ describe('input queue stale pending classifier', () => {
     expect(protectedRun?.errorMessage).toBeUndefined()
     expect(acceptedChecks).toEqual([
       {
-        hrcDbPath,
+        hrc: HRC,
         hostSessionId: 'hsid-t05343-fast-terminal',
         since: partial.createdAt,
         until: new Date(Date.parse(partial.createdAt) + LAUNCH_CORRELATION_WINDOW_MS).toISOString(),
@@ -450,10 +455,10 @@ describe('input queue stale pending classifier', () => {
       laneRef: 'main',
     }
     const deps = createDeps({
-      hrcDbPath: '/tmp/hrc-t05830-terminal-grace.sqlite',
+      hrc: HRC,
       config: { intervalMs: 60_000, stalePendingRunTimeoutMs: 1, terminalCorrelationGraceMs: 1 },
-      hasInFlightHrcRunSince: () => false,
-      hasRecentlyCompletedHrcRunSince: (_dbPath, hostSessionId, since) => {
+      hasInFlightHrcRunSince: async () => false,
+      hasRecentlyCompletedHrcRunSince: async (_hrc, hostSessionId, since) => {
         if (hostSessionId === 'hsid-t05830-stale-terminal') {
           return {
             runId: 'hrc-run-t05830-stale-terminal',
@@ -507,12 +512,12 @@ describe('input queue stale pending classifier', () => {
     await letRunBecomeStale()
 
     expect(
-      testingHooks().classifyStalePendingRunBlocker({
+      await testingHooks().classifyStalePendingRunBlocker({
         run: deps.runStore.getRun(partial.runId) ?? partial,
         siblings: [],
         timeoutMs: 1,
-        hrcDbPath: '/tmp/hrc-t04935-inflight.sqlite',
-        hasInFlightHrcRunSince: () => true,
+        hrc: HRC,
+        hasInFlightHrcRunSince: async () => true,
       })
     ).toBeUndefined()
   })

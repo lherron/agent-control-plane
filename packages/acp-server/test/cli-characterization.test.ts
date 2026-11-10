@@ -36,11 +36,12 @@ test('help bypasses a missing locator but retains input validation', () => {
   expect(() => resolveCliOptions(['--help'], { ACP_HOST: '::' })).toThrow('must not bind')
 })
 
-test('launcher defaults are inert and dev flow takes precedence over echo', async () => {
+test('launcher defaults are inert and the removed dev flow launcher is ignored', async () => {
   expect(resolveLauncherDeps({})).toEqual({})
+  expect(resolveLauncherDeps({ ACP_DEV_FLOW_LAUNCHER: '1' })).toEqual({})
   const deps = resolveLauncherDeps({ ACP_DEV_FLOW_LAUNCHER: '1', ACP_DEV_ECHO_LAUNCHER: '1' })
   expect(await deps.agentRootResolver?.({ agentId: 'cody' } as never)).toBe(
-    '/tmp/acp-dev-flow/cody'
+    '/tmp/acp-dev-echo/cody'
   )
   expect(deps.hrcClient).toBeUndefined()
 })

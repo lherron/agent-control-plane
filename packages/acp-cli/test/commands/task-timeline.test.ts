@@ -2,12 +2,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { Database } from 'bun:sqlite'
 import { afterEach, describe, expect, test } from 'bun:test'
 
 import { makeTimelineFixture } from '../../src/__tests__/timeline-fixture.js'
 import type { GetTaskResponse } from '../../src/http-client.js'
 import { runCli } from '../cli-test-helpers.js'
+import { type HrcRow, hrcEventsFake } from '../hrc-events-fake.js'
 
 const tempDirs: string[] = []
 
@@ -17,55 +17,15 @@ function makeTempDir(): string {
   return dir
 }
 
-// [seq, ts, scopeRef, runId, eventKind, eventJson]
-type HrcRow = [number, string, string, string | null, string, string]
-
 const RUN_SCOPE = 'cody@agent-spaces:T-TIMELINE'
 
-/** HRC state.sqlite with the legacy `events` table and/or the canonical `hrc_events` table. */
+/** Rows the fake HRC `/v1/events` route serves for one timeline run, by token. */
+const hrcFixtures = new Map<string, HrcRow[]>()
+
 function makeStore(tables: { legacy?: HrcRow[]; hrc?: HrcRow[] }): string {
-  const path = join(makeTempDir(), 'state.sqlite')
-  const db = new Database(path)
-  if (tables.legacy !== undefined) {
-    db.exec(`
-      CREATE TABLE events (
-        seq INTEGER PRIMARY KEY,
-        ts TEXT NOT NULL,
-        scope_ref TEXT NOT NULL,
-        lane_ref TEXT NOT NULL,
-        run_id TEXT,
-        event_kind TEXT NOT NULL,
-        event_json TEXT NOT NULL
-      );
-    `)
-    const insert = db.prepare(
-      'INSERT INTO events (seq, ts, scope_ref, lane_ref, run_id, event_kind, event_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    )
-    for (const [seq, ts, scopeRef, runId, kind, json] of tables.legacy) {
-      insert.run(seq, ts, scopeRef, 'main', runId, kind, json)
-    }
-  }
-  if (tables.hrc !== undefined) {
-    db.exec(`
-      CREATE TABLE hrc_events (
-        hrc_seq INTEGER PRIMARY KEY,
-        ts TEXT NOT NULL,
-        scope_ref TEXT NOT NULL,
-        lane_ref TEXT NOT NULL,
-        run_id TEXT,
-        event_kind TEXT NOT NULL,
-        payload_json TEXT NOT NULL
-      );
-    `)
-    const insert = db.prepare(
-      'INSERT INTO hrc_events (hrc_seq, ts, scope_ref, lane_ref, run_id, event_kind, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    )
-    for (const [seq, ts, scopeRef, runId, kind, json] of tables.hrc) {
-      insert.run(seq, ts, scopeRef, 'main', runId, kind, json)
-    }
-  }
-  db.close()
-  return path
+  const token = `hrc-fixture-${hrcFixtures.size + 1}`
+  hrcFixtures.set(token, [...(tables.hrc ?? []), ...(tables.legacy ?? [])])
+  return token
 }
 
 function makeHrcStore(): string {
@@ -205,9 +165,14 @@ async function timeline(
   response: GetTaskResponse = makeTimelineFixture()
 ): Promise<TimelineRun> {
   const requests: string[] = []
+  // `--hrc-fixture <token>` is test-only: it injects the fake HRC events route.
+  const at = args.indexOf('--hrc-fixture')
+  const rows = at >= 0 ? hrcFixtures.get(args[at + 1] ?? '') : undefined
+  const cliArgs = at >= 0 ? [...args.slice(0, at), ...args.slice(at + 2)] : args
   const result = await runCli(
-    ['--server', 'http://acp.test', 'task', 'timeline', '--task', 'T-TIMELINE', ...args],
+    ['--server', 'http://acp.test', 'task', 'timeline', '--task', 'T-TIMELINE', ...cliArgs],
     {
+      ...(rows !== undefined ? { hrcEvents: hrcEventsFake(rows) } : {}),
       fetchImpl: async (input, init) => {
         const url = new URL(input instanceof Request ? input.url : String(input))
         requests.push(`${init?.method ?? 'GET'} ${url.pathname}${url.search}`)
@@ -294,19 +259,19 @@ describe('acp task timeline command', () => {
   })
 
   test('--no-hrc suppresses HRC rows even when an HRC store is given', async () => {
-    const result = await timeline(['--plain', '--no-hrc', '--hrc-store', makeHrcStore()])
+    const result = await timeline(['--plain', '--no-hrc', '--hrc-fixture', makeHrcStore()])
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain('participant_run.launched prun_1')
     expect(result.stdout).not.toContain('hrc/42')
   })
 
-  test('unreachable HRC store warns and renders ACP-only output', async () => {
-    const missing = join(makeTempDir(), 'missing-hrc-store.sqlite')
-    const result = await timeline(['--plain', '--hrc-store', missing])
+  test('unreachable HRC warns and renders ACP-only output', async () => {
+    const missing = join(makeTempDir(), 'missing-hrc.sock')
+    const result = await timeline(['--plain', '--hrc-socket', missing])
 
     expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain(`WARNING HRC store at ${missing}`)
+    expect(result.stdout).toContain(`WARNING HRC at ${missing} is unreachable`)
     expect(result.stdout).toContain('participant_run.launched prun_1')
     expect(result.stdout).not.toContain('hrc/')
   })
@@ -342,18 +307,9 @@ describe('acp task timeline command', () => {
 
   test('registered command keeps HRC join enabled by default', async () => {
     const result = await runCli(
-      [
-        '--server',
-        'http://acp.test',
-        'task',
-        'timeline',
-        '--task',
-        'T-TIMELINE',
-        '--plain',
-        '--hrc-store',
-        makeHrcStore(),
-      ],
+      ['--server', 'http://acp.test', 'task', 'timeline', '--task', 'T-TIMELINE', '--plain'],
       {
+        hrcEvents: hrcEventsFake(hrcFixtures.get(makeHrcStore()) ?? []),
         fetchImpl: async () =>
           new Response(JSON.stringify(makeTimelineFixture()), {
             status: 200,
@@ -368,7 +324,7 @@ describe('acp task timeline command', () => {
 
   test('auto anchor joins HRC rows directly after the actor events of a runless task', async () => {
     const store = makeStore({ legacy: JOIN_ROWS })
-    const { rows } = await timelineJson(['--hrc-store', store], makeRunlessTimelineFixture())
+    const { rows } = await timelineJson(['--hrc-fixture', store], makeRunlessTimelineFixture())
 
     const createdIndex = rows.findIndex(
       (row) => row['ledger'] === 'acp' && row['type'] === 'task.created'
@@ -392,7 +348,7 @@ describe('acp task timeline command', () => {
       joinKind: 'event_window',
     })
 
-    const plain = await timeline(['--plain', '--hrc-store', store], makeRunlessTimelineFixture())
+    const plain = await timeline(['--plain', '--hrc-fixture', store], makeRunlessTimelineFixture())
     expect(plain.stdout).toContain('hrc/12')
     expect(plain.stdout).toContain('💬 codex.user_prompt  "create the SoD task"')
   })
@@ -400,7 +356,7 @@ describe('acp task timeline command', () => {
   test('runs anchor keeps runless tasks ACP-only', async () => {
     const store = makeStore({ legacy: JOIN_ROWS })
     const { rows } = await timelineJson(
-      ['--hrc-store', store, '--hrc-anchor', 'runs'],
+      ['--hrc-fixture', store, '--hrc-anchor', 'runs'],
       makeRunlessTimelineFixture()
     )
 
@@ -409,7 +365,10 @@ describe('acp task timeline command', () => {
   })
 
   test('run_id miss falls back to the delivery scope window, warns, and interleaves HRC rows under the run', async () => {
-    const { rows, warnings } = await timelineJson(['--hrc-store', makeStore({ legacy: JOIN_ROWS })])
+    const { rows, warnings } = await timelineJson([
+      '--hrc-fixture',
+      makeStore({ legacy: JOIN_ROWS }),
+    ])
 
     const runIndex = rows.findIndex(
       (row) => row['ledger'] === 'acp' && row['type'] === 'participant_run.launched'
@@ -434,7 +393,7 @@ describe('acp task timeline command', () => {
 
   test('--hrc-detail summary replaces a run block with one summary row carrying the total', async () => {
     const { rows } = await timelineJson([
-      '--hrc-store',
+      '--hrc-fixture',
       makeStore({ legacy: JOIN_ROWS }),
       '--hrc-detail',
       'summary',
@@ -473,7 +432,7 @@ describe('acp task timeline command', () => {
       ],
     })
 
-    const json = await timelineJson(['--hrc-store', store])
+    const json = await timelineJson(['--hrc-fixture', store])
     expect(json.collapsedRuns).toEqual([
       expect.objectContaining({
         parentParticipantRunId: 'prun_1',
@@ -482,7 +441,7 @@ describe('acp task timeline command', () => {
       }),
     ])
 
-    const plain = await timeline(['--plain', '--width', '100', '--hrc-store', store])
+    const plain = await timeline(['--plain', '--width', '100', '--hrc-fixture', store])
     expect(plain.stdout).toContain('💻 exec_command: pwd')
     expect(plain.stdout).toContain('💻 exec_command: date')
     expect(plain.stdout).not.toContain('💻 exec_command: whoami')
@@ -549,7 +508,7 @@ describe('acp task timeline command', () => {
       ],
     })
 
-    const plain = await timeline(['--plain', '--width', '200', '--hrc-store', store])
+    const plain = await timeline(['--plain', '--width', '200', '--hrc-fixture', store])
     expect(plain.exitCode).toBe(0)
     expect(plain.stdout).toContain(displayText)
   })
@@ -568,7 +527,7 @@ describe('acp task timeline command', () => {
       ],
     })
 
-    const plain = await timeline(['--plain', '--width', '100', '--hrc-store', store])
+    const plain = await timeline(['--plain', '--width', '100', '--hrc-fixture', store])
     expect(plain.stdout).toContain('🤖 assistant')
     expect(plain.stdout).toContain('      > ## Done')
     expect(plain.stdout).toContain('      > • first')
@@ -576,16 +535,7 @@ describe('acp task timeline command', () => {
 
   test.each([
     {
-      name: 'mixed store prefers canonical hrc_events over legacy events',
-      tables: { legacy: LEGACY_RUN_ROWS, hrc: CANONICAL_RUN_ROWS },
-      args: [] as string[],
-      expected: [
-        [100, 'turn.message'],
-        [101, 'turn.completed'],
-      ],
-    },
-    {
-      name: 'canonical-only store reads hrc_events',
+      name: 'canonical rows are read from the events route',
       tables: { hrc: CANONICAL_RUN_ROWS },
       args: [] as string[],
       expected: [
@@ -594,16 +544,7 @@ describe('acp task timeline command', () => {
       ],
     },
     {
-      name: 'legacy store excludes transport noise and streaming deltas by default',
-      tables: { legacy: LEGACY_RUN_ROWS },
-      args: [] as string[],
-      expected: [
-        [2, 'tool_execution_start'],
-        [6, 'tool_execution_end'],
-      ],
-    },
-    {
-      name: 'legacy store returns streaming deltas when --hrc-kinds names them',
+      name: 'streaming deltas come back when --hrc-kinds names them',
       tables: { legacy: LEGACY_RUN_ROWS },
       args: ['--hrc-kinds', 'message_update,tool_execution_update'],
       expected: [
@@ -612,7 +553,7 @@ describe('acp task timeline command', () => {
       ],
     },
     {
-      name: 'legacy store returns every kind with --hrc-all-kinds',
+      name: 'every kind comes back with --hrc-all-kinds',
       tables: { legacy: LEGACY_RUN_ROWS },
       args: ['--hrc-all-kinds'],
       expected: [
@@ -625,7 +566,7 @@ describe('acp task timeline command', () => {
       ],
     },
     {
-      name: 'legacy store applies a wildcard --hrc-kinds filter',
+      name: 'a wildcard --hrc-kinds filter matches like SQL LIKE',
       tables: { legacy: LEGACY_RUN_ROWS },
       args: ['--hrc-kinds', 'tool_execution_*'],
       expected: [
@@ -634,8 +575,8 @@ describe('acp task timeline command', () => {
         [6, 'tool_execution_end'],
       ],
     },
-  ])('HRC store: $name, joined by the run externalRunRef', async ({ tables, args, expected }) => {
-    const { rows } = await timelineJson(['--hrc-store', makeStore(tables), ...args])
+  ])('HRC events: $name, joined by the run externalRunRef', async ({ tables, args, expected }) => {
+    const { rows } = await timelineJson(['--hrc-fixture', makeStore(tables), ...args])
     const joined = hrcRows(rows)
 
     expect(joined.map((row) => [row['hrcSeq'], row['eventKind']])).toEqual(expected)
@@ -643,6 +584,29 @@ describe('acp task timeline command', () => {
       expect(row).toMatchObject({ parentParticipantRunId: 'prun_1', joinKind: 'run_id' })
       expect(row['marker']).toBeUndefined()
     }
+  })
+
+  test('rows outside the run window stay out when HRC ignores fromTs/toTs', async () => {
+    const rows: HrcRow[] = [
+      ...CANONICAL_RUN_ROWS,
+      [99, '2026-05-10T00:00:00.000Z', RUN_SCOPE, 'hrc-run-1', 'turn.message', '{}'],
+      [102, '2027-01-01T00:00:00.000Z', RUN_SCOPE, 'hrc-run-1', 'turn.message', '{}'],
+    ]
+    const fixture = makeTimelineFixture()
+    const result = await runCli(
+      ['--server', 'http://acp.test', 'task', 'timeline', '--task', 'T-TIMELINE', '--json'],
+      {
+        hrcEvents: hrcEventsFake(rows, { ignoreNewSelectors: true }),
+        fetchImpl: async () =>
+          new Response(JSON.stringify(fixture), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+      }
+    )
+    expect(result.exitCode).toBe(0)
+    const joined = hrcRows(JSON.parse(result.stdout).rows)
+    expect(joined.map((row) => row['hrcSeq'])).toEqual([100, 101])
   })
 
   test('--hrc-kinds filters actor-event window rows for runless tasks', async () => {
@@ -669,7 +633,7 @@ describe('acp task timeline command', () => {
     })
 
     const { rows } = await timelineJson(
-      ['--hrc-store', store, '--hrc-kinds', 'tool_execution_end'],
+      ['--hrc-fixture', store, '--hrc-kinds', 'tool_execution_end'],
       makeRunlessTimelineFixture()
     )
 

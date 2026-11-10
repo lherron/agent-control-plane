@@ -28,7 +28,7 @@ Source anchors (repo-relative): packages/acp-core/src/index.ts; packages/acp-ser
 - Surface: `cli:acp task run [--actor --agent --as --generation --harness --host-session-id --hrc-run-id --idempotency-key --json --lane-ref --launch-id --launch-runtime --resume --role --runtime-id --scope-ref --server --task]`
 - Surface: `cli:acp task run-complete [--actor --as --evidence-ref --idempotency-key --json --outcome --run --server --summary]`
 - Surface: `cli:acp task show [--actor --json --role --server --task]`
-- Surface: `cli:acp task timeline [--actor --hrc-all-kinds --hrc-anchor --hrc-detail --hrc-event-window --hrc-kinds --hrc-store --json --markdown --no-color --no-hrc --only --plain --rejections-only --server --since --skip --task --until --verbose --width]`
+- Surface: `cli:acp task timeline [--actor --hrc-all-kinds --hrc-anchor --hrc-detail --hrc-event-window --hrc-kinds --hrc-socket --json --markdown --no-color --no-hrc --only --plain --rejections-only --server --since --skip --task --until --verbose --width]`
 - Surface: `cli:acp task transition [--actor --as --context-hash --evidence --evidence-ref --expected-version --idempotency-key --json --role --run --server --task --transition --waiver-ref]`
 - Surface: `package:acp-core`
 - Surface: `package:acp-e2e`

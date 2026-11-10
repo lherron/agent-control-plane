@@ -4,10 +4,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { HrcRouteReader } from '../src/hrc-route-reader.js'
 import { createInterfaceRunDispatcher } from '../src/integration/interface-run-dispatcher.js'
 import { LAUNCH_CORRELATION_WINDOW_MS } from '../src/launcher-run-evidence.js'
 import { createRealLauncher } from '../src/real-launcher.js'
 
+import { createHrcRouteFake } from './fixtures/hrc-route-fake.js'
 import { type WiredServerFixture, withWiredServer } from './fixtures/wired-server.js'
 
 function addInterfaceBinding(fixture: WiredServerFixture): void {
@@ -24,10 +26,15 @@ function addInterfaceBinding(fixture: WiredServerFixture): void {
   })
 }
 
-function createHeadlessHrcDb(): { db: Database; hrcDbPath: string; cleanup(): void } {
+function createHeadlessHrcDb(): {
+  db: Database
+  hrcFixture: string
+  routes: HrcRouteReader
+  cleanup(): void
+} {
   const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-run-correlation-'))
-  const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-  const db = new Database(hrcDbPath)
+  const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+  const db = new Database(hrcFixture)
 
   db.exec(`
     CREATE TABLE runs (
@@ -41,17 +48,12 @@ function createHeadlessHrcDb(): { db: Database; hrcDbPath: string; cleanup(): vo
       accepted_at TEXT,
       completed_at TEXT
     );
-    CREATE TABLE events (
-      seq INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT,
-      event_kind TEXT NOT NULL,
-      event_json TEXT NOT NULL
-    );
   `)
 
   return {
     db,
-    hrcDbPath,
+    hrcFixture,
+    routes: createHrcRouteFake(hrcFixture),
     cleanup() {
       db.close()
       rmSync(fixtureDir, { recursive: true, force: true })
@@ -92,7 +94,7 @@ describe('ACP run correlation', () => {
     createRunScopedHrcEventsTable(hrc.db)
     const dispatchCalls: unknown[] = []
     const launcher = createRealLauncher({
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       pollIntervalMs: 1,
       watchTimeoutMs: 250,
       createClient: () =>
@@ -104,18 +106,6 @@ describe('ACP run correlation', () => {
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
               'hrc-run-123',
               'completed'
-            )
-            hrc.db.run(
-              'INSERT INTO events (run_id, event_kind, event_json) VALUES (?, ?, ?)',
-              'hrc-run-123',
-              'message_end',
-              JSON.stringify({
-                type: 'message_end',
-                message: {
-                  role: 'assistant',
-                  content: [{ type: 'text', text: 'All green.' }],
-                },
-              })
             )
             hrc.db.run(
               'INSERT INTO hrc_events (run_id, event_kind, payload_json) VALUES (?, ?, ?)',
@@ -179,7 +169,7 @@ describe('ACP run correlation', () => {
   test("failed HRC run → ACP run failed with errorCode turn_failed and HRC's error message", async () => {
     const hrc = createHeadlessHrcDb()
     const launcher = createRealLauncher({
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       pollIntervalMs: 1,
       watchTimeoutMs: 250,
       createClient: () =>
@@ -232,7 +222,7 @@ describe('ACP run correlation', () => {
             runStore: fixture.runStore,
             interfaceStore: fixture.interfaceStore,
             conversationStore: fixture.conversationStore,
-            hrcDbPath: hrc.hrcDbPath,
+            hrc: hrc.routes,
             config: { intervalMs: 1, staleTimeoutMs: 1_000 },
           })
           await dispatcher.runOnce()
@@ -281,7 +271,7 @@ describe('ACP run correlation', () => {
             runStore: fixture.runStore,
             interfaceStore: fixture.interfaceStore,
             conversationStore: fixture.conversationStore,
-            hrcDbPath: hrc.hrcDbPath,
+            hrc: hrc.routes,
             config: { intervalMs: 1, staleTimeoutMs: 1_000, dispatchStaleTimeoutMs: 1 },
           })
           await dispatcher.runOnce()
@@ -356,7 +346,7 @@ describe('ACP run correlation', () => {
             runStore: fixture.runStore,
             interfaceStore: fixture.interfaceStore,
             conversationStore: fixture.conversationStore,
-            hrcDbPath: hrc.hrcDbPath,
+            hrc: hrc.routes,
             config: { intervalMs: 1, staleTimeoutMs: 1_000, dispatchStaleTimeoutMs: 1 },
           })
           await dispatcher.runOnce()
@@ -440,7 +430,7 @@ describe('ACP run correlation', () => {
             runStore: fixture.runStore,
             interfaceStore: fixture.interfaceStore,
             conversationStore: fixture.conversationStore,
-            hrcDbPath: hrc.hrcDbPath,
+            hrc: hrc.routes,
             config: { intervalMs: 1, staleTimeoutMs: 1_000, dispatchStaleTimeoutMs: 1 },
           })
           await dispatcher.runOnce()
@@ -527,7 +517,7 @@ describe('ACP run correlation', () => {
             runStore: fixture.runStore,
             interfaceStore: fixture.interfaceStore,
             conversationStore: fixture.conversationStore,
-            hrcDbPath: hrc.hrcDbPath,
+            hrc: hrc.routes,
             config: { intervalMs: 1, staleTimeoutMs: 1_000, dispatchStaleTimeoutMs: 1 },
           })
           await dispatcher.runOnce()
@@ -621,7 +611,7 @@ describe('ACP run correlation', () => {
             runStore: fixture.runStore,
             interfaceStore: fixture.interfaceStore,
             conversationStore: fixture.conversationStore,
-            hrcDbPath: hrc.hrcDbPath,
+            hrc: hrc.routes,
             config: { intervalMs: 1, staleTimeoutMs: 60_000, dispatchStaleTimeoutMs: 60_000 },
           })
           await dispatcher.runOnce()
@@ -700,7 +690,7 @@ describe('ACP run correlation', () => {
       );
     `)
     const launcher = createRealLauncher({
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       pollIntervalMs: 1,
       watchTimeoutMs: 250,
       createClient: () =>
@@ -750,7 +740,7 @@ describe('ACP run correlation', () => {
             runStore: fixture.runStore,
             interfaceStore: fixture.interfaceStore,
             conversationStore: fixture.conversationStore,
-            hrcDbPath: hrc.hrcDbPath,
+            hrc: hrc.routes,
             config: { intervalMs: 1, staleTimeoutMs: 1_000 },
           })
           await dispatcher.runOnce()
@@ -789,7 +779,7 @@ describe('ACP run correlation', () => {
       );
     `)
     const launcher = createRealLauncher({
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       pollIntervalMs: 1,
       watchTimeoutMs: 250,
       createClient: () =>
@@ -838,7 +828,7 @@ describe('ACP run correlation', () => {
             runStore: fixture.runStore,
             interfaceStore: fixture.interfaceStore,
             conversationStore: fixture.conversationStore,
-            hrcDbPath: hrc.hrcDbPath,
+            hrc: hrc.routes,
             config: { intervalMs: 1, staleTimeoutMs: 1_000 },
           })
           await dispatcher.runOnce()
@@ -882,7 +872,7 @@ describe('ACP run correlation', () => {
       );
     `)
     const launcher = createRealLauncher({
-      hrcDbPath: hrc.hrcDbPath,
+      hrc: hrc.routes,
       pollIntervalMs: 1,
       watchTimeoutMs: 250,
       createClient: () =>
@@ -945,7 +935,7 @@ describe('ACP run correlation', () => {
             runStore: fixture.runStore,
             interfaceStore: fixture.interfaceStore,
             conversationStore: fixture.conversationStore,
-            hrcDbPath: hrc.hrcDbPath,
+            hrc: hrc.routes,
             config: { intervalMs: 1, staleTimeoutMs: 1_000 },
           })
           await dispatcher.runOnce()

@@ -29,7 +29,7 @@ The **system-events store is an immutable observer projection**, not authority.
   (`handlers/admin-jobs.ts`). Synchronous-flow terminals backfill the start
   event before the completion event.
 - Optional captured agent output via
-  `getRunFinalAssistantText({ getRun, hrcDbPath }, runId)`
+  `getRunFinalAssistantText({ getRun, hrc }, runId)` (HRC routes, T-13243)
   (`jobs/run-final-output.ts`), carried as `finalResponse` (truncated).
 - `job.dispatched` and `job.completed` carry available run timing fields
   (`triggeredAt`, `claimedAt`, `dispatchedAt`, `completedAt`). `durationMs` is

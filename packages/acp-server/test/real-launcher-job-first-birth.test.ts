@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -10,6 +11,7 @@ import { InMemoryRunStore } from '../src/domain/run-store.js'
 import { createJobFirstBirthAuthority } from '../src/jobs/first-birth-authority.js'
 import { createRealLauncher } from '../src/real-launcher.js'
 
+import { createHrcRouteFake } from './fixtures/hrc-route-fake.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 // T-09993: an ACP job run may first-birth its unbound target through HRC's
@@ -111,7 +113,7 @@ async function launchClaimingJob(input: {
   }).inputAttempt
   const acpRun = runStore.createRun({ sessionRef, status: 'pending' })
   const launcher = createRealLauncher({
-    hrcDbPath: ':memory:',
+    hrc: createHrcRouteFake(new Database(':memory:')),
     inputAttemptStore,
     jobFirstBirthAuthority: createJobFirstBirthAuthority(input.store),
     createClient: () => unboundClient(input.calls) as unknown as any,
@@ -201,7 +203,7 @@ describe('job first birth of an unbound scope', () => {
             harness: INTENT.harness,
           }),
           launchRoleScopedRun: createRealLauncher({
-            hrcDbPath: ':memory:',
+            hrc: createHrcRouteFake(new Database(':memory:')),
             inputAttemptStore,
             jobFirstBirthAuthority: createJobFirstBirthAuthority(store),
             createClient: () => unboundClient(calls) as unknown as any,

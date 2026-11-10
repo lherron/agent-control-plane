@@ -85,17 +85,14 @@
  *       return typedRuns.find(run => run.id === runId)?.completedAt
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
 import { readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
-import { Database } from 'bun:sqlite'
-import { afterEach, describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 
+import { hrcEventsFake } from '../../test/hrc-events-fake.js'
 import { runTaskEvidenceAddCommand } from '../commands/task-evidence-add.js'
 import { runTaskTransitionCommand } from '../commands/task-transition.js'
-import { HrcStoreReader } from '../hrc-store-reader.js'
+import { HrcEventReader } from '../hrc-event-reader.js'
 import type { GetTaskResponse } from '../http-client.js'
 import { joinHrcTimeline } from '../output/timeline-hrc-join.js'
 
@@ -143,57 +140,28 @@ function makeWrkfTaskResponse(
   }
 }
 
-// ── HRC store fixture for timeline join tests ─────────────────────────────────
+// ── HRC events fixture for timeline join tests ─────────────────────────────────
 
-const tempDirs: string[] = []
-
-function makeHrcStore(hrcRunId: string, scopeRef: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'acp-w2b-hrc-'))
-  tempDirs.push(dir)
-  const path = join(dir, 'state.sqlite')
-  const db = new Database(path)
-  db.exec(`
-    CREATE TABLE events (
-      seq INTEGER PRIMARY KEY,
-      ts TEXT NOT NULL,
-      scope_ref TEXT NOT NULL,
-      lane_ref TEXT NOT NULL,
-      run_id TEXT,
-      event_kind TEXT NOT NULL,
-      event_json TEXT NOT NULL
-    );
-  `)
-  db.prepare(
-    'INSERT INTO events (seq, ts, scope_ref, lane_ref, run_id, event_kind, event_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(
-    100,
-    '2026-06-05T10:00:00.000Z',
-    scopeRef,
-    'main',
-    hrcRunId,
-    'tool_execution_start',
-    '{"toolName":"bash_tool","input":{"cmd":"echo hello"}}'
-  )
-  db.prepare(
-    'INSERT INTO events (seq, ts, scope_ref, lane_ref, run_id, event_kind, event_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(
-    101,
-    '2026-06-05T10:00:01.000Z',
-    scopeRef,
-    'main',
-    hrcRunId,
-    'tool_execution_end',
-    '{"toolName":"bash_tool","output":{"stdout":"hello"}}'
-  )
-  db.close()
-  return path
+function makeHrcEvents(hrcRunId: string, scopeRef: string) {
+  return hrcEventsFake([
+    [
+      100,
+      '2026-06-05T10:00:00.000Z',
+      scopeRef,
+      hrcRunId,
+      'tool_execution_start',
+      '{"toolName":"bash_tool","input":{"cmd":"echo hello"}}',
+    ],
+    [
+      101,
+      '2026-06-05T10:00:01.000Z',
+      scopeRef,
+      hrcRunId,
+      'tool_execution_end',
+      '{"toolName":"bash_tool","output":{"stdout":"hello"}}',
+    ],
+  ])
 }
-
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) {
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
 
 // ── Consumer 1: GetTaskResponse type declarations ────────────────────────────
 //
@@ -490,19 +458,17 @@ describe('W2b Consumer 4: joinHrcTimeline uses wrkf run.externalRunRef (not work
     }
   }
 
-  test('joinHrcTimeline derives HRC mapping from runs[i].externalRunRef when workflowHrcRunMaps is absent (RED: maps is empty → no_mapping)', () => {
-    const hrcStorePath = makeHrcStore(HRC_RUN_ID, SCOPE_REF)
-    const reader = new HrcStoreReader(hrcStorePath)
+  test('joinHrcTimeline derives HRC mapping from runs[i].externalRunRef when workflowHrcRunMaps is absent (RED: maps is empty → no_mapping)', async () => {
+    const reader = new HrcEventReader(makeHrcEvents(HRC_RUN_ID, SCOPE_REF))
     const response = makeWrkfGetTaskResponseForTimeline()
     const projection = makeMinimalProjectionWithParticipantRun()
 
-    const result = joinHrcTimeline(projection, {
+    const result = await joinHrcTimeline(projection, {
       reader,
       response,
       detail: 'events',
       anchorMode: 'runs',
     })
-    reader.close()
 
     const hrcRows = result.rows.filter((row) => row.ledger === 'hrc')
 

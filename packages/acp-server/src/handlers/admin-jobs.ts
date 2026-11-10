@@ -10,7 +10,6 @@ import {
   validateJobFlow,
   validateJobFlowJob,
 } from 'acp-jobs-store'
-import { resolveDatabasePath } from 'hrc-core'
 
 import { AcpHttpError, badRequest, json, notFound } from '../http.js'
 import {
@@ -28,6 +27,7 @@ import { validateJobTrigger } from 'acp-core'
 
 import type { Actor, JobFlow, JobTrigger } from 'acp-core'
 import type { ResolvedAcpServerDeps } from '../deps.js'
+import { resolveHrcRoutes } from '../hrc-client.js'
 import {
   currentExecutionMode,
   unassignedFederatedScheduleMessage,
@@ -79,11 +79,6 @@ function requireJobsStore(deps: ResolvedAcpServerDeps) {
   }
 
   return deps.jobsStore
-}
-
-function resolveHrcDbPath(deps: ResolvedAcpServerDeps): string {
-  const configured = (deps as ResolvedAcpServerDeps & { hrcDbPath?: string }).hrcDbPath
-  return configured ?? resolveDatabasePath()
 }
 
 function requireJobId(params: Record<string, string>): string {
@@ -462,7 +457,7 @@ export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) =
       getRunFinalAssistantText(
         {
           getRun: (id) => deps.runStore.getRun(id),
-          hrcDbPath: resolveHrcDbPath(deps),
+          hrc: resolveHrcRoutes(deps, 'acp-server:jobs'),
         },
         runId
       ),
@@ -499,7 +494,7 @@ export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) =
     })
     // Project lifecycle telemetry from the committed flow result (handles a
     // synchronous flow that returns terminal — emits both start and completion).
-    lifecycle.reconcile(advanced, job)
+    await lifecycle.reconcile(advanced, job)
     const steps = jobsStore.jobStepRuns.listByJobRun(created.jobRun.jobRunId).jobStepRuns
 
     return json(
@@ -553,7 +548,7 @@ export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) =
     leaseExpiresAt: null,
     actor: actor ?? deps.defaultActor,
   })
-  lifecycle.reconcile(updated.jobRun, job)
+  await lifecycle.reconcile(updated.jobRun, job)
 
   return json(updated, 202)
 }

@@ -3,6 +3,7 @@ import type { UnifiedSessionEvent } from 'spaces-runtime'
 
 import { toCompletedVisibleAssistantMessage } from '../delivery/visible-assistant-messages.js'
 import type { StoredRun } from '../domain/run-store.js'
+import type { HrcRouteReader } from '../hrc-route-reader.js'
 import {
   readAssistantMessageAfterSeq,
   readCompletedAssistantMessageFromHrcEvents,
@@ -20,8 +21,8 @@ export type RunFinalOutputDeps = {
    */
   getRun: (runId: string) => StoredRun | undefined
 
-  /** Filesystem path to the HRC SQLite database. */
-  hrcDbPath: string
+  /** HRC's read routes. */
+  hrc: HrcRouteReader
 }
 
 // ---------------------------------------------------------------------------
@@ -29,25 +30,25 @@ export type RunFinalOutputDeps = {
 // ---------------------------------------------------------------------------
 
 export type HrcEventReaders = {
-  /** Read the completed assistant message for a headless hrcRunId from hrc_events. */
+  /** Read the completed assistant message for a headless hrcRunId from HRC's events. */
   readCompletedAssistantMessageFromHrcEvents: (
-    hrcDbPath: string,
+    hrc: HrcRouteReader,
     runId: string
-  ) => UnifiedSessionEvent | undefined
+  ) => Promise<UnifiedSessionEvent | undefined>
 
   /** Read the latest assistant message sequence number for an interactive session. */
   readLatestAssistantMessageSeq: (
-    hrcDbPath: string,
+    hrc: HrcRouteReader,
     input: { hostSessionId: string; sessionRef: SessionRef }
-  ) => number
+  ) => Promise<number>
 
   /** Read the assistant message event after a given sequence number. */
   readAssistantMessageAfterSeq: (options: {
-    hrcDbPath: string
+    hrc: HrcRouteReader
     hostSessionId: string
     sessionRef: SessionRef
     afterHrcSeq: number
-  }) => UnifiedSessionEvent | undefined
+  }) => Promise<UnifiedSessionEvent | undefined>
 }
 
 const defaultReaders: HrcEventReaders = {
@@ -64,24 +65,24 @@ const defaultReaders: HrcEventReaders = {
  * Extract the final assistant text from an ACP Run's persisted HRC event log.
  *
  * Routes to the correct event source based on the Run record:
- *   - Headless runs (`hrcRunId` present): reads `hrc_events` keyed by run_id.
- *   - Interactive/tmux runs (`hostSessionId` + `generation`): reads `hrc_events`
- *     table keyed by host_session_id / scope_ref / lane_ref.
+ *   - Headless runs (`hrcRunId` present): reads HRC's events keyed by run id.
+ *   - Interactive/tmux runs (`hostSessionId` + `generation`): reads HRC's events
+ *     keyed by host session, scope and lane.
  *
  * Returns `undefined` when no terminal assistant message exists yet (e.g. the
  * run is still in progress or produced no assistant output).
  */
-export function getRunFinalAssistantText(
+export async function getRunFinalAssistantText(
   deps: RunFinalOutputDeps,
   runId: string,
   readers: HrcEventReaders = defaultReaders
-): string | undefined {
+): Promise<string | undefined> {
   const run = deps.getRun(runId)
   if (run === undefined) {
     return undefined
   }
 
-  const event = resolveAssistantEvent(deps.hrcDbPath, run, readers)
+  const event = await resolveAssistantEvent(deps.hrc, run, readers)
   if (event === undefined) {
     return undefined
   }
@@ -94,14 +95,14 @@ export function getRunFinalAssistantText(
 // Internal routing
 // ---------------------------------------------------------------------------
 
-function resolveAssistantEvent(
-  hrcDbPath: string,
+async function resolveAssistantEvent(
+  hrc: HrcRouteReader,
   run: StoredRun,
   readers: HrcEventReaders
-): UnifiedSessionEvent | undefined {
+): Promise<UnifiedSessionEvent | undefined> {
   // Headless path: hrcRunId → canonical hrc_events table
   if (run.hrcRunId !== undefined) {
-    return readers.readCompletedAssistantMessageFromHrcEvents(hrcDbPath, run.hrcRunId)
+    return readers.readCompletedAssistantMessageFromHrcEvents(hrc, run.hrcRunId)
   }
 
   // Interactive/tmux path: hostSessionId + sessionRef → hrc_events table
@@ -114,7 +115,7 @@ function resolveAssistantEvent(
     // Read the latest assistant message directly (seq 0 means "give me the latest")
     // We use afterHrcSeq: 0 to get the very first (and hopefully final) message,
     // but the correct approach is to read the latest seq then grab the message at that seq.
-    const latestSeq = readers.readLatestAssistantMessageSeq(hrcDbPath, {
+    const latestSeq = await readers.readLatestAssistantMessageSeq(hrc, {
       hostSessionId: run.hostSessionId,
       sessionRef,
     })
@@ -125,7 +126,7 @@ function resolveAssistantEvent(
 
     // Read the message at the latest seq (afterHrcSeq = latestSeq - 1 to get exactly that seq)
     return readers.readAssistantMessageAfterSeq({
-      hrcDbPath,
+      hrc,
       hostSessionId: run.hostSessionId,
       sessionRef,
       afterHrcSeq: latestSeq - 1,

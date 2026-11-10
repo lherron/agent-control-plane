@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openInterfaceStore } from 'acp-interface-store'
 import { InMemoryRunStore, type StoredRun } from '../../src/domain/run-store.js'
+import type { HrcRouteReader } from '../../src/hrc-route-reader.js'
 import * as dispatcherModule from '../../src/integration/interface-run-dispatcher.js'
+import { createHrcRouteFake } from './hrc-route-fake.js'
 
 // Shared persisted state for dispatcher reconciliation tests. Each suite installs
 // cleanup explicitly so importing this fixture never registers lifecycle hooks.
@@ -28,12 +30,14 @@ export function createInterfaceStore(prefix = 'acp-interface-dispatch-') {
   return openInterfaceStore({ dbPath: join(createFixtureDir(prefix), 'interface.sqlite') })
 }
 
-export function createHrcDb(evidenceOrigin = false): { db: Database; hrcDbPath: string } {
+export type HrcFixture = { db: Database; hrcFixture: string; routes: HrcRouteReader }
+
+export function createHrcDb(evidenceOrigin = false): HrcFixture {
   const fixtureDir = createFixtureDir(
     evidenceOrigin ? 'acp-interface-retained-' : 'acp-interface-stale-'
   )
-  const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-  const db = new Database(hrcDbPath)
+  const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+  const db = new Database(hrcFixture)
   db.exec(`
     CREATE TABLE runs (
       run_id TEXT PRIMARY KEY,
@@ -80,7 +84,7 @@ export function createHrcDb(evidenceOrigin = false): { db: Database; hrcDbPath: 
       }
     );
   `)
-  return { db, hrcDbPath }
+  return { db, hrcFixture, routes: createHrcRouteFake(hrcFixture) }
 }
 
 export function insertRunStatus(
@@ -275,7 +279,7 @@ export function isoAgo(now: number, ageMs: number): string {
 
 type EvidenceOrigin = 'retained' | null
 
-export function createEvidenceHrcDb(): { db: Database; hrcDbPath: string } {
+export function createEvidenceHrcDb(): HrcFixture {
   return createHrcDb(true)
 }
 
@@ -323,7 +327,7 @@ function assistantPayload(text: string): Record<string, unknown> {
 }
 
 export function createTmuxActuationFixture(input: {
-  hrcDbPath: string
+  hrc: HrcRouteReader
   runStore?: InMemoryRunStore | undefined
   generation?: number | undefined
   hrcRunId?: string | undefined
@@ -368,7 +372,7 @@ export function createTmuxActuationFixture(input: {
   const dispatcher = dispatcherModule.createInterfaceRunDispatcher({
     runStore,
     interfaceStore,
-    hrcDbPath: input.hrcDbPath,
+    hrc: input.hrc,
     config: { intervalMs: 1, staleTimeoutMs: input.staleTimeoutMs ?? 10 },
   })
   return { dispatcher, interfaceStore, runStore, run, sessionRef }

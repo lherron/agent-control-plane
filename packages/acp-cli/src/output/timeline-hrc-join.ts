@@ -1,4 +1,4 @@
-import type { HrcEvent, HrcStoreReader } from '../hrc-store-reader.js'
+import type { HrcEvent, HrcEventReader } from '../hrc-event-reader.js'
 import type { GetTaskResponse, WrkfRun } from '../http-client.js'
 import { hrcEventToTimelineRow } from './hrc-event-to-row.js'
 import { asRecord, parseDeliveryRef, stringField } from './json-narrow.js'
@@ -17,7 +17,7 @@ const HRC_ELISION_INSERT_INDEX = 250
 const TOOL_COLLAPSE_THRESHOLD = 3
 
 export type HrcJoinOptions = {
-  reader: HrcStoreReader
+  reader: HrcEventReader
   response: GetTaskResponse
   detail: HrcDetailMode
   anchorMode?: HrcAnchorMode | undefined
@@ -145,11 +145,11 @@ function findBinding(
   return bindings.find((binding) => binding.id === participantRunId)
 }
 
-function fetchBlockForRun(
+async function fetchBlockForRun(
   row: AcpTimelineRow,
   binding: RunHrcBinding | undefined,
   options: HrcJoinOptions
-): HrcJoinBlock {
+): Promise<HrcJoinBlock> {
   const participantRunId = runIdFor(row) ?? 'unknown'
   if (binding === undefined) {
     return {
@@ -168,7 +168,7 @@ function fetchBlockForRun(
     ...(options.allKinds === true ? { allKinds: true } : {}),
   }
 
-  const primary = options.reader.fetchByRunId({
+  const primary = await options.reader.fetchByRunId({
     ...commonQuery,
     hrcRunId: binding.hrcRunId,
     ...(binding.scopeRef !== undefined ? { scopeRef: binding.scopeRef } : {}),
@@ -183,7 +183,7 @@ function fetchBlockForRun(
     }
   }
 
-  const fallback = options.reader.fetchByScopeWindow({
+  const fallback = await options.reader.fetchByScopeWindow({
     ...commonQuery,
     ...(binding.scopeRef !== undefined ? { scopeRef: binding.scopeRef } : {}),
     laneRef: binding.laneRef ?? 'main',
@@ -213,13 +213,13 @@ function scopeRefForActorEvent(row: AcpTimelineRow, response: GetTaskResponse): 
   return `agent:${actorId}:project:${response.task.projectId}`
 }
 
-function fetchBlockForEvent(
+async function fetchBlockForEvent(
   row: AcpTimelineRow,
   options: HrcJoinOptions
-): HrcJoinBlock | undefined {
+): Promise<HrcJoinBlock | undefined> {
   const scopeRef = scopeRefForActorEvent(row, options.response)
   if (scopeRef === undefined) return undefined
-  const result = options.reader.fetchByScopeWindow({
+  const result = await options.reader.fetchByScopeWindow({
     scopeRef,
     laneRef: 'main',
     fromTs: addSeconds(row.ts, -5),
@@ -315,10 +315,10 @@ export function detectCollapsedHrcRuns(rows: readonly TimelineRow[]): TimelineCo
   return collapsed
 }
 
-export function joinHrcTimeline(
+export async function joinHrcTimeline(
   projection: TaskTimelineProjection,
   options: HrcJoinOptions
-): TaskTimelineProjection {
+): Promise<TaskTimelineProjection> {
   const bindings = runDerivedBindings(options.response)
   const rows: TimelineRow[] = []
   const warnings = new Set(projection.warnings ?? [])
@@ -353,12 +353,12 @@ export function joinHrcTimeline(
     if (anchors.runs && isParticipantRunLaunch(row)) {
       const participantRunId = runIdFor(row)
       if (participantRunId !== undefined) {
-        appendBlock(fetchBlockForRun(row, findBinding(bindings, participantRunId), options))
+        appendBlock(await fetchBlockForRun(row, findBinding(bindings, participantRunId), options))
       }
     }
 
     if (anchors.events && row.ledger === 'acp' && row.actor !== undefined) {
-      const block = fetchBlockForEvent(row, options)
+      const block = await fetchBlockForEvent(row, options)
       if (block !== undefined) appendBlock(block)
     }
   }

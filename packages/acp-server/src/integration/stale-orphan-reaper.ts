@@ -1,4 +1,3 @@
-import { Database } from 'bun:sqlite'
 import { writeLogLine } from 'acp-core'
 import type { JobRunStatus, JobsStore } from 'acp-jobs-store'
 import type { AcpStateStore } from 'acp-state-store'
@@ -10,6 +9,7 @@ import type {
 } from '../domain/input-admission-stores.js'
 import type { RunStore, StoredRun } from '../domain/run-store.js'
 import { readSemanticMessageCorrelation } from '../domain/semantic-message-run.js'
+import type { HrcRouteReader, HrcRunRow, HrcRuntimeRow } from '../hrc-route-reader.js'
 import { admissionStatusForRunStatus } from '../input-admission/admission-status.js'
 import { isUnroutableRun } from './interface-run-dispatcher.js'
 
@@ -19,6 +19,7 @@ export const PROTECTED_ORPHAN_RECHECK_MS = 6 * 60 * 60_000
 const terminalRuns = new Set(['completed', 'failed', 'cancelled'])
 const terminalQueues = new Set(['completed', 'failed', 'cancelled', 'expired'])
 const deadRuntimes = new Set(['terminated', 'stale', 'crashed', 'failed', 'exited'])
+const deadHrcRuns = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'rejected'])
 
 export type OrphanAction = {
   table: 'runs' | 'input_queue' | 'input_admissions' | 'job_runs' | 'input_applications'
@@ -36,7 +37,8 @@ type Input = {
   inputApplicationStore?: InputApplicationStore | undefined
   inputAdmissionStore: InputAdmissionStore
   hrcClient?: Pick<AcpHrcClient, 'locateScope' | 'listRuntimes'> | undefined
-  hrcDbPath: string
+  /** HRC's read routes (T-13243): ACP never opens HRC's store. */
+  hrc: HrcRouteReader
   jobsStore?: Pick<JobsStore, 'sqlite' | 'updateJobRun'> | undefined
   verifyJobNode?: (() => Promise<string | undefined>) | undefined
   now?: (() => number) | undefined
@@ -203,44 +205,54 @@ export function createStaleOrphanReaper(input: Input) {
     }
   }
 
-  // This final corroboration is synchronous: no await between it and the ACP CAS.
-  function localEvidenceProtects(run: StoredRun): boolean {
-    const db = new Database(input.hrcDbPath, { readonly: true })
+  /**
+   * Final corroboration from HRC's own runtime and run rows, read just before
+   * the ACP transaction that re-checks ACP state against the proof snapshot.
+   * Each arm (runtime id, else host session, else scope and lane) is one
+   * route read; every returned row is re-checked against the arm's selectors.
+   * A row that fails the re-check (a daemon that ignored a selector) protects,
+   * as does a live runtime or an open, non-terminal run. Read failures,
+   * including a 503 from the scope-keyed runs read, propagate and the caller
+   * protects.
+   */
+  async function localEvidenceProtects(run: StoredRun): Promise<boolean> {
+    const arm:
+      | { runtimeId: string }
+      | { hostSessionId: string }
+      | { scopeRef: string; laneRef: string } =
+      run.runtimeId !== undefined
+        ? { runtimeId: run.runtimeId }
+        : run.hostSessionId !== undefined
+          ? { hostSessionId: run.hostSessionId }
+          : { scopeRef: run.scopeRef, laneRef: run.laneRef }
+    const onArm = (row: HrcRuntimeRow | HrcRunRow): boolean =>
+      'runtimeId' in arm
+        ? row.runtimeId === arm.runtimeId
+        : 'hostSessionId' in arm
+          ? row.hostSessionId === arm.hostSessionId
+          : row.scopeRef === arm.scopeRef && row.laneRef === arm.laneRef
+    const runtimes = await input.hrc.readRuntimes({ ...arm, all: true })
+    if (runtimes.some((runtime) => !onArm(runtime) || !deadRuntimes.has(runtime.status)))
+      return true
+    const runs = await input.hrc.readRuns({ ...arm, open: true, limit: 500 })
+    if (runs.some((row) => !onArm(row) || protectsRun(row))) return true
+    if (run.hrcRunId !== undefined) {
+      const own = await input.hrc.readRuns({ runId: run.hrcRunId, open: true, limit: 500 })
+      if (own.some((row) => row.runId !== run.hrcRunId || protectsRun(row))) return true
+    }
+    return false
+  }
+
+  /** An open run protects unless its status is already terminal; a closed one is a stray. */
+  function protectsRun(row: HrcRunRow): boolean {
+    return row.completedAt !== undefined || !deadHrcRuns.has(row.status)
+  }
+
+  async function hrcEvidence(run: StoredRun): Promise<'protects' | 'unavailable' | 'clear'> {
     try {
-      const runtimes = db
-        .prepare(`SELECT status FROM runtimes WHERE runtime_id = ?
-        OR (? IS NULL AND host_session_id = ?)
-        OR (? IS NULL AND ? IS NULL AND scope_ref = ? AND lane_ref = ?)`)
-        .all(
-          run.runtimeId ?? null,
-          run.runtimeId ?? null,
-          run.hostSessionId ?? null,
-          run.runtimeId ?? null,
-          run.hostSessionId ?? null,
-          run.scopeRef,
-          run.laneRef
-        ) as { status: string }[]
-      if (runtimes.some((runtime) => !deadRuntimes.has(runtime.status))) return true
-      const evidence = db
-        .prepare(`SELECT 1 FROM runs WHERE completed_at IS NULL
-        AND status NOT IN ('completed','failed','cancelled','interrupted','rejected')
-        AND (run_id = ? OR (runtime_id = ? AND ? IS NOT NULL)
-          OR (? IS NULL AND host_session_id = ?)
-          OR (? IS NULL AND ? IS NULL AND scope_ref = ? AND lane_ref = ?)) LIMIT 1`)
-        .get(
-          run.hrcRunId ?? null,
-          run.runtimeId ?? null,
-          run.runtimeId ?? null,
-          run.runtimeId ?? null,
-          run.hostSessionId ?? null,
-          run.runtimeId ?? null,
-          run.hostSessionId ?? null,
-          run.scopeRef,
-          run.laneRef
-        )
-      return evidence !== null
-    } finally {
-      db.close()
+      return (await localEvidenceProtects(run)) ? 'protects' : 'clear'
+    } catch {
+      return 'unavailable'
     }
   }
 
@@ -290,6 +302,7 @@ export function createStaleOrphanReaper(input: Input) {
         report.protected.push({ runId: target.runId, reason: `${id}: ${protection}` })
         continue
       }
+      const evidence = await hrcEvidence(identity)
       input.sqlite.transaction(() => {
         const current = store.getById(id)
         const currentTarget = input.runStore.getRun(target.runId)
@@ -303,12 +316,11 @@ export function createStaleOrphanReaper(input: Input) {
           })
           return
         }
-        try {
-          if (localEvidenceProtects(identity)) {
-            report.protected.push({ runId: target.runId, reason: `${id}: own live HRC evidence` })
-            return
-          }
-        } catch {
+        if (evidence === 'protects') {
+          report.protected.push({ runId: target.runId, reason: `${id}: own live HRC evidence` })
+          return
+        }
+        if (evidence === 'unavailable') {
           report.protected.push({
             runId: target.runId,
             reason: `${id}: local HRC evidence unavailable`,
@@ -443,22 +455,20 @@ export function createStaleOrphanReaper(input: Input) {
           continue
         }
       }
+      const evidence = started ? await hrcEvidence(original.run) : 'clear'
       input.sqlite.transaction(() => {
         const current = snapshot(runId)
         if (current === undefined || JSON.stringify(current) !== JSON.stringify(original)) {
           report.protected.push({ runId, reason: 'ACP state changed during proof' })
           return
         }
-        if (started) {
-          try {
-            if (localEvidenceProtects(current.run)) {
-              report.protected.push({ runId, reason: 'own live HRC evidence' })
-              return
-            }
-          } catch {
-            report.protected.push({ runId, reason: 'local HRC evidence unavailable' })
-            return
-          }
+        if (evidence === 'protects') {
+          report.protected.push({ runId, reason: 'own live HRC evidence' })
+          return
+        }
+        if (evidence === 'unavailable') {
+          report.protected.push({ runId, reason: 'local HRC evidence unavailable' })
+          return
         }
         const actions = classify(current)
         if (apply) {

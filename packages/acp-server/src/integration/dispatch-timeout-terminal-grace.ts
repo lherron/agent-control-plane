@@ -1,4 +1,5 @@
 import type { RunStore, StoredRun } from '../domain/run-store.js'
+import type { HrcRouteReader } from '../hrc-route-reader.js'
 import {
   type RecentlyCompletedHrcRunEvidence,
   hasRecentlyCompletedHrcRunSince as defaultHasRecentlyCompletedHrcRunSince,
@@ -49,21 +50,21 @@ export function hasExpiredTerminalCorrelationGrace(run: StoredRun, nowMs = Date.
   return Number.isNaN(expiresMs) || expiresMs <= nowMs
 }
 
-export function protectWithTerminalCorrelationGrace(input: {
+export type RecentlyCompletedLookup = (
+  hrc: HrcRouteReader,
+  hostSessionId: string,
+  since: string,
+  until?: string | undefined
+) => Promise<RecentlyCompletedHrcRunEvidence | 'unknown' | undefined>
+
+export async function protectWithTerminalCorrelationGrace(input: {
   run: StoredRun
-  runStore?: RunStore | undefined
-  hrcDbPath?: string | undefined
+  runStore?: Pick<RunStore, 'updateRun'> | undefined
+  hrc?: HrcRouteReader | undefined
   config: TerminalCorrelationGraceConfig
   nowMs?: number | undefined
-  hasRecentlyCompletedHrcRunSince?:
-    | ((
-        hrcDbPath: string,
-        hostSessionId: string,
-        since: string,
-        until?: string | undefined
-      ) => RecentlyCompletedHrcRunEvidence | undefined)
-    | undefined
-}): boolean {
+  hasRecentlyCompletedHrcRunSince?: RecentlyCompletedLookup | undefined
+}): Promise<boolean> {
   const { run } = input
   if (
     run.status !== 'pending' ||
@@ -81,19 +82,24 @@ export function protectWithTerminalCorrelationGrace(input: {
   if (hasExpiredTerminalCorrelationGrace(run, nowMs)) {
     return false
   }
-  if (input.hrcDbPath === undefined) {
+  if (input.hrc === undefined) {
     return false
   }
 
   const lookup = input.hasRecentlyCompletedHrcRunSince ?? defaultHasRecentlyCompletedHrcRunSince
-  const evidence = lookup(
-    input.hrcDbPath,
+  const evidence = await lookup(
+    input.hrc,
     run.hostSessionId,
     run.createdAt,
     launchCorrelationUntilIso(run.createdAt)
   )
   if (evidence === undefined) {
     return false
+  }
+  if (evidence === 'unknown') {
+    // HRC could not say (a failed read, or a row a selector should have
+    // excluded): spare the run this sweep without minting a grace marker.
+    return true
   }
 
   const expiresAt = terminalCorrelationGraceExpiresAt(evidence, input.config)

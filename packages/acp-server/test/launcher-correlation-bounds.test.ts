@@ -9,14 +9,16 @@ import {
   hasRecentlyCompletedHrcRunSince,
   launchCorrelationUntilIso,
 } from '../src/launcher-run-evidence.js'
+import { createHrcRouteFake, sessionHomeUnreachable } from './fixtures/hrc-route-fake.js'
 
 const since = '2026-11-09T00:00:00.000Z'
 const until = '2026-11-09T00:05:00.000Z'
 
-test('correlation preserves inclusive lower/exclusive upper edges, lineage and terminal filtering', () => {
+test('correlation preserves inclusive lower/exclusive upper edges, lineage and terminal filtering', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'launcher-bounds-'))
-  const path = join(dir, 'hrc.sqlite')
-  const db = new Database(path)
+  const hrcFixture = join(dir, 'hrc-fixture.sqlite')
+  const db = new Database(hrcFixture)
+  const hrc = createHrcRouteFake(hrcFixture)
   db.exec(`CREATE TABLE runs (
     run_id TEXT, host_session_id TEXT, scope_ref TEXT, lane_ref TEXT,
     accepted_at TEXT, completed_at TEXT
@@ -39,13 +41,13 @@ test('correlation preserves inclusive lower/exclusive upper edges, lineage and t
         row.accepted,
         row.completed
       )
-      expect(hasInFlightHrcRunSince(path, 'successor', since, until)).toBe(row.expected)
-      expect(hasInFlightHrcRunForSessionSince(path, session, since, until)).toBe(row.expected)
-      expect(hasInFlightHrcRunSince(path, 'predecessor', since, until)).toBe(false)
+      expect(await hasInFlightHrcRunSince(hrc, 'successor', since, until)).toBe(row.expected)
+      expect(await hasInFlightHrcRunForSessionSince(hrc, session, since, until)).toBe(row.expected)
+      expect(await hasInFlightHrcRunSince(hrc, 'predecessor', since, until)).toBe(false)
       expect(
-        hasInFlightHrcRunForSessionSince(path, { ...session, laneRef: 'other' }, since, until)
+        await hasInFlightHrcRunForSessionSince(hrc, { ...session, laneRef: 'other' }, since, until)
       ).toBe(false)
-      expect(hasInFlightHrcRunSince(path, 'successor', since)).toBe(
+      expect(await hasInFlightHrcRunSince(hrc, 'successor', since)).toBe(
         row.completed === null && row.accepted >= since
       )
     }
@@ -61,17 +63,22 @@ test('correlation preserves inclusive lower/exclusive upper edges, lineage and t
         until
       )
     }
-    expect(hasRecentlyCompletedHrcRunSince(path, 'host', since, until)).toEqual({
+    expect(await hasRecentlyCompletedHrcRunSince(hrc, 'host', since, until)).toEqual({
       runId: 'z',
       acceptedAt: since,
       completedAt: until,
     })
     expect(launchCorrelationUntilIso(since)).toBe(until)
     expect(launchCorrelationUntilIso('invalid')).toBeUndefined()
+    // A failed HRC read is "do not know": spare the run, and grant no marker.
+    const failing = createHrcRouteFake(hrcFixture, { fail: () => sessionHomeUnreachable() })
+    expect(await hasInFlightHrcRunSince(failing, 'host', since)).toBe(true)
+    expect(await hasInFlightHrcRunForSessionSince(failing, session, since)).toBe(true)
+    expect(await hasRecentlyCompletedHrcRunSince(failing, 'host', since)).toBe('unknown')
     db.exec('DROP TABLE runs')
-    expect(hasInFlightHrcRunSince(path, 'host', since)).toBe(false)
-    expect(hasInFlightHrcRunForSessionSince(path, session, since)).toBe(false)
-    expect(hasRecentlyCompletedHrcRunSince(path, 'host', since)).toBeUndefined()
+    expect(await hasInFlightHrcRunSince(hrc, 'host', since)).toBe(false)
+    expect(await hasInFlightHrcRunForSessionSince(hrc, session, since)).toBe(false)
+    expect(await hasRecentlyCompletedHrcRunSince(hrc, 'host', since)).toBeUndefined()
   } finally {
     db.close()
     rmSync(dir, { recursive: true, force: true })

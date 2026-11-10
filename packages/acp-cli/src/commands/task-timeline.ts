@@ -1,5 +1,6 @@
+import { createAcpHrcRouteReader } from 'acp-server'
 import { CliUsageError } from '../cli-runtime.js'
-import { HrcStoreReader, resolveHrcStorePath } from '../hrc-store-reader.js'
+import { HrcEventReader, type HrcTimelineEventSource } from '../hrc-event-reader.js'
 import {
   type HrcAnchorMode,
   type HrcDetailMode,
@@ -207,7 +208,7 @@ export async function runTaskTimelineCommand(
       '--width',
       '--hrc-detail',
       '--hrc-kinds',
-      '--hrc-store',
+      '--hrc-socket',
       '--hrc-anchor',
       '--hrc-event-window',
     ],
@@ -258,14 +259,15 @@ export async function runTaskTimelineCommand(
         'No HRC-bound wrkf runs for this task; rendering ACP-only.'
       )
     } else if (anchors.runs || anchors.events) {
-      const hrcStorePath = resolveHrcStorePath(readStringFlag(parsed, '--hrc-store'), env)
+      const hrcSocket = readStringFlag(parsed, '--hrc-socket')
       const hrcDetail = parseHrcDetail(readStringFlag(parsed, '--hrc-detail'))
       const hrcKinds = parseHrcKinds(readStringFlag(parsed, '--hrc-kinds'))
-      let reader: HrcStoreReader | undefined
+      const source: HrcTimelineEventSource =
+        deps.hrcEvents ??
+        createAcpHrcRouteReader({ socketPath: hrcSocket, caller: 'acp-cli:task-timeline' })
       try {
-        reader = new HrcStoreReader(hrcStorePath)
-        filtered = joinHrcTimeline(filtered, {
-          reader,
+        filtered = await joinHrcTimeline(filtered, {
+          reader: new HrcEventReader(source),
           response,
           detail: hrcDetail,
           anchorMode: hrcAnchor,
@@ -276,10 +278,8 @@ export async function runTaskTimelineCommand(
       } catch {
         filtered = withTimelineWarning(
           filtered,
-          `HRC store at ${hrcStorePath} is unreachable; rendering ACP-only.`
+          `HRC${hrcSocket !== undefined ? ` at ${hrcSocket}` : ''} is unreachable; rendering ACP-only.`
         )
-      } finally {
-        reader?.close()
       }
     }
   }

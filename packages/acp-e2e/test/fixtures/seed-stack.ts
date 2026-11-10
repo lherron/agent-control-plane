@@ -41,7 +41,7 @@ type SeedStackOptions = {
   inputAttemptStore?: AcpServerDeps['inputAttemptStore'] | undefined
   runStore?: AcpServerDeps['runStore'] | undefined
   hrcClient?: AcpServerDeps['hrcClient'] | undefined
-  hrcDbPath?: string | undefined
+  hrcRoutes?: AcpServerDeps['hrcRoutes'] | undefined
 }
 
 export type SeedStack = {
@@ -174,7 +174,7 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
   const stateStore = openAcpStateStore({ dbPath: stateDbPath })
   const wrkqStore = createStubWrkqStoreAdapter()
 
-  const serverDeps: AcpServerDeps & { hrcDbPath?: string | undefined } = {
+  const serverDeps: AcpServerDeps = {
     wrkqStore,
     coordStore,
     interfaceStore,
@@ -189,7 +189,7 @@ export function createSeedStack(options: SeedStackOptions = {}): SeedStack {
       : {}),
     ...(options.runStore !== undefined ? { runStore: options.runStore } : {}),
     ...(options.hrcClient !== undefined ? { hrcClient: options.hrcClient } : {}),
-    ...(options.hrcDbPath !== undefined ? { hrcDbPath: options.hrcDbPath } : {}),
+    ...(options.hrcRoutes !== undefined ? { hrcRoutes: options.hrcRoutes } : {}),
   }
   const server = createAcpServer(serverDeps)
   const fetchImpl = createInProcessFetch(server)

@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type { HrcRuntimeIntent } from 'hrc-core'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
 import { createRealLauncher } from '../src/real-launcher.js'
+import { createHrcRouteFake } from './fixtures/hrc-route-fake.js'
 import { createLauncherEventTable, createLauncherRunTables } from './fixtures/launcher-schema.js'
 
 describe('real launcher placement', () => {
@@ -31,7 +32,7 @@ describe('real launcher placement', () => {
       },
     })
     const launcher = createRealLauncher({
-      hrcDbPath: ':memory:',
+      hrc: createHrcRouteFake(new Database(':memory:')),
       createClient: () =>
         ({
           locateScope: async (scopeRef: string) => {
@@ -95,7 +96,7 @@ describe('real launcher placement', () => {
       metadata: {},
     })
     const launcher = createRealLauncher({
-      hrcDbPath: ':memory:',
+      hrc: createHrcRouteFake(new Database(':memory:')),
       createClient: () =>
         ({
           locateScope: async () => {
@@ -149,8 +150,8 @@ describe('real launcher placement', () => {
 
   test('keeps locally-bound interface runs on the existing session launcher', async () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-real-launcher-local-interface-'))
-    const hrcDbPath = join(fixtureDir, 'hrc.sqlite')
-    const db = new Database(hrcDbPath)
+    const hrcFixture = join(fixtureDir, 'hrc.sqlite')
+    const db = new Database(hrcFixture)
     createLauncherRunTables(db)
     createLauncherEventTable(db, 'run')
     const calls: string[] = []
@@ -174,7 +175,7 @@ describe('real launcher placement', () => {
       },
     })
     const launcher = createRealLauncher({
-      hrcDbPath,
+      hrc: createHrcRouteFake(hrcFixture),
       createClient: () =>
         ({
           locateScope: async () => {
@@ -356,7 +357,7 @@ describe('real launcher placement', () => {
       const resolveRequests: Array<{ runtimeIntent: HrcRuntimeIntent; create?: boolean }> = []
       try {
         const launcher = createRealLauncher({
-          hrcDbPath: ':memory:',
+          hrc: createHrcRouteFake(new Database(':memory:')),
           socketPath,
           createClient: () =>
             ({

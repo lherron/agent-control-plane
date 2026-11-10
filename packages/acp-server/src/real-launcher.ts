@@ -1,7 +1,9 @@
-import { HrcConflictError, resolveDatabasePath } from 'hrc-core'
+import { HrcConflictError } from 'hrc-core'
 import { HrcClient, discoverSocket } from 'hrc-sdk'
 import type { InputAttemptStore, LaunchRoleScopedRun, RunStore } from './deps.js'
 import type { DispatchFence, UpdateRunInput } from './domain/run-store.js'
+import { AcpHrcSdkClient } from './hrc-client.js'
+import type { HrcRouteReader } from './hrc-route-reader.js'
 import type { JobFirstBirthAuthority } from './jobs/first-birth-authority.js'
 import { readLatestAssistantMessageSeq } from './launcher-assistant-evidence.js'
 import {
@@ -44,7 +46,8 @@ export type RealLauncherClient = Pick<
 
 type RealLauncherOptions = {
   socketPath?: string | undefined
-  hrcDbPath?: string | undefined
+  /** HRC's read routes; defaults to ACP's HRC client on the launcher socket. */
+  hrc?: HrcRouteReader | undefined
   watchTimeoutMs?: number | undefined
   /** Legacy option; run completion now follows the HRC lifecycle stream. */
   pollIntervalMs?: number | undefined
@@ -56,7 +59,13 @@ type RealLauncherOptions = {
 
 export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRoleScopedRun {
   const socketPath = options.socketPath ?? discoverSocket()
-  const hrcDbPath = options.hrcDbPath ?? resolveDatabasePath()
+  const hrc =
+    options.hrc ??
+    new AcpHrcSdkClient({
+      socketPath,
+      userAgent: ACP_SERVER_USER_AGENT,
+      caller: 'acp-server:launcher',
+    })
   const createClient =
     options.createClient ??
     ((path: string) =>
@@ -78,7 +87,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     waitForCompletion,
   }) => {
     const client = createClient(socketPath)
-    const liveTmuxRuntime = findLiveTmuxRuntimeForSessionRef(hrcDbPath, sessionRef)
+    const liveTmuxRuntime = await findLiveTmuxRuntimeForSessionRef(hrc, sessionRef)
     const launchIntent = withAcpLaunchContextEnv(intent, {
       acpRunId,
       inputAttemptId,
@@ -189,7 +198,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     setAcpDispatchFence(runStore, acpRunId, dispatchFence)
 
     if (liveTmuxRuntime !== undefined) {
-      const latestAssistantSeq = readLatestAssistantMessageSeq(hrcDbPath, {
+      const latestAssistantSeq = await readLatestAssistantMessageSeq(hrc, {
         hostSessionId: liveTmuxRuntime.hostSessionId,
         sessionRef,
       })
@@ -233,7 +242,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
 
       if (shouldWaitForCompletion && onEvent !== undefined) {
         const assistantMessage = await waitForTmuxAssistantMessage({
-          hrcDbPath,
+          hrc,
           deliveredHrcRunId,
           hostSessionId: delivered.hostSessionId,
           sessionRef,
@@ -257,7 +266,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       }
 
       return buildTmuxLaunchResult({
-        hrcDbPath,
+        hrc,
         hrcRunId: deliveredHrcRunId,
         hostSessionId: delivered.hostSessionId,
         runtimeId: deliveredRuntimeId,
@@ -317,11 +326,11 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     if (shouldWaitForCompletion) {
       const completedRun =
         dispatched.status === 'completed'
-          ? (readRunStatus(hrcDbPath, dispatchedRunId) ?? {
+          ? ((await readRunStatus(hrc, dispatchedRunId)) ?? {
               status: 'completed',
             })
           : await waitForRunCompletion({
-              hrcDbPath,
+              hrc,
               runId: dispatchedRunId,
               timeoutMs: waitTimeoutMs,
               client,
@@ -347,7 +356,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
 
     if (shouldWaitForCompletion && onEvent !== undefined) {
       const completedAssistantMessage = await pollCompletedAssistantMessage({
-        hrcDbPath,
+        hrc,
         runId: dispatchedRunId,
         timeoutMs: RAW_EVENT_POLL_GRACE_MS,
       })
@@ -364,7 +373,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       sessionId: targetSession.hostSessionId,
       hostSessionId: dispatched.hostSessionId,
       runtimeId: dispatched.runtimeId,
-      launchId: findLaunchIdForRun(hrcDbPath, dispatchedRunId),
+      launchId: await findLaunchIdForRun(hrc, dispatchedRunId),
       generation: dispatched.generation,
     }
   }
@@ -381,20 +390,20 @@ function tmuxHrcRunCorrelationPatch(
   return hrcRunId === undefined ? {} : { hrcRunId }
 }
 
-function buildTmuxLaunchResult(input: {
-  hrcDbPath: string
+async function buildTmuxLaunchResult(input: {
+  hrc: HrcRouteReader
   hrcRunId: string | undefined
   hostSessionId: string
   runtimeId: string
   generation: number
-}): {
+}): Promise<{
   runId: string
   sessionId: string
   hostSessionId: string
   runtimeId: string
   launchId: string | undefined
   generation: number
-} {
+}> {
   return {
     runId: input.hrcRunId ?? input.hostSessionId,
     sessionId: input.hostSessionId,
@@ -403,7 +412,7 @@ function buildTmuxLaunchResult(input: {
     launchId:
       input.hrcRunId === undefined
         ? undefined
-        : findLaunchIdForRun(input.hrcDbPath, input.hrcRunId),
+        : await findLaunchIdForRun(input.hrc, input.hrcRunId),
     generation: input.generation,
   }
 }

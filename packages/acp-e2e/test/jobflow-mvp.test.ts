@@ -85,7 +85,7 @@ describe('JobFlow MVP e2e', () => {
           jobsStore,
           runStore,
           inputAttemptStore,
-          hrcDbPath: hrc.hrcDbPath,
+          hrcRoutes: hrc.hrcRoutes,
           launchRoleScopedRun: createTerminalFlowLauncher(
             hrc,
             [
@@ -188,7 +188,7 @@ describe('JobFlow MVP e2e', () => {
           jobsStore,
           runStore,
           inputAttemptStore,
-          hrcDbPath: hrc.hrcDbPath,
+          hrcRoutes: hrc.hrcRoutes,
           launchRoleScopedRun: createTerminalFlowLauncher(
             hrc,
             [

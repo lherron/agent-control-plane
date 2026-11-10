@@ -6,10 +6,10 @@ import {
 } from 'acp-jobs-store'
 import type { AcpStateStore } from 'acp-state-store'
 import { normalizeSessionRef } from 'agent-scope'
-import { resolveDatabasePath } from 'hrc-core'
 import type { WrkqStoreAdapter } from 'wrkq-lib'
 import type { ResolvedAcpServerDeps } from './deps.js'
 import { dispatchJobRunThroughInputs } from './handlers/admin-jobs.js'
+import { resolveHrcRoutes } from './hrc-client.js'
 import { InputAdmissionService } from './input-admission/input-admission-service.js'
 import { createInputQueueDispatcher } from './integration/input-queue-dispatcher.js'
 import { createInterfaceRunDispatcher } from './integration/interface-run-dispatcher.js'
@@ -110,6 +110,8 @@ export function startServeWorkers(input: {
     process.env['ACP_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS'] ||
       DEFAULT_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS
   )
+  // T-13243: launcher evidence, sweeps, the reaper and final output read HRC's routes.
+  const hrcRoutes = resolveHrcRoutes(resolvedDeps, 'acp-server:workers')
   const interfaceRunDispatcher =
     resolvedDeps.launchRoleScopedRun !== undefined
       ? createInterfaceRunDispatcher({
@@ -119,7 +121,7 @@ export function startServeWorkers(input: {
           ...(jobsStore !== undefined ? { jobsStore } : {}),
           conversationStore,
           hrcClient: resolvedDeps.hrcClient,
-          hrcDbPath: resolveDatabasePath(),
+          hrc: hrcRoutes,
           config: {
             intervalMs: interfaceDispatcherIntervalMs,
             staleTimeoutMs: interfaceDispatcherStaleTimeoutMs,
@@ -154,7 +156,7 @@ export function startServeWorkers(input: {
             inputAdmissionStore: resolvedDeps.inputAdmissionStore,
             inputApplicationStore: resolvedDeps.inputApplicationStore,
             hrcClient: resolvedDeps.hrcClient,
-            hrcDbPath: resolveDatabasePath(),
+            hrc: hrcRoutes,
             jobsStore,
             verifyJobNode: async () => {
               const verified = await jobNodeIdentityAuthority?.verifyFresh('scheduler_tick')
@@ -177,7 +179,7 @@ export function startServeWorkers(input: {
           runtimeResolver: resolvedDeps.runtimeResolver,
           inputQueuePolicy: resolvedDeps.inputQueuePolicy,
           launchRoleScopedRun: resolvedDeps.launchRoleScopedRun,
-          hrcDbPath: resolveDatabasePath(),
+          hrc: hrcRoutes,
           config: {
             intervalMs: inputQueueDispatcherIntervalMs,
             stalePendingRunTimeoutMs: inputQueueStalePendingRunTimeoutMs,
@@ -227,7 +229,7 @@ export function startServeWorkers(input: {
             getRunFinalAssistantText(
               {
                 getRun: (id) => resolvedDeps.runStore.getRun(id),
-                hrcDbPath: resolveDatabasePath(),
+                hrc: hrcRoutes,
               },
               runId
             ),
@@ -241,9 +243,7 @@ export function startServeWorkers(input: {
           interfaceStore: resolvedDeps.interfaceStore,
           ...(jobLifecycleEmitter !== undefined
             ? {
-                onJobRunSettled: (run, job) => {
-                  jobLifecycleEmitter.reconcile(run, job)
-                },
+                onJobRunSettled: (run, job) => jobLifecycleEmitter.reconcile(run, job),
               }
             : {}),
         })
@@ -313,7 +313,7 @@ export function startServeWorkers(input: {
                   const touched = await jobsScheduler.tick(new Date(), verification.identity)
                   if (jobLifecycleEmitter !== undefined) {
                     for (const run of touched) {
-                      jobLifecycleEmitter.reconcile(run)
+                      await jobLifecycleEmitter.reconcile(run)
                     }
                   }
                 }

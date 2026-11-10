@@ -14,6 +14,7 @@ import {
   getRunFinalAssistantText,
 } from '../../src/jobs/run-final-output.js'
 import { readCompletedAssistantMessageFromHrcEvents } from '../../src/launcher-assistant-evidence.js'
+import { type HrcRouteFakeOptions, createHrcRouteFake } from '../fixtures/hrc-route-fake.js'
 
 const tempDirs: string[] = []
 
@@ -34,17 +35,21 @@ function makeRun(overrides: Partial<StoredRun> = {}): StoredRun {
   }
 }
 
-function makeDeps(run: StoredRun | undefined, hrcDbPath = ':memory:'): RunFinalOutputDeps {
+function makeDeps(
+  run: StoredRun | undefined,
+  hrcFixture?: string,
+  routes: HrcRouteFakeOptions = {}
+): RunFinalOutputDeps {
   return {
     getRun: () => run,
-    hrcDbPath,
+    hrc: createHrcRouteFake(hrcFixture ?? new Database(':memory:'), routes),
   }
 }
 
 function makeStore(): string {
   const dir = mkdtempSync(join(tmpdir(), 'acp-run-final-output-'))
   tempDirs.push(dir)
-  const path = join(dir, 'state.sqlite')
+  const path = join(dir, 'hrc-fixture.sqlite')
   const db = new Database(path)
   db.exec(`
     CREATE TABLE events (
@@ -71,9 +76,9 @@ function makeStore(): string {
 
 function fakeReaders(overrides: Partial<HrcEventReaders> = {}): HrcEventReaders {
   return {
-    readCompletedAssistantMessageFromHrcEvents: () => undefined,
-    readLatestAssistantMessageSeq: () => 0,
-    readAssistantMessageAfterSeq: () => undefined,
+    readCompletedAssistantMessageFromHrcEvents: async () => undefined,
+    readLatestAssistantMessageSeq: async () => 0,
+    readAssistantMessageAfterSeq: async () => undefined,
     ...overrides,
   }
 }
@@ -100,7 +105,7 @@ describe('getRunFinalAssistantText', () => {
   // Headless path (hrcRunId)
   // -----------------------------------------------------------------------
 
-  test('headless: reads final output from canonical hrc_events', () => {
+  test('headless: reads final output from canonical hrc_events', async () => {
     const path = makeStore()
     const db = new Database(path)
     db.prepare(
@@ -124,11 +129,11 @@ describe('getRunFinalAssistantText', () => {
     db.close()
 
     const run = makeRun({ hrcRunId: 'hrc-run-canonical' })
-    const result = getRunFinalAssistantText(makeDeps(run, path), 'run-1')
+    const result = await getRunFinalAssistantText(makeDeps(run, path), 'run-1')
     expect(result).toBe('canonical reply')
   })
 
-  test('headless: ignores raw events when hrc_events has no final output', () => {
+  test('headless: ignores raw events when hrc_events has no final output', async () => {
     const path = makeStore()
     const db = new Database(path)
     db.prepare(
@@ -143,7 +148,7 @@ describe('getRunFinalAssistantText', () => {
     db.close()
 
     const run = makeRun({ hrcRunId: 'hrc-run-raw-only' })
-    const result = getRunFinalAssistantText(makeDeps(run, path), 'run-1')
+    const result = await getRunFinalAssistantText(makeDeps(run, path), 'run-1')
     expect(result).toBeUndefined()
   })
 
@@ -155,41 +160,42 @@ describe('getRunFinalAssistantText', () => {
   // Edge cases
   // -----------------------------------------------------------------------
 
-  test('returns undefined when run is not found', () => {
+  test('returns undefined when run is not found', async () => {
     const deps = makeDeps(undefined)
-    const result = getRunFinalAssistantText(deps, 'nonexistent')
+    const result = await getRunFinalAssistantText(deps, 'nonexistent')
     expect(result).toBeUndefined()
   })
 
-  test('returns undefined when run has neither hrcRunId nor hostSessionId, even when HRC readers have text', () => {
+  test('returns undefined when run has neither hrcRunId nor hostSessionId, even when HRC readers have text', async () => {
     const run = makeRun() // no hrcRunId, no hostSessionId
     const deps = makeDeps(run)
-    const result = getRunFinalAssistantText(
+    const result = await getRunFinalAssistantText(
       deps,
       'run-1',
       fakeReaders({
-        readCompletedAssistantMessageFromHrcEvents: () => makeMessageEndEvent('headless leak'),
-        readLatestAssistantMessageSeq: () => 10,
-        readAssistantMessageAfterSeq: () => makeMessageEndEvent('interactive leak'),
+        readCompletedAssistantMessageFromHrcEvents: async () =>
+          makeMessageEndEvent('headless leak'),
+        readLatestAssistantMessageSeq: async () => 10,
+        readAssistantMessageAfterSeq: async () => makeMessageEndEvent('interactive leak'),
       })
     )
     expect(result).toBeUndefined()
   })
 
-  test('headless text wins when a run carries both hrcRunId and hostSessionId', () => {
+  test('headless text wins when a run carries both hrcRunId and hostSessionId', async () => {
     const run = makeRun({
       hrcRunId: 'hrc-run-priority',
       hostSessionId: 'hsid-also-present',
     })
-    const deps = makeDeps(run, '/fake/hrc.db')
+    const deps = makeDeps(run)
 
     const readers = fakeReaders({
-      readCompletedAssistantMessageFromHrcEvents: () => makeMessageEndEvent('from headless'),
-      readLatestAssistantMessageSeq: () => 10,
-      readAssistantMessageAfterSeq: () => makeMessageEndEvent('from interactive'),
+      readCompletedAssistantMessageFromHrcEvents: async () => makeMessageEndEvent('from headless'),
+      readLatestAssistantMessageSeq: async () => 10,
+      readAssistantMessageAfterSeq: async () => makeMessageEndEvent('from interactive'),
     })
 
-    expect(getRunFinalAssistantText(deps, 'run-1', readers)).toBe('from headless')
+    expect(await getRunFinalAssistantText(deps, 'run-1', readers)).toBe('from headless')
   })
 
   // -----------------------------------------------------------------------
@@ -197,7 +203,7 @@ describe('getRunFinalAssistantText', () => {
   // not shadow the real reply (headless Codex regression)
   // -----------------------------------------------------------------------
 
-  test('reader: real turn.message wins over content-less synthesized turn.completed', () => {
+  test('reader: real turn.message wins over content-less synthesized turn.completed', async () => {
     const path = makeStore()
     const db = new Database(path)
     const insert = db.prepare(
@@ -223,14 +229,17 @@ describe('getRunFinalAssistantText', () => {
     )
     db.close()
 
-    const event = readCompletedAssistantMessageFromHrcEvents(path, 'hrc-run-shadow')
+    const event = await readCompletedAssistantMessageFromHrcEvents(
+      createHrcRouteFake(path),
+      'hrc-run-shadow'
+    )
     expect(event?.type).toBe('message_end')
     if (event?.type === 'message_end') {
       expect(event.message?.content).toEqual([{ type: 'text', text: 'Magni Thorsson.' }])
     }
   })
 
-  test('reader: synthesized turn.completed alone still surfaces the degraded outcome', () => {
+  test('reader: synthesized turn.completed alone still surfaces the degraded outcome', async () => {
     const path = makeStore()
     const db = new Database(path)
     db.prepare(
@@ -243,13 +252,16 @@ describe('getRunFinalAssistantText', () => {
     )
     db.close()
 
-    const event = readCompletedAssistantMessageFromHrcEvents(path, 'hrc-run-degraded')
+    const event = await readCompletedAssistantMessageFromHrcEvents(
+      createHrcRouteFake(path),
+      'hrc-run-degraded'
+    )
     expect(event?.type).toBe('turn_end')
   })
 
   test.each([{ text: '' }, { text: '   ' }])(
     'a blank final assistant message in hrc_events yields no final text: $text',
-    ({ text }) => {
+    async ({ text }) => {
       const path = makeStore()
       const db = new Database(path)
       db.prepare(
@@ -266,7 +278,7 @@ describe('getRunFinalAssistantText', () => {
       db.close()
 
       const run = makeRun({ hrcRunId: 'hrc-run-empty-text' })
-      expect(getRunFinalAssistantText(makeDeps(run, path), 'run-1')).toBeUndefined()
+      expect(await getRunFinalAssistantText(makeDeps(run, path), 'run-1')).toBeUndefined()
     }
   )
 })
@@ -274,7 +286,7 @@ describe('getRunFinalAssistantText', () => {
 function makeRetainedOutputStore(): string {
   const dir = mkdtempSync(join(tmpdir(), 'acp-run-final-output-retained-'))
   tempDirs.push(dir)
-  const path = join(dir, 'state.sqlite')
+  const path = join(dir, 'hrc-fixture.sqlite')
   const db = new Database(path)
   db.exec(`
     CREATE TABLE hrc_events (
@@ -313,9 +325,9 @@ function insertOutputMessage(
 }
 
 // T-08575: S1 and S2 must stay coherent on ordinary-origin output, and S1
-// schema failures must reach callers instead of becoming an empty result.
+// HRC read failures must reach callers instead of becoming an empty result.
 describe('T-08575 run final output retained-evidence fence', () => {
-  test('T3c S1 and S2 select the same latest ordinary-origin assistant message', () => {
+  test('T3c S1 and S2 select the same latest ordinary-origin assistant message', async () => {
     const path = makeRetainedOutputStore()
     const db = new Database(path)
     insertOutputMessage(db, { hrcSeq: 7, text: 'LIVE-EARLY', evidenceOrigin: null })
@@ -325,21 +337,35 @@ describe('T-08575 run final output retained-evidence fence', () => {
     db.close()
 
     const run = makeRun({ hostSessionId: 'hsid-output', generation: 1 })
-    expect(getRunFinalAssistantText(makeDeps(run, path), run.runId)).toBe('X')
+    expect(await getRunFinalAssistantText(makeDeps(run, path), run.runId)).toBe('X')
   })
 
-  test('T-Q1b missing hrc_events table propagates the SQLite/schema error', () => {
+  test('T-Q1b an HRC read failure on the session path propagates', async () => {
+    const path = makeRetainedOutputStore()
+    const run = makeRun({ hostSessionId: 'hsid-output', generation: 1 })
+    await expect(
+      getRunFinalAssistantText(
+        makeDeps(run, path, { fail: () => new Error('HRC events route unavailable') }),
+        run.runId
+      )
+    ).rejects.toThrow(/HRC events route unavailable/)
+  })
+
+  test('T3c retained rows stay out of the final text when HRC ignores liveOnly', async () => {
     const path = makeRetainedOutputStore()
     const db = new Database(path)
-    db.exec('ALTER TABLE hrc_events RENAME TO hrc_events_removed')
+    insertOutputMessage(db, { hrcSeq: 9, text: 'X', evidenceOrigin: null })
+    insertOutputMessage(db, { hrcSeq: 10, text: 'OLD-REPLY', evidenceOrigin: 'retained' })
     db.close()
     const run = makeRun({ hostSessionId: 'hsid-output', generation: 1 })
-    expect(() => getRunFinalAssistantText(makeDeps(run, path), run.runId)).toThrow(/hrc_events/)
+    expect(
+      await getRunFinalAssistantText(makeDeps(run, path, { ignoreNewSelectors: true }), run.runId)
+    ).toBe('X')
   })
 
-  test('T-Q1b control returns undefined for an empty recognized hrc_events table', () => {
+  test('T-Q1b control returns undefined for an empty recognized hrc_events table', async () => {
     const path = makeRetainedOutputStore()
     const run = makeRun({ hostSessionId: 'hsid-output', generation: 1 })
-    expect(getRunFinalAssistantText(makeDeps(run, path), run.runId)).toBeUndefined()
+    expect(await getRunFinalAssistantText(makeDeps(run, path), run.runId)).toBeUndefined()
   })
 })

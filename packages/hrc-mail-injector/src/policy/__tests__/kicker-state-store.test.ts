@@ -15,7 +15,7 @@ let source: KickerStateStore & { sqlite: Database }
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'hrc-kicker-store-'))
-  const sourcePath = join(directory, 'state.sqlite')
+  const sourcePath = join(directory, 'hrc-import-source.sqlite')
   const store = openKickerStateStore(sourcePath)
   const sqlite = new Database(sourcePath)
   source = {
@@ -47,7 +47,10 @@ describe('kicker state store import', () => {
     source.wrkqLedgerCursors.advance(42)
 
     const path = join(directory, 'runtime', 'hrc-mail-kicker.sqlite')
-    const store = openKickerStateStore(path, { source: source.sqlite, sourcePath: 'state.sqlite' })
+    const store = openKickerStateStore(path, {
+      source: source.sqlite,
+      sourcePath: 'hrc-import-source.sqlite',
+    })
     expect(store.mailDelivery.getIntent('EN-08615')?.targetSessionRef).toBe(target)
     expect(store.wrkqLedgerCursors.get()).toBe(42)
     store.driveDiagnostics?.record({
@@ -81,7 +84,7 @@ describe('kicker state store import', () => {
     source.mailDelivery.clearIntent('EN-08615')
     const reopened = openKickerStateStore(path, {
       source: source.sqlite,
-      sourcePath: 'state.sqlite',
+      sourcePath: 'hrc-import-source.sqlite',
     })
     expect(reopened.mailDelivery.getIntent('EN-08615')).toBeDefined()
     expect(reopened.driveDiagnostics?.latest('EN-08652')?.outcome).toBe('seat_unavailable')
@@ -96,7 +99,7 @@ describe('kicker state store import', () => {
     expect(() =>
       openKickerStateStore(join(directory, 'runtime', 'hrc-mail-kicker.sqlite'), {
         source: source.sqlite,
-        sourcePath: 'state.sqlite',
+        sourcePath: 'hrc-import-source.sqlite',
       })
     ).toThrow('kicker store import mismatch for wrkq_ledger_cursors')
   })
