@@ -27,6 +27,7 @@
  *    evidence may release an intent for a retry (T-08205 rev2).
  */
 import type { HrcBrokerInvocationEventRecord } from 'hrc-core'
+import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import type { HrcMailDeliveryIntent } from 'hrc-injector-core'
 
 import type { MailKickerContext } from '../context.js'
@@ -102,7 +103,15 @@ async function readRuntimeWithinDeadline(
     const outstanding = outstandingRuntimeRead(server, runtimeId)
     if (outstanding.kind === 'busy') return { timedOut: true }
     return await Promise.race([
-      outstanding.read.then((runtime) => ({ timedOut: false as const, runtime })),
+      outstanding.read.then(
+        (runtime) => ({ timedOut: false as const, runtime }),
+        (error: unknown) => {
+          if (error instanceof HrcDomainError && error.code === HrcErrorCode.UNKNOWN_RUNTIME) {
+            return { timedOut: false as const, runtime: undefined }
+          }
+          throw error
+        }
+      ),
       new Promise<{ timedOut: true }>((resolve) => {
         timer = setTimeout(() => resolve({ timedOut: true }), RECONCILE_RUNTIME_READ_DEADLINE_MS)
         timer.unref?.()
@@ -240,6 +249,14 @@ export async function reconcileIntent(
     }
     const runtime = runtimeRead.runtime
     if (runtime === undefined || isRuntimeTerminal(runtime.status)) {
+      // A gone runtime alone cannot release a possible-write fence. Only the
+      // ledger's terminal envelope fact retires it from active reconciliation;
+      // retain the audit row without a receipt, retry, or sender notice.
+      const envelope = await server.ledger.envelopeShow({ envelope: intent.envelopeId })
+      if (envelope.terminal) {
+        server.store.mailDelivery.markTerminalEnvelope(intent.envelopeId, envelope.state)
+        return 'runtime_gone'
+      }
       server.store.mailDelivery.markUncertain(
         intent.envelopeId,
         'runtime_terminated_before_landing',

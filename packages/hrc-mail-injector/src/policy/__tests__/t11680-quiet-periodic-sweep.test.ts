@@ -148,6 +148,7 @@ describe('T-11680 periodic reconcile re-reads only intents that can still move',
   }
 
   function openOnGoneRuntime(envelopeId: string): void {
+    h.ledger.envelopes.set(envelopeId, h.ledger.say({ id: envelopeId }))
     h.store.mailDelivery.openIntent({
       envelopeId,
       targetSessionRef: STALE,
