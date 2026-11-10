@@ -80,7 +80,11 @@ export class FakeInjectionFacts {
         (item) => item.invocationId === row.invocationId && item.seq === row.seq
       )
       if (prior !== undefined) {
-        if (JSON.stringify(prior) !== JSON.stringify(row))
+        // HRC's append_raw (hrc-native projection/mod.rs) keys on invocation
+        // and seq and compares only payload, runId, harnessGeneration and
+        // turnAttempt. Comparing the whole row made a replay that straddled
+        // a millisecond (a fresh `time`) a conflict.
+        if (brokerEventIdentity(prior) !== brokerEventIdentity(row))
           throw new Error('conflicting fake broker event')
         return
       }
@@ -161,6 +165,16 @@ export class FakeInjectionFacts {
     },
     list: () => [...this.bindings.values()],
   }
+}
+
+/** The fields HRC compares when the same invocation and seq is appended again. */
+function brokerEventIdentity(row: FakeBrokerEvent): string {
+  return JSON.stringify([
+    row.payload,
+    row['runId'] ?? null,
+    row['harnessGeneration'] ?? null,
+    row['turnAttempt'] ?? null,
+  ])
 }
 
 type FakeBrokerEvent = {
