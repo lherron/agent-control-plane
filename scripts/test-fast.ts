@@ -12,7 +12,6 @@ const fastSuiteArgs = [
   'packages/hrc-core',
   'packages/hrc-events',
   'packages/hrc-sdk',
-  'packages/hrc-store-sqlite',
   'packages/runtime',
   'packages/cli/src/index.test.ts',
   'packages/cli/src/commands/agent/__tests__/build-bundle-ref-agent-project.test.ts',

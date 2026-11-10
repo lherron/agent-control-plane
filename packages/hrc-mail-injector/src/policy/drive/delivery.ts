@@ -25,7 +25,7 @@ import type {
   HrcMailDeliveryForm,
   HrcMailDeliveryIntent,
   HrcMailDriveWakeReason,
-} from 'hrc-store-sqlite'
+} from 'hrc-injector-core'
 
 import type { MailKickerContext } from '../context.js'
 import type { KickerDispatchOptions, KickerDispatchResult } from '../contracts.js'

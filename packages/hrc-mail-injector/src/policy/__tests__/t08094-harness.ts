@@ -5,8 +5,7 @@ import { join } from 'node:path'
 
 import { isTerminalRuntimeStatus } from 'hrc-core'
 import type { BrokerEventsQueryOp, HrcRuntimeIntent, HrcSessionRecord } from 'hrc-core'
-import { createPlacementLedgerRepository, openHrcDatabase } from 'hrc-store-sqlite'
-import type { HrcDatabase } from 'hrc-store-sqlite'
+import { FakeInjectionFacts } from './fake-injection-facts.js'
 
 import type { MailKickerContext } from '../context.js'
 import type { KickerDispatchOptions, KickerDispatchResult, KickerStateStore } from '../contracts.js'
@@ -168,7 +167,7 @@ class FakeLedger {
 
 export type T08094Harness = {
   dir: string
-  db: HrcDatabase
+  db: FakeInjectionFacts
   store: KickerStateStore
   /** Raw handle on the injector store, for tests that age delivery rows. */
   storeSql: Database
@@ -214,7 +213,7 @@ export function brokerRecord(type: string, payload: Record<string, unknown>) {
 
 export async function createT08094Harness(): Promise<T08094Harness> {
   const dir = await mkdtemp(join(tmpdir(), 't08094-kicker-'))
-  const db = openHrcDatabase(join(dir, 'state.sqlite'))
+  const db = new FakeInjectionFacts()
   const storePath = join(dir, 'hrc-mail-injector.sqlite')
   const store = openKickerStateStore(storePath)
   const storeSql = new Database(storePath)
@@ -274,11 +273,6 @@ export async function createT08094Harness(): Promise<T08094Harness> {
     nodeId: 'max3',
     foreignHomeMemo: new Map(),
     port: {
-      runtimes: db.runtimes,
-      brokerInvocations: db.brokerInvocations,
-      brokerEvents: db.brokerInvocationEvents,
-      events: db.hrcEvents,
-      placement: createPlacementLedgerRepository(db.sqlite),
       broker: {
         seatProbe: async () => ({ ok: false, error: { message: 'not used' } }),
         withdraw: async () => ({ ok: false, error: { message: 'not used' } }),
@@ -435,9 +429,7 @@ export async function createT08094Harness(): Promise<T08094Harness> {
     },
     localPlacementBindings: async () => ({
       localNodeId: 'max3',
-      bindings: createPlacementLedgerRepository(db.sqlite)
-        .list()
-        .filter((binding) => binding.state === 'active'),
+      bindings: db.placement.list().filter((binding) => binding.state === 'active'),
     }),
     locate: async () => undefined,
     unbornDesignations: async () => ({ localNodeId: 'max3', designations: [] }),
@@ -467,7 +459,6 @@ export async function destroyT08094Harness(h: T08094Harness): Promise<void> {
   h.context.stopping = true
   h.storeSql.close()
   h.store.close?.()
-  h.db.close()
   await rm(h.dir, { recursive: true, force: true })
 }
 

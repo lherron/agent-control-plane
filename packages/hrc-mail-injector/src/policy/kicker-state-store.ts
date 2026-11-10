@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { createLaunchFailures } from 'hrc-injector-core'
 
-import { HrcMailDeliveryRepository, WrkqLedgerCursorRepository } from 'hrc-store-sqlite'
+import { HrcMailDeliveryRepository, WrkqLedgerCursorRepository } from 'hrc-injector-core'
 import type {
   KickerDriveDiagnostic,
   KickerDriveDiagnostics,

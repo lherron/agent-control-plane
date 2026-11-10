@@ -1,4 +1,4 @@
-import type { HrcMailDeliveryIntent } from 'hrc-store-sqlite'
+import type { HrcMailDeliveryIntent } from 'hrc-injector-core'
 import type { MailKickerContext } from '../context.js'
 import { BIRTH_SWEEP_BACKOFF_BASE_MS, parseSessionRef } from '../internal.js'
 import { failEnvelopeWithAudit } from '../terminal/envelope-terminal.js'

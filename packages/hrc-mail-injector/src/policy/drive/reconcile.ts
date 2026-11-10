@@ -27,7 +27,7 @@
  *    evidence may release an intent for a retry (T-08205 rev2).
  */
 import type { HrcBrokerInvocationEventRecord } from 'hrc-core'
-import type { HrcMailDeliveryIntent } from 'hrc-store-sqlite'
+import type { HrcMailDeliveryIntent } from 'hrc-injector-core'
 
 import type { MailKickerContext } from '../context.js'
 import { type HrcFacts, hrcFacts } from '../facts/hrc-facts.js'

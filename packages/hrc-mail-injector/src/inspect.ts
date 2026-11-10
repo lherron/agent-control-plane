@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite'
 
-import { HrcMailDeliveryRepository } from 'hrc-store-sqlite'
-import type { HrcMailPresentation } from 'hrc-store-sqlite'
+import { HrcMailDeliveryRepository } from 'hrc-injector-core'
+import type { HrcMailPresentation } from 'hrc-injector-core'
 
 import type { WrkqEnvelope } from './policy/ledger/types.js'
 import { createWrkqLedger } from './wrkq-ledger.js'

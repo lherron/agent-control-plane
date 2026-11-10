@@ -2447,6 +2447,14 @@
         "ForeignHome",
         "HrcDeliveryPosture",
         "HrcInjectionPort",
+        "HrcMailBirthRefusal",
+        "HrcMailDeliveryDoor",
+        "HrcMailDeliveryForm",
+        "HrcMailDeliveryIntent",
+        "HrcMailDriveWakeReason",
+        "HrcMailFailureNotice",
+        "HrcMailHintDecision",
+        "HrcMailPresentation",
         "ImportMarker",
         "InjectionDispatchOptions",
         "InjectionDispatchResult",
@@ -2463,13 +2471,16 @@
         "assertInjectorAdmissible",
         "createLaunchFailures",
         "createSocketInjectionPort",
+        "HrcMailDeliveryRepository",
         "importInjectorStateStore",
         "INJECTOR_MOVED_TABLES",
         "injectorTableParity",
         "MAIL_SUBSCRIBER_NAME",
         "openInjectorStateStore",
         "readInjectorImportMarker",
-        "verifyInjectorHrcContract"
+        "verifyInjectorHrcContract",
+        "WRKQ_ENVELOPE_STREAM",
+        "WrkqLedgerCursorRepository"
       ]
     },
     "hrc-mail-injector": {

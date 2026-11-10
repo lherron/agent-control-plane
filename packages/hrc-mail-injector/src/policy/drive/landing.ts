@@ -48,7 +48,7 @@
  * yields exactly one receipt.
  */
 import type { HrcBrokerInvocationEventRecord } from 'hrc-core'
-import type { HrcMailDeliveryIntent } from 'hrc-store-sqlite'
+import type { HrcMailDeliveryIntent } from 'hrc-injector-core'
 
 import type { MailKickerContext } from '../context.js'
 import {

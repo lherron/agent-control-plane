@@ -54,7 +54,6 @@ const hrcPackages = [
   'agent-action-render',
   'hrc-core',
   'hrc-events',
-  'hrc-store-sqlite',
   'hrc-sdk',
   'hrc-cli',
   'hrcchat-cli',

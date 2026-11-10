@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
 import type { HrcLifecycleEvent } from 'hrc-core'
-import { createPlacementLedgerRepository } from 'hrc-store-sqlite'
 
 import type { MailKickerContext } from '../context.js'
 import { observeMailDriveLifecycleEvent } from '../controller.js'
@@ -121,7 +120,7 @@ describe('T-08139 D2 — broker-start failure returns a seated target to the swe
     // This is an already-established scope, not a virgin birth. The old
     // candidate filter treated this binding as proof that no retry was owed,
     // even after the runtime itself was gone.
-    createPlacementLedgerRepository(harness.db.sqlite).installActive({
+    harness.db.placement.installActive({
       scopeRef: SCOPE,
       homeNodeId: 'max3',
       updatedAt: new Date().toISOString(),

@@ -1,7 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
-import type { HrcDatabase } from 'hrc-store-sqlite'
 import type { MailKickerContext } from '../context.js'
 import type { KickerStateStore } from '../contracts.js'
 import { observeBrokerLanding } from '../drive/landing.js'
@@ -10,6 +9,7 @@ import { reconcileOpenIntents } from '../drive/reconcile.js'
 import type { ObservedBrokerSeat } from '../drive/seat.js'
 import { KICKER_SUBMISSION_TTL_MS, RECONCILE_RUNTIME_READ_DEADLINE_MS } from '../internal.js'
 import type { WrkqEnvelope } from '../ledger/types.js'
+import type { FakeInjectionFacts } from './fake-injection-facts.js'
 import type { FakeLedger, T08094Harness } from './t08094-harness.js'
 import {
   RUNTIME_ID as RUNTIME,
@@ -35,7 +35,7 @@ import {
  */
 
 let harness: T08094Harness
-let db: HrcDatabase
+let db: FakeInjectionFacts
 let store: KickerStateStore
 let storeSql: Database
 let ledger: FakeLedger

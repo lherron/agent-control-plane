@@ -18,14 +18,24 @@
  * OPEN INTENT is a delivery in flight, a PRESENTATION is a body that landed,
  * and a stranded obligation is a presentation nothing disposed.
  */
-import type { HrcDatabase, HrcMailDeliveryIntent, HrcMailPresentation } from 'hrc-store-sqlite'
-import type { HrcMailFailureNotice } from 'hrc-store-sqlite'
+import type {
+  HrcMailDeliveryIntent,
+  HrcMailDeliveryRepository,
+  HrcMailPresentation,
+} from 'hrc-injector-core'
+import type { HrcMailFailureNotice } from 'hrc-injector-core'
 
 import { STALLED_DELIVERY_THRESHOLD_MS } from '../internal.js'
 import { targetSessionRefForLedgerScope } from '../ledger/scope.js'
 import { newestPresentationReceipt } from '../ledger/types.js'
 import type { WrkqEnvelope } from '../ledger/types.js'
 import { isRuntimeTerminal } from '../terminal/runtime-status.js'
+
+/** The delivery facts inspection reads; no HRC store dependency. */
+type MailInspectionStore = {
+  mailDelivery: HrcMailDeliveryRepository
+  runtimes: { getByRuntimeId(runtimeId: string): { status: string } | null | undefined }
+}
 
 /** Newest envelopes a scope/runtime query will report on. */
 const SCOPE_QUERY_ENVELOPE_LIMIT = 50
@@ -115,7 +125,7 @@ export function resolveMailInspectQuery(target: string): MailInspectQuery {
 }
 
 /** The envelope ids a query covers — what the caller must fetch from the ledger. */
-export function mailInspectEnvelopeIds(db: HrcDatabase, query: MailInspectQuery): string[] {
+export function mailInspectEnvelopeIds(db: MailInspectionStore, query: MailInspectQuery): string[] {
   if (query.kind === 'envelope') return [query.envelopeId]
   // Newest first, then trimmed: a long-lived scope has thousands of receipts and
   // the question is always about recent traffic. The two reads differ in their
@@ -146,7 +156,7 @@ export function mailInspectEnvelopeIds(db: HrcDatabase, query: MailInspectQuery)
   return ids.slice(0, SCOPE_QUERY_ENVELOPE_LIMIT)
 }
 
-function presentationsFor(db: HrcDatabase, envelopeId: string): MailInspectPresentation[] {
+function presentationsFor(db: MailInspectionStore, envelopeId: string): MailInspectPresentation[] {
   return db.mailDelivery.presentationsForEnvelope(envelopeId).map((presentation) => ({
     presentation,
     ...(() => {
@@ -383,7 +393,7 @@ function verdictFor(
 
 /** Join the HRC rows for these envelopes with the ledger rows the caller read. */
 export function buildMailInspection(
-  db: HrcDatabase,
+  db: MailInspectionStore,
   query: MailInspectQuery,
   envelopeIds: readonly string[],
   ledgerRows: ReadonlyMap<string, MailInspectLedgerRow>

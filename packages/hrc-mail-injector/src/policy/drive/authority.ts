@@ -206,7 +206,7 @@ import { homedir } from 'node:os'
 
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import type { HrcSessionRecord } from 'hrc-core'
-import type { HrcMailDriveWakeReason } from 'hrc-store-sqlite'
+import type { HrcMailDriveWakeReason } from 'hrc-injector-core'
 
 import type { MailKickerContext } from '../context.js'
 import type { ForeignHome } from '../contracts.js'

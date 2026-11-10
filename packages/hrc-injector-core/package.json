@@ -23,7 +23,6 @@
   "dependencies": {
     "hrc-core": "0.5.13-dev.20261104154755",
     "hrc-sdk": "0.5.13-dev.20261104154755",
-    "hrc-store-sqlite": "0.5.13-dev.20261104154755",
     "spaces-harness-broker-protocol": "0.1.1-dev.20261102040413"
   },
   "devDependencies": {

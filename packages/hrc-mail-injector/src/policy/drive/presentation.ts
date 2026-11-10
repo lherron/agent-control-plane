@@ -1,4 +1,4 @@
-import type { HrcMailPresentation } from 'hrc-store-sqlite'
+import type { HrcMailPresentation } from 'hrc-injector-core'
 
 import type { MailKickerContext } from '../context.js'
 import { hrcFacts } from '../facts/hrc-facts.js'

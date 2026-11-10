@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import type { HrcLifecycleEvent, HrcSessionRecord } from 'hrc-core'
 
-import type { HrcMailDriveWakeReason } from 'hrc-store-sqlite'
+import type { HrcMailDriveWakeReason } from 'hrc-injector-core'
 import type { MailKickerContext } from '../context.js'
 import { observeMailDriveLifecycleEvent } from '../controller.js'
 import { driveMailTargetOnce } from '../drive/target-driver.js'

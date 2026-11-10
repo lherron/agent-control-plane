@@ -14,8 +14,9 @@ import type {
   PreemptSubmissionRequest,
   RuntimeSeatResponse,
 } from 'hrc-core'
-import type { HrcMailDeliveryRepository, WrkqLedgerCursorRepository } from 'hrc-store-sqlite'
 import type { SeatProbeResponse, SubmissionWithdrawResponse } from 'spaces-harness-broker-protocol'
+import type { HrcMailDeliveryRepository } from './mail/delivery-repository.js'
+import type { WrkqLedgerCursorRepository } from './wrkq/ledger-cursor-repository.js'
 
 export type InjectorLogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
 

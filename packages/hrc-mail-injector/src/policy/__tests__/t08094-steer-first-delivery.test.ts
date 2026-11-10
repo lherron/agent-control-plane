@@ -7,7 +7,6 @@ import type { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
 import type { HrcSessionRecord } from 'hrc-core'
-import type { HrcDatabase } from 'hrc-store-sqlite'
 import { createWrkqLedger } from '../../wrkq-ledger.js'
 import type { MailKickerContext } from '../context.js'
 import type { KickerDispatchOptions, KickerStateStore } from '../contracts.js'
@@ -22,6 +21,7 @@ import { KICKER_SUBMISSION_TTL_MS } from '../internal.js'
 import type { WrkqEnvelope } from '../ledger/types.js'
 import { disposeRuntimeObligations } from '../terminal/disposal.js'
 import { failLapsedObligations } from '../terminal/runtime-lapse.js'
+import type { FakeInjectionFacts } from './fake-injection-facts.js'
 import type { FakeLedger, Recorded, T08094Harness } from './t08094-harness.js'
 import {
   RUNTIME_ID as RUNTIME,
@@ -51,7 +51,7 @@ import {
  */
 
 let harness: T08094Harness
-let db: HrcDatabase
+let db: FakeInjectionFacts
 let store: KickerStateStore
 let storeSql: Database
 let ledger: FakeLedger
@@ -277,61 +277,78 @@ describe('D2 — steer first, and the door is chosen by what the seat is doing',
 })
 
 describe('D2 — write-ahead, and presentation only on a landing fact', () => {
-  it('recovers only one admission after the intent cursor for its invocation', () => {
+  it('recovers only one admission after the intent cursor for its invocation', async () => {
     const envelope = ledger.say()
+    const ambiguous = ledger.say()
     const now = new Date().toISOString()
-    store.mailDelivery.openIntent({
-      envelopeId: envelope.id,
-      targetSessionRef: TARGET,
-      door: 'steer',
-      form: 'full',
-      presentationId: 'present-recovery',
-      runtimeId: RUNTIME,
-      invocationId: 'inv-recovery',
-      brokerAfterSeq: 10,
-      submittedHrcSeq: 0,
-    })
-    db.brokerInvocationEvents.appendEvent({
-      invocationId: 'inv-recovery',
-      runtimeId: RUNTIME,
-      seq: 10,
-      time: now,
-      type: 'admission.requested',
-      payload: { submissionId: 'before', origin: { envelopeId: envelope.id } },
-    })
-    db.brokerInvocationEvents.appendEvent({
-      invocationId: 'inv-recovery',
-      runtimeId: RUNTIME,
-      seq: 11,
-      time: now,
-      type: 'admission.requested',
-      payload: { submissionId: 'only-after', origin: { envelopeId: envelope.id } },
-    })
-    expect(
-      db.brokerInvocationEvents.findUniqueSubmissionForEnvelopeAfter({
+    for (const item of [envelope, ambiguous]) {
+      store.mailDelivery.openIntent({
+        envelopeId: item.id,
+        targetSessionRef: TARGET,
+        door: 'steer',
+        form: 'full',
+        presentationId: `present-recovery-${item.id}`,
         runtimeId: RUNTIME,
         invocationId: 'inv-recovery',
-        envelopeId: envelope.id,
-        afterSeq: 10,
+        brokerAfterSeq: 10,
+        submittedHrcSeq: 0,
       })
-    ).toBe('only-after')
+    }
+    const admission = (
+      envelopeId: string,
+      invocationId: string,
+      seq: number,
+      submissionId: string
+    ) => {
+      db.brokerInvocationEvents.appendEvent({
+        invocationId,
+        runtimeId: RUNTIME,
+        seq,
+        time: now,
+        type: 'admission.requested',
+        payload: { submissionId, origin: { envelopeId } },
+      })
+    }
+    admission(envelope.id, 'inv-recovery', 10, 'before')
+    admission(envelope.id, 'inv-other', 11, 'other-invocation')
+    admission(envelope.id, 'inv-recovery', 11, 'only-after')
+    admission(ambiguous.id, 'inv-recovery', 12, 'first-after')
+    admission(ambiguous.id, 'inv-recovery', 13, 'ambiguous-after')
+    for (const submissionId of [
+      'before',
+      'other-invocation',
+      'only-after',
+      'first-after',
+      'ambiguous-after',
+    ]) {
+      db.brokerInvocationEvents.appendEvent({
+        invocationId: 'inv-recovery',
+        runtimeId: RUNTIME,
+        seq:
+          20 +
+          ['before', 'other-invocation', 'only-after', 'first-after', 'ambiguous-after'].indexOf(
+            submissionId
+          ),
+        time: now,
+        type: 'submission.executed',
+        payload: { submissionId, turnId: 'turn-recovered' },
+      })
+    }
 
-    db.brokerInvocationEvents.appendEvent({
-      invocationId: 'inv-recovery',
-      runtimeId: RUNTIME,
-      seq: 12,
-      time: now,
-      type: 'admission.requested',
-      payload: { submissionId: 'ambiguous-after', origin: { envelopeId: envelope.id } },
+    expect(await reconcileOpenIntents(context, { reason: 'daemon_start' })).toMatchObject({
+      landed: 1,
+      open: 1,
     })
-    expect(
-      db.brokerInvocationEvents.findUniqueSubmissionForEnvelopeAfter({
-        runtimeId: RUNTIME,
-        invocationId: 'inv-recovery',
-        envelopeId: envelope.id,
-        afterSeq: 10,
-      })
-    ).toBeUndefined()
+    expect(ledger.envelopes.get(envelope.id)?.presentedTo).toHaveLength(1)
+    expect(ledger.envelopes.get(envelope.id)?.presentedTo[0]?.inputId).toBe('only-after')
+    expect(store.mailDelivery.getIntent(envelope.id)).toBeUndefined()
+    expect(ledger.envelopes.get(ambiguous.id)?.presentedTo).toHaveLength(0)
+    expect(store.mailDelivery.getIntent(ambiguous.id)?.submissionId).toBeUndefined()
+
+    await reconcileOpenIntents(context, { reason: 'daemon_start' })
+    expect(ledger.envelopes.get(envelope.id)?.presentedTo).toHaveLength(1)
+    expect(ledger.envelopes.get(envelope.id)?.presentedTo[0]?.inputId).toBe('only-after')
+    expect(ledger.envelopes.get(ambiguous.id)?.presentedTo).toHaveLength(0)
   })
 
   it('commits the intent BEFORE the door and writes no receipt on admission', async () => {

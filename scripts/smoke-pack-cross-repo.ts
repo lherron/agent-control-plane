@@ -30,7 +30,6 @@ const PACKAGES = [
   'packages/hrc-sdk',
   'packages/hrc-frame-render',
   'packages/hrc-events',
-  'packages/hrc-store-sqlite',
 ] as const
 
 type CheckOutcome =

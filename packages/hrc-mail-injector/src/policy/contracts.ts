@@ -15,7 +15,7 @@ import type {
   PreemptSubmissionRequest,
   RuntimeSeatResponse,
 } from 'hrc-core'
-import type { HrcMailDeliveryRepository, WrkqLedgerCursorRepository } from 'hrc-store-sqlite'
+import type { HrcMailDeliveryRepository, WrkqLedgerCursorRepository } from 'hrc-injector-core'
 import type { SeatProbeResponse, SubmissionWithdrawResponse } from 'spaces-harness-broker-protocol'
 
 import type { MailKickerLedger } from './ledger/client.js'

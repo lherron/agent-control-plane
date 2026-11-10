@@ -13,7 +13,7 @@
  * and a landing, refusal or reconcile that reaches one member can reach the
  * rest without any new column.
  */
-import type { HrcMailDeliveryIntent } from 'hrc-store-sqlite'
+import type { HrcMailDeliveryIntent } from 'hrc-injector-core'
 
 import type { MailKickerContext } from '../context.js'
 

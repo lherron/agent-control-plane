@@ -22,7 +22,7 @@
  *
  * Stalled launches without a live runtime enter bounded birth recovery.
  */
-import type { HrcMailPresentation } from 'hrc-store-sqlite'
+import type { HrcMailPresentation } from 'hrc-injector-core'
 
 import type { MailKickerContext } from '../context.js'
 import { recoverFailedLaunch } from '../drive/launch-recovery.js'

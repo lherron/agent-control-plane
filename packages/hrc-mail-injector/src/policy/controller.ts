@@ -1,6 +1,6 @@
 import type { HrcBrokerInvocationEventRecord, HrcLifecycleEvent } from 'hrc-core'
 import { parseAppSessionScopeRef } from 'hrc-core'
-import type { HrcMailDriveWakeReason } from 'hrc-store-sqlite'
+import type { HrcMailDriveWakeReason } from 'hrc-injector-core'
 import { RecipientHints } from '../recipient-hints.js'
 
 import type { FailureNoticeBackoff, MailKickerContext, QuietTarget, SteerHold } from './context.js'

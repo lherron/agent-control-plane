@@ -2,7 +2,8 @@ import { Database } from 'bun:sqlite'
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import { HrcMailDeliveryRepository, WrkqLedgerCursorRepository } from 'hrc-store-sqlite'
+import { HrcMailDeliveryRepository } from './mail/delivery-repository.js'
+import { WrkqLedgerCursorRepository } from './wrkq/ledger-cursor-repository.js'
 
 import type {
   InjectorDriveDiagnostic,
