@@ -8,13 +8,18 @@ import type { ActionableEnvelope } from './presentation.js'
 /** The task states wrkq itself treats as terminal. */
 const TERMINAL_TASK_STATES = new Set(['completed', 'cancelled', 'archived', 'deleted'])
 
+/** A wrkq task id; a standing seat's task segment (`primary`, `minisvc`) is not one. */
+const WRKQ_TASK_ID = /^T-\d+$/
+
 function taskIdOf(scopeRef: string | undefined): string | undefined {
   if (scopeRef === undefined) return undefined
+  let taskId: string | undefined
   try {
-    return parseScopeRef(scopeRef).taskId
+    taskId = parseScopeRef(scopeRef).taskId
   } catch {
     return undefined
   }
+  return taskId !== undefined && WRKQ_TASK_ID.test(taskId) ? taskId : undefined
 }
 
 /**

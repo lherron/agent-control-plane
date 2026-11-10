@@ -12,6 +12,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
+import { closeFyiForFinishedTask } from '../drive/finished-task.js'
 import { driveMailTargetOnce } from '../drive/target-driver.js'
 import {
   type T08094Harness,
@@ -99,5 +100,34 @@ describe('T-12977 — an fyi never starts a finished task seat', () => {
     expect(
       h.logs.find((entry) => entry.event === 'wrkq.kicker.target_task_state_read_failed')
     ).toMatchObject({ level: 'WARN', detail: { taskId: TASK } })
+  })
+
+  // A standing seat (`…:task:primary`, `minisvc`) names no wrkq task: it keeps
+  // T-09643 without a refused read or a warning.
+  for (const lane of ['primary', 'minisvc']) {
+    it(`reads no task and warns nothing for a standing seat (${lane})`, async () => {
+      const fyi = h.ledger.say({ obligation: 'fyi' })
+      const closed = await closeFyiForFinishedTask(h.context, {
+        driveAttemptId: 'drive-standing',
+        targetSessionRef: `agent:clod:project:hrc-runtime:task:${lane}/lane:main`,
+        scopeRef: `agent:clod:project:hrc-runtime:task:${lane}`,
+        actionable: [{ envelope: fyi, form: 'full' } as never],
+      })
+
+      expect(closed).toBeUndefined()
+      expect(h.ledger.taskShowRequests).toEqual([])
+      expect(h.logs.filter((entry) => entry.level === 'WARN')).toEqual([])
+    })
+  }
+
+  it('CONTROL: a T- task scope still reads its task', async () => {
+    const fyi = h.ledger.say({ obligation: 'fyi' })
+    await closeFyiForFinishedTask(h.context, {
+      driveAttemptId: 'drive-task',
+      targetSessionRef: TARGET_REF,
+      scopeRef: 'agent:clod:project:hrc-runtime:task:T-08094',
+      actionable: [{ envelope: fyi, form: 'full' } as never],
+    })
+    expect(h.ledger.taskShowRequests).toEqual([TASK])
   })
 })
