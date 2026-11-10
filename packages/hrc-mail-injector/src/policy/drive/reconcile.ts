@@ -140,47 +140,69 @@ export async function reconcileIntent(
   if (intent.terminalEnvelopeAt !== undefined) return 'open'
   const runtimeId = intent.runtimeId
   if (runtimeId !== undefined) {
-    // A digest member (T-10159) shares its submission with its siblings, and
-    // the broker's admission record names only the oldest of them.
-    const members = digestMembers(server, intent)
-    let submissionId =
-      intent.submissionId ?? members.find((member) => member.submissionId)?.submissionId
-    if (
-      submissionId === undefined &&
-      intent.invocationId !== undefined &&
-      intent.brokerAfterSeq !== undefined
-    ) {
-      for (const member of members) {
-        const discovered = await server.port.brokerEventsQuery({
-          op: 'unique-submission-after',
+    try {
+      // A digest member (T-10159) shares its submission with its siblings, and
+      // the broker's admission record names only the oldest of them.
+      const members = digestMembers(server, intent)
+      let submissionId =
+        intent.submissionId ?? members.find((member) => member.submissionId)?.submissionId
+      if (
+        submissionId === undefined &&
+        intent.invocationId !== undefined &&
+        intent.brokerAfterSeq !== undefined
+      ) {
+        for (const member of members) {
+          const discovered = await server.port.brokerEventsQuery({
+            op: 'unique-submission-after',
+            runtimeId,
+            invocationId: intent.invocationId,
+            envelopeId: member.envelopeId,
+            afterSeq: intent.brokerAfterSeq,
+          })
+          if (discovered.result?.op === 'unique-submission-after') {
+            submissionId = discovered.result.submissionId
+            break
+          }
+        }
+      }
+      if (submissionId !== undefined) {
+        for (const member of members) {
+          if (member.submissionId === undefined) {
+            server.store.mailDelivery.attachAdmission(member.envelopeId, { submissionId })
+          }
+        }
+        const dispositionResult = await server.port.brokerEventsQuery({
+          op: 'disposition',
           runtimeId,
-          invocationId: intent.invocationId,
-          envelopeId: member.envelopeId,
-          afterSeq: intent.brokerAfterSeq,
+          submissionId,
         })
-        if (discovered.result?.op === 'unique-submission-after') {
-          submissionId = discovered.result.submissionId
-          break
+        const disposition =
+          dispositionResult.result?.op === 'disposition' ? dispositionResult.result : undefined
+        if (disposition !== undefined && LANDED_EVENT_TYPES.has(disposition.type)) {
+          return await landFromStream(server, intent, runtimeId, disposition.type)
         }
-      }
-    }
-    if (submissionId !== undefined) {
-      for (const member of members) {
-        if (member.submissionId === undefined) {
-          server.store.mailDelivery.attachAdmission(member.envelopeId, { submissionId })
+        if (disposition !== undefined) {
+          const evidenceResult = await server.port.brokerEventsQuery({
+            op: 'input-rejection-evidence',
+            runtimeId,
+            submissionId,
+          })
+          const evidence =
+            evidenceResult.result?.op === 'input-rejection-evidence'
+              ? evidenceResult.result.deliveryEvidence
+              : undefined
+          if (evidence !== 'not_written') {
+            server.store.mailDelivery.markUncertain(
+              intent.envelopeId,
+              disposition.reason ?? disposition.type,
+              evidence === 'possibly_written'
+                ? 'possibly_written'
+                : 'refusal_without_no_write_proof'
+            )
+            return 'open'
+          }
+          return await refuseIntent(server, intent, disposition.reason ?? disposition.type)
         }
-      }
-      const dispositionResult = await server.port.brokerEventsQuery({
-        op: 'disposition',
-        runtimeId,
-        submissionId,
-      })
-      const disposition =
-        dispositionResult.result?.op === 'disposition' ? dispositionResult.result : undefined
-      if (disposition !== undefined && LANDED_EVENT_TYPES.has(disposition.type)) {
-        return await landFromStream(server, intent, runtimeId, disposition.type)
-      }
-      if (disposition !== undefined) {
         const evidenceResult = await server.port.brokerEventsQuery({
           op: 'input-rejection-evidence',
           runtimeId,
@@ -190,46 +212,33 @@ export async function reconcileIntent(
           evidenceResult.result?.op === 'input-rejection-evidence'
             ? evidenceResult.result.deliveryEvidence
             : undefined
-        if (evidence !== 'not_written') {
+        if (evidence === 'not_written') return await refuseIntent(server, intent, 'input.rejected')
+        if (
+          evidence === undefined &&
+          (await wasWrittenMidTurn(server, intent, runtimeId, submissionId, now))
+        ) {
+          return await landFromStream(server, intent, runtimeId, 'input.accepted')
+        }
+        if (evidence === 'possibly_written') {
           server.store.mailDelivery.markUncertain(
             intent.envelopeId,
-            disposition.reason ?? disposition.type,
-            evidence === 'possibly_written' ? 'possibly_written' : 'refusal_without_no_write_proof'
+            'input.rejected',
+            'possibly_written'
           )
           return 'open'
         }
-        return await refuseIntent(server, intent, disposition.reason ?? disposition.type)
+      } else if (intent.door === 'launch') {
+        // The launch-carried body has no submission by construction. Its landing
+        // fact is the first turn the runtime that launch produced started.
+        const commit = await landLaunchIfStarted(server, intent)
+        if (commit === 'committed') return 'landed'
+        if (commit === 'disposed') return 'disposed'
       }
-      const evidenceResult = await server.port.brokerEventsQuery({
-        op: 'input-rejection-evidence',
-        runtimeId,
-        submissionId,
-      })
-      const evidence =
-        evidenceResult.result?.op === 'input-rejection-evidence'
-          ? evidenceResult.result.deliveryEvidence
-          : undefined
-      if (evidence === 'not_written') return await refuseIntent(server, intent, 'input.rejected')
-      if (
-        evidence === undefined &&
-        (await wasWrittenMidTurn(server, intent, runtimeId, submissionId, now))
-      ) {
-        return await landFromStream(server, intent, runtimeId, 'input.accepted')
+    } catch (error) {
+      if (!(error instanceof HrcDomainError) || error.code !== HrcErrorCode.UNKNOWN_RUNTIME) {
+        throw error
       }
-      if (evidence === 'possibly_written') {
-        server.store.mailDelivery.markUncertain(
-          intent.envelopeId,
-          'input.rejected',
-          'possibly_written'
-        )
-        return 'open'
-      }
-    } else if (intent.door === 'launch') {
-      // The launch-carried body has no submission by construction. Its landing
-      // fact is the first turn the runtime that launch produced started.
-      const commit = await landLaunchIfStarted(server, intent)
-      if (commit === 'committed') return 'landed'
-      if (commit === 'disposed') return 'disposed'
+      return await reconcileGoneRuntime(server, intent)
     }
 
     const runtimeRead = await readRuntimeWithinDeadline(server, runtimeId)
@@ -249,20 +258,7 @@ export async function reconcileIntent(
     }
     const runtime = runtimeRead.runtime
     if (runtime === undefined || isRuntimeTerminal(runtime.status)) {
-      // A gone runtime alone cannot release a possible-write fence. Only the
-      // ledger's terminal envelope fact retires it from active reconciliation;
-      // retain the audit row without a receipt, retry, or sender notice.
-      const envelope = await server.ledger.envelopeShow({ envelope: intent.envelopeId })
-      if (envelope.terminal) {
-        server.store.mailDelivery.markTerminalEnvelope(intent.envelopeId, envelope.state)
-        return 'runtime_gone'
-      }
-      server.store.mailDelivery.markUncertain(
-        intent.envelopeId,
-        'runtime_terminated_before_landing',
-        'runtime_terminal'
-      )
-      return 'open'
+      return await reconcileGoneRuntime(server, intent)
     }
   }
 
@@ -270,6 +266,27 @@ export async function reconcileIntent(
   if (Number.isFinite(age) && age >= KICKER_SUBMISSION_TTL_MS) {
     server.store.mailDelivery.markUncertain(intent.envelopeId, 'ttl_without_landing', 'ttl')
   }
+  return 'open'
+}
+
+/** Retire terminal mail or preserve a live envelope's no-second-write fence. */
+async function reconcileGoneRuntime(
+  server: MailKickerContext,
+  intent: HrcMailDeliveryIntent
+): Promise<IntentReconcileVerdict> {
+  // A gone runtime alone cannot release a possible-write fence. Only the
+  // ledger's terminal envelope fact retires it from active reconciliation;
+  // retain the audit row without a receipt, retry, or sender notice.
+  const envelope = await server.ledger.envelopeShow({ envelope: intent.envelopeId })
+  if (envelope.terminal) {
+    server.store.mailDelivery.markTerminalEnvelope(intent.envelopeId, envelope.state)
+    return 'runtime_gone'
+  }
+  server.store.mailDelivery.markUncertain(
+    intent.envelopeId,
+    'runtime_terminated_before_landing',
+    'runtime_terminal'
+  )
   return 'open'
 }
 
