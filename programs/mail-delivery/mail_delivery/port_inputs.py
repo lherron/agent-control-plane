@@ -22,6 +22,21 @@ def ms(value):
     return epoch_ms(value) if value else None
 
 
+def newest_receipt(receipts):
+    # ledger/types.ts newestPresentationReceipt: missing/null/invalid dates
+    # rank below dates, and the LAST receipt wins equal ranks.
+    newest, newest_at = {}, float('-inf')
+    for receipt in receipts:
+        try:
+            at = ms(receipt.get('presentedAt'))
+        except (ValueError, TypeError):
+            at = None
+        rank = at if at is not None else float('-inf')
+        if rank >= newest_at:
+            newest, newest_at = receipt, rank
+    return newest
+
+
 def store_batch(path, mail):
     """Close the read transaction before ANY network read or host wait."""
     connection = open_injector(path)
@@ -74,7 +89,12 @@ class PortInputs:
         if key not in self.cache:
             self.alive()
             try:
-                self.cache[key] = self.hrc.post('/v1/runtimes/inspect', runtimeId=identifier)
+                runtime = self.hrc.post('/v1/runtimes/inspect', runtimeId=identifier)
+                # The injector's exact read calls parseHrcRuntimeStatus; a
+                # null/missing status is malformed, not unknown_runtime.
+                if runtime is None or not isinstance(runtime.get('status'), str):
+                    raise ValueError('invalid inspected runtime status')
+                self.cache[key] = runtime
             except HrcError as error:
                 if error.payload.get('error', {}).get('code') != 'unknown_runtime':
                     raise
@@ -84,12 +104,12 @@ class PortInputs:
     def target(self, scope, check_federation=True):
         location = self.get('/v1/federation/locate', scopeRef=scope)
         authority = location['authority']
-        home = ('foreign' if authority['state'] == 'bound' and not authority['isLocal']
-                else 'local' if authority['state'] == 'bound' else 'unbound')
+        home = ('foreign' if authority.get('state') == 'bound' and not authority.get('isLocal')
+                else 'local' if authority.get('state') == 'bound' else 'unbound')
         if home == 'foreign':
             return Seat(home=home), {}, {}
         try:
-            target = self.get('/v1/targets/by-session-ref', sessionRef=scope + '/lane:main')
+            target = self.get('/v1/targets/by-session-ref', sessionRef=scope + '/lane:main') or {}
         except HrcError as error:
             if error.payload.get('error', {}).get('code') != 'unknown_session':
                 raise
@@ -107,29 +127,29 @@ class PortInputs:
                 self.cache[key] = self.hrc.runtimes(hostSessionId=session['hostSessionId'], all='true')
             candidates = [r for r in self.cache[key]
                 if r.get('generation') == session['generation'] and
-                r.get('controllerKind') == 'harness-broker' and r.get('activeInvocationId') and
-                r['status'] not in TERMINAL and r['status'] != 'detached']
+                r.get('controllerKind') == 'harness-broker' and 'activeInvocationId' in r and
+                r.get('status') not in TERMINAL and r.get('status') != 'detached']
             if candidates:
                 runtime = candidates[-1]
                 probe = self.get('/v1/runtimes/' + runtime['runtimeId'] + '/seat')
                 state = probe['probe']['seat']['state'] if probe.get('probe') else 'unavailable'
                 observed = replace(observed, state=state,
-                    steer_capable='steer' in probe.get('admissionClasses', []),
-                    awaiting_input=runtime['status'] == 'awaiting_input')
+                    steer_capable='steer' in (probe.get('admissionClasses') or []),
+                    awaiting_input=runtime.get('status') == 'awaiting_input')
                 self.poll_broker(runtime, probe)
         # Like target-driver's launchHereOrSkip, inventory is a before-birth
         # guard. An existing intent or a nondue presentation is not a birth.
         if observed.state == 'absent' and check_federation:
             report = self.get('/v1/federation/runtimes', scope=scope)
-            nodes = [node for node in report['nodes'] if node['state'] == 'answered']
+            nodes = [node for node in report['nodes'] if node.get('state') == 'answered']
             live = [node['nodeId'] for node in nodes if any(
-                r['scopeRef'] == scope and r['status'] not in TERMINAL and r['status'] != 'detached'
+                r.get('scopeRef') == scope and r.get('status') not in TERMINAL and r.get('status') != 'detached'
                 for r in node['runtimes'])]
             elsewhere = any(node != report['localNodeId'] for node in live) and report['localNodeId'] not in live
             if elsewhere:
                 bindings = self.get('/v1/placement/bindings', home='self', state='active')
-                elsewhere = not any(b['scopeRef'] == scope and b['state'] == 'active' and
-                    b['homeNodeId'] == report['localNodeId'] for b in bindings['bindings'])
+                elsewhere = not any(b.get('scopeRef') == scope and b.get('state') == 'active' and
+                    b.get('homeNodeId') == report['localNodeId'] for b in bindings['bindings'])
             observed = replace(observed, live_elsewhere=elsewhere,
                                federation_complete=len(nodes) == len(report['nodes']))
         return observed, runtime, session
@@ -167,10 +187,10 @@ class PortInputs:
         state = detail.get('state', mail['state'])
         if detail.get('terminal') or state in ('acked', 'failed', 'expired', 'withdrawn'):
             state = 'terminal'
-        envelope = Envelope(id=mail['id'], obligation=mail.get('obligation'), kind='envelope',
+        envelope = Envelope(id=mail['id'], obligation=detail.get('obligation', mail.get('obligation')), kind='envelope',
             state=state,
-            delivery=detail.get('delivery'), created_at=ms(mail.get('createdAt')),
-            presented_before=bool(detail['presentedTo']) if 'presentedTo' in detail else None,
+            delivery=detail.get('delivery'), created_at=ms(detail.get('createdAt', mail.get('createdAt'))),
+            presented_before=len(detail['presentedTo']) > 0 if 'presentedTo' in detail else None,
             retry_at=ms(detail.get('retryAt')))
         seat, runtime, session = self.target(scope, check_federation=(
             state == 'pending' and store['intent'] is None))
@@ -205,7 +225,8 @@ class PortInputs:
             retry = Retry(kind='none')
             if birth:
                 retry = Retry(kind=birth['kind'], attempts=birth['attempts'], last_at=birth['at'],
-                              host_reason=birth['reason'] or '',
+                              host_reason=(birth['reason'] if birth['kind'] == 'participant_turn'
+                                           else birth['reason'] or ''),
                               host_since=(store['launch'] or {}).get('participant_host_since_ms'))
             launch = store['launch']
             if launch:
@@ -239,7 +260,7 @@ class PortInputs:
             seat = replace(seat, preempt_admission=admission)
         if state == 'presented':
             receipts = detail.get('presentedTo', [])
-            receipt = max(receipts, key=lambda p: p.get('presentedAt', '')) if receipts else {}
+            receipt = newest_receipt(receipts)
             receipt_runtime = receipt.get('runtimeId')
             presentation = next((p for p in store['presentations'] if p['runtime_id'] == receipt_runtime and
                 (p.get('disposed_at') is None or p.get('disposition') == 'held:awaiting_operator')), None)

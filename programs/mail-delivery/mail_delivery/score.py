@@ -154,6 +154,7 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
     excluded_sources = 0
     canonical_socket = str(Path.home() / 'praesidium/var/run/praesidium/kernel.sock')
     missing_fields = set()
+    failures = []
     with Path(shadow_log).open() as stream:
         for line_number, line in enumerate(stream, 1):
             if not line.strip():
@@ -169,6 +170,13 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
                 excluded_sources += 1
                 continue
             if 'event' in row:
+                if row['event'] == 'shadow.decision_failed':
+                    if begin <= epoch_ms(row['ts']) < end:
+                        data = dict(row['data'], ts=row['ts'])
+                        appeared = data.get('appeared_at')
+                        data['cohort'] = ('new' if appeared[:10] == day else 'backlog') if appeared else 'unknown'
+                        failures.append(data)
+                    continue
                 if row['event'] != 'shadow.decision':
                     data = row.get('data', {})
                     actor = data.get('actor') or data.get('principalRef')
@@ -264,6 +272,11 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
         'counts_by_cohort': {cohort: dict(Counter(r['classification'] for r in rows if r['cohort'] == cohort))
                              for cohort in ('new', 'backlog')},
         'gate_cohort': 'new',
+        'decision_failed_count': len(failures),
+        'decision_failed_envelopes': sorted({f['envelope_id'] for f in failures}),
+        'decision_failed_counts_by_cohort': {cohort: sum(f['cohort'] == cohort for f in failures)
+                                             for cohort in ('new', 'backlog', 'unknown')},
+        'decision_failures': failures,
         'unmapped_outcomes': sorted(unmapped), 'observed_diagnostic_outcomes': sorted(outcomes),
         'observed_doors': sorted(doors),
         'since': since, 'until': until,
@@ -303,7 +316,10 @@ def write_report(report: dict, out: Path | str) -> tuple[Path, Path]:
     for category in ('agreed', 'differed_by_design', 'differed_missing_data', 'differed_defect', 'cannot_decide', 'pending_evidence'):
         lines.append(f"| {category} | {report['counts_by_cohort']['new'].get(category, 0)} | "
                      f"{report['counts_by_cohort']['backlog'].get(category, 0)} | {report['counts'].get(category, 0)} |")
-    lines += ['', report['evidence_limit'], '',
+    lines += ['', f"decision_failed: {report['decision_failed_count']} lines (separate failure bucket, never agreement).", '',
+              'Failed envelopes: ' + (', '.join(report['decision_failed_envelopes']) or 'none'), '',
+              'Failure lines by cohort: ' + json.dumps(report['decision_failed_counts_by_cohort'], sort_keys=True), '',
+              report['evidence_limit'], '',
               'cannot_decide: ' + ', '.join(f'{kind}={count}' for kind, count in report['cannot_decide_counts'].items()), '',
               f"Port defects (rule disagreements + shadow input gaps): {report['port_defect_count']}", '',
               'Missing inputs observed (including resolved): ' + (', '.join(report['missing_fields']) or 'none'), '',

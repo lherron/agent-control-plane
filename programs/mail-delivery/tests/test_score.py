@@ -148,3 +148,22 @@ class Scoring(TestCase):
         report = self.run_score([self.row(6)])
         self.assertEqual(report['rows'][0]['classification'], 'cannot_decide')
         self.assertIn('admitted', report['unmapped_outcomes'])
+
+    def test_envelope_failure_lines_are_reported_separately_and_never_agreed(self):
+        data = dict(envelope_id='EN-99', target='target', exception_type='TypeError',
+                    message='null input', traceback='Traceback: null input',
+                    appeared_at='2026-11-10T12:00:00Z',
+                    kernel_socket=self.row(1)['kernel_socket'], pid=999)
+        failure = dict(ts='2026-11-10T12:00:01Z', event='shadow.decision_failed', data=data)
+        stray = dict(failure, data=dict(data, kernel_socket='/tmp/stray.sock'))
+        outside = dict(failure, ts='2026-11-11T00:00:00Z')
+        report = self.run_score([self.row(1), failure, failure, stray, outside])
+        self.assertEqual(report['counts'], {'agreed': 1})
+        self.assertEqual(report['decision_failed_count'], 2)
+        self.assertEqual(report['decision_failed_envelopes'], ['EN-99'])
+        self.assertEqual(report['decision_failed_counts_by_cohort'], {'new': 2, 'backlog': 0, 'unknown': 0})
+        self.assertEqual(len(report['decision_failures']), 2)
+        self.assertEqual(report['decision_failures'][0]['exception_type'], 'TypeError')
+        md, _ = write_report(report, self.root/'out')
+        self.assertIn('decision_failed: 2', md.read_text())
+        self.assertIn('EN-99', md.read_text())

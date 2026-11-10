@@ -161,3 +161,133 @@ class PortAdapter(TestCase):
         e, s, r, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
         self.assertFalse(s.session_exists)
         self.assertEqual(decide(e, s, r, 1794312001000).action, 'launch')
+
+    def test_null_or_missing_admission_classes_matches_injector_default(self):
+        original = Hrc().get
+        for missing in (False, True):
+            for probe_missing in (False, True):
+                with self.subTest(missing=missing, probe_missing=probe_missing):
+                    self.port.begin()
+                    def get(route, **params):
+                        value = original(route, **params)
+                        if route.endswith('/seat'):
+                            if missing:
+                                value.pop('admissionClasses')
+                            else:
+                                value['admissionClasses'] = None
+                            if probe_missing:
+                                value['probe'] = None
+                        return value
+                    self.port.hrc.get = get
+                    e, seat, runtime, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
+                    self.assertFalse(seat.steer_capable)
+                    self.assertEqual(seat.state, 'unavailable' if probe_missing else 'turn-active')
+                    self.assertEqual(decide(e, seat, runtime, 1794312001000).action,
+                                     'defer' if probe_missing else 'enqueue')
+
+    def test_null_target_reply_matches_optional_target_session_lookup(self):
+        original = Hrc().get
+        self.port.hrc.get = lambda route, **params: (
+            None if route == '/v1/targets/by-session-ref' else
+            {'localNodeId': 'max3', 'nodes': [dict(state='answered', nodeId='max3', runtimes=[])]}
+            if route == '/v1/federation/runtimes' else original(route, **params))
+        _, seat, _, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
+        self.assertFalse(seat.session_exists)
+        self.assertEqual(seat.state, 'absent')
+
+    def test_present_null_invocation_is_not_missing_invocation(self):
+        # observeBrokerSeat tests !== undefined, rather than truthiness.
+        self.port.hrc.runtimes = lambda **params: [dict(runtimeId='rt-1', generation=2,
+            status='busy', controllerKind='harness-broker', activeInvocationId=None)]
+        _, seat, runtime, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
+        self.assertEqual(runtime.id, 'rt-1')
+        self.assertEqual(seat.state, 'turn-active')
+
+    def test_receipt_missing_null_or_invalid_time_ranks_last_tie_like_injector(self):
+        self.mail['state'] = self.detail['state'] = 'presented'
+        self.store['presentations'] = [dict(runtime_id='rt-1', landing_hrc_seq=8,
+            disposition='held:awaiting_operator')]
+        for receipts in (
+                [dict(runtimeId='old', presentedAt=None), dict(runtimeId='rt-1', presentedAt='2026-11-10T12:00:00Z')],
+                [dict(runtimeId='old'), dict(runtimeId='rt-1', presentedAt=None)],
+                [dict(runtimeId='old', presentedAt='bad'), dict(runtimeId='rt-1')]):
+            with self.subTest(receipts=receipts):
+                self.port.begin()
+                self.detail['presentedTo'] = receipts
+                e, seat, runtime, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
+                self.assertEqual(decide(e, seat, runtime, 1794312001000).reason, 'awaiting_operator')
+
+    def test_explicit_null_receipt_array_matches_injector_type_error(self):
+        self.detail['presentedTo'] = None
+        with self.assertRaises(TypeError):
+            self.port.gather(self.mail, self.detail, self.store, 1794312001000)
+
+    def test_missing_optional_home_flag_and_federated_scope_match_injector(self):
+        original = Hrc().get
+        self.port.hrc.get = lambda route, **params: (
+            {'authority': {'state': 'bound'}} if route == '/v1/federation/locate' else original(route, **params))
+        _, seat, _, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
+        self.assertEqual(seat.home, 'foreign')
+        self.port.begin()
+        self.port.hrc.runtimes = lambda **params: []
+        self.port.hrc.get = lambda route, **params: (
+            {'localNodeId': 'max3', 'nodes': [dict(nodeId='unknown'),
+                dict(state='answered', nodeId='svc', runtimes=[dict(status='ready')])]}
+            if route == '/v1/federation/runtimes' else original(route, **params))
+        _, seat, _, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
+        self.assertFalse(seat.live_elsewhere)
+        self.assertFalse(seat.federation_complete)
+
+    def test_owner_metadata_fills_missing_document_fields(self):
+        self.detail.update(obligation='reply_required', createdAt='2026-11-10T12:00:00Z')
+        self.mail.pop('obligation')
+        self.mail.pop('createdAt')
+        envelope, _, _, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
+        self.assertEqual(envelope.obligation, 'reply_required')
+        self.assertEqual(envelope.created_at, 1794312000000)
+
+    def test_missing_placement_binding_fields_do_not_claim_local_home(self):
+        original = Hrc().get
+        self.port.hrc.runtimes = lambda **params: []
+        self.port.hrc.get = lambda route, **params: (
+            {'localNodeId': 'max3', 'nodes': [dict(state='answered', nodeId='svc',
+                runtimes=[dict(scopeRef=TARGET, status='ready')])]}
+            if route == '/v1/federation/runtimes' else
+            {'bindings': [{}, dict(scopeRef=TARGET), dict(scopeRef=TARGET, state='active')]}
+            if route == '/v1/placement/bindings' else original(route, **params))
+        _, seat, _, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
+        self.assertTrue(seat.live_elsewhere)
+
+    def test_missing_listed_runtime_status_matches_undefined_comparisons(self):
+        self.port.hrc.runtimes = lambda **params: [dict(runtimeId='rt-1', generation=2,
+            controllerKind='harness-broker', activeInvocationId='inv')]
+        _, seat, runtime, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
+        self.assertEqual(seat.state, 'turn-active')
+        self.assertIsNone(runtime.status)
+
+    def test_null_inspected_runtime_or_status_is_rejected_like_parse_runtime_status(self):
+        for value in (None, {}, dict(status=None)):
+            with self.subTest(value=value):
+                self.port.begin()
+                self.port.hrc.post = lambda *args, **kw: value
+                with self.assertRaises((ValueError, TypeError, KeyError)):
+                    self.port.runtime('rt-1')
+
+    def test_nullable_database_optional_columns_are_not_required_inputs(self):
+        self.store['intent'] = dict(door='enqueue', submitted_at='2026-11-10T12:00:00Z',
+            runtime_id=None, uncertain_cause=None, last_evidence_kind=None,
+            terminal_envelope_cause=None, cleanup_at=None)
+        e, _, _, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
+        self.assertEqual(e.intent.landing, 'none')
+        self.assertFalse(e.intent.has_runtime)
+        self.assertFalse(e.intent.cleanup_done)
+        self.assertIsNone(e.intent.terminal_reason)
+        self.assertEqual(e.intent.prior_launch_failures, 0)
+
+    def test_participant_retry_missing_reason_is_named_input_gap(self):
+        self.memos.birth[TARGET+'/lane:main'] = dict(kind='participant_turn',
+            attempts=1, at=1794312000000, delay=2000, reason=None)
+        e, seat, runtime, _ = self.port.gather(self.mail, self.detail, self.store, 1794312001000)
+        decision = decide(e, seat, runtime, 1794312001000)
+        self.assertEqual(decision.action, 'cannot_decide')
+        self.assertEqual(decision.missing_fact, 'birth_retry.host_reason')

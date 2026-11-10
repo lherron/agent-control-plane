@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import time
+import traceback
 
 from .decision import Decision, decide
 from . import timings as t
@@ -147,37 +148,49 @@ class Shadow:
             signal = json.dumps((mail, seat_state), sort_keys=True)
             if identifier not in self.refresh and self.signals.get(identifier) == signal:
                 continue
-            cached = self.details.get(identifier)
-            detail_key = (mail.get('state'), mail.get('presentedAt'), mail.get('deferred'))
-            if cached is None or cached[0] != detail_key:
-                # These details are missing from the document; read each only
-                # on the first observation of an envelope state transition.
-                detail = self.read('room.mail.get', envelope=identifier)
-                self.details[identifier] = (detail_key, detail)
-            else:
-                _, detail = cached
-            if snapshots is None:
-                snapshots = self.store(mail_rows)
-            envelope, observed, context, tags = self.source.gather(mail, detail, snapshots[identifier], now)
-            decided_now = clock() if clock else now
-            key = json.dumps((mail, seat_state, asdict(envelope), asdict(observed), asdict(context),
-                              temporal_state(envelope, observed, decided_now)), sort_keys=True)
-            self.signals[identifier] = signal
-            self.refresh.discard(identifier)
-            if self.last.get(identifier) == key:
-                continue
-            decision = decide(envelope, observed, context, decided_now)
-            self.client.log('shadow.decision', envelope_id=identifier, target=target,
-                envelope_state=envelope.state, document_envelope_state=mail.get('state'),
-                observed_seat_state=observed.state,
-                envelope_state_at=detail.get('updatedAt') or mail.get('createdAt'),
-                seat_summary_state=seat.get('status'), runtime_id=context.id,
-                decision=asdict(decision), reason=decision.reason,
-                missing_fact=decision.missing_fact,
-                missing_fields=[decision.missing_fact] if decision.missing_fact else [],
-                appeared_at=mail.get('createdAt') or detail.get('createdAt'),
-                decided_at=stamp(decided_now), **tags)
-            self.last[identifier] = key
+            try:
+                cached = self.details.get(identifier)
+                detail_key = (mail.get('state'), mail.get('presentedAt'), mail.get('deferred'))
+                if cached is None or cached[0] != detail_key:
+                    # These details are missing from the document; read each only
+                    # on the first observation of an envelope state transition.
+                    detail = self.read('room.mail.get', envelope=identifier)
+                    self.details[identifier] = (detail_key, detail)
+                else:
+                    _, detail = cached
+                if snapshots is None:
+                    snapshots = self.store(mail_rows)
+                envelope, observed, context, tags = self.source.gather(mail, detail, snapshots[identifier], now)
+                decided_now = clock() if clock else now
+                key = json.dumps((mail, seat_state, asdict(envelope), asdict(observed), asdict(context),
+                                  temporal_state(envelope, observed, decided_now)), sort_keys=True)
+                self.signals[identifier] = signal
+                self.refresh.discard(identifier)
+                if self.last.get(identifier) == key:
+                    continue
+                decision = decide(envelope, observed, context, decided_now)
+                self.client.log('shadow.decision', envelope_id=identifier, target=target,
+                    envelope_state=envelope.state, document_envelope_state=mail.get('state'),
+                    observed_seat_state=observed.state,
+                    envelope_state_at=detail.get('updatedAt') or mail.get('createdAt'),
+                    seat_summary_state=seat.get('status'), runtime_id=context.id,
+                    decision=asdict(decision), reason=decision.reason,
+                    missing_fact=decision.missing_fact,
+                    missing_fields=[decision.missing_fact] if decision.missing_fact else [],
+                    appeared_at=mail.get('createdAt') or detail.get('createdAt'),
+                    decided_at=stamp(decided_now), **tags)
+                self.last[identifier] = key
+            except Exception as error:
+                # Match the injector's failed-drain boundary: one envelope
+                # loses this observation, the process and next envelope run.
+                # Retry on the next changed input or periodic sweep.
+                self.signals[identifier] = signal
+                self.refresh.discard(identifier)
+                self.details.pop(identifier, None)
+                self.client.log('shadow.decision_failed', envelope_id=identifier,
+                    target=target, exception_type=type(error).__name__, message=str(error),
+                    traceback=traceback.format_exc(), appeared_at=mail.get('createdAt'),
+                    decided_at=stamp(clock() if clock else now))
         for identifier in self.last.keys() - current:
             self.last.pop(identifier, None)
             self.details.pop(identifier, None)

@@ -8,6 +8,8 @@ process-local outcomes from the injector log and observes broker movement.
 No section 5 redesign is enabled. An input gap is a shadow defect, not an ask
 against HRC or wrkq.
 
+Like the injector’s failed-drain boundary, an exception while deciding one envelope logs `shadow.decision_failed` with its traceback, skips that observation, and lets the next envelope run; the scorer reports those failures separately, while errors outside envelope work still escape to the host.
+
 The first installed run found legacy EN-00738: wrkq has a presentation receipt
 without runtimeId and max3 has no local presentation row. The injector's
 `readActionableEnvelopes` excludes it because there is no due local reminder.

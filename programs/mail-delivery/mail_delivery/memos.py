@@ -35,6 +35,8 @@ class Memos:
 
     def accept(self, row):
         event = row.get('event', '')
+        if not isinstance(event, str):
+            return
         if event == 'mail_injector.started':
             self.reset()
             self.anchored = True
@@ -43,6 +45,8 @@ class Memos:
         if not self.anchored:
             return
         data = row.get('data', {})
+        if not isinstance(data, dict):
+            return  # unknown/malformed event payloads are not outcome facts
         runtime = data.get('runtimeId') or self.intents.get(data.get('envelope'))
         target = data.get('targetSessionRef')
         envelope = data.get('envelope')
@@ -103,10 +107,11 @@ class Memos:
         elif name in ('foreign_home_skipped', 'birth_deferred'):
             self.birth.pop(target, None)
         elif name in ('failure_notice_failed', 'failure_notice_parked'):
-            self.notices[target] = dict(envelopes=sorted(data.get('envelopes', [])),
+            envelopes = data.get('envelopes')
+            self.notices[target] = dict(envelopes=sorted(envelopes) if isinstance(envelopes, list) else None,
                 attempts=data.get('attempts', data.get('attempt')), at=at,
                 parked=runtime if data.get('reason') == 'replayed_non_start' else None,
-                delay=data.get('nextAttemptInMs', 0))
+                delay=data.get('nextAttemptInMs', 0 if name == 'failure_notice_parked' else None))
             self.provenance.add('failure_notice')
         elif name == 'failure_notice_delivered':
             self.notices.pop(target, None)
@@ -114,6 +119,13 @@ class Memos:
     def broker(self, runtime, row):
         hold = self.quiet.get(runtime)
         if hold is None or row.get('type') in NOT_MOVEMENT:
+            return
+        if hold['invocation'] is not None and hold['seq'] is not None:
+            # observeSeatActivity needs invocation/sequence, not a timestamp.
+            # A log-fed hold may lack its first-refusal clock; committed
+            # movement past a known boundary still clears it exactly.
+            if row.get('invocationId') != hold['invocation'] or row['seq'] > hold['seq']:
+                self.quiet.pop(runtime, None)
             return
         at = epoch_ms(row['time']) if row.get('time') else None
         if hold['since'] is None or at is None:

@@ -173,3 +173,23 @@ class Dedup(TestCase):
         self.sweep()
         self.assertEqual(len(self.decisions()), 2)
         self.assertEqual(len(self.client.calls), 1)
+
+    def test_one_envelope_exception_is_logged_and_next_envelope_is_decided(self):
+        other = row('mail-2', **dict(self.mail['payload'], id='EN-2'))
+        self.shadow.apply('room.mail', change(other))
+        original = self.shadow.source.gather
+        def gather(mail, *args):
+            if mail['id'] == 'EN-1':
+                raise TypeError('null admission classes')
+            return original(mail, *args)
+        self.shadow.source.gather = gather
+        self.sweep()
+        self.assertEqual([d['envelope_id'] for d in self.decisions()], ['EN-2'])
+        failures = [data for name, data in self.client.logs if name == 'shadow.decision_failed']
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]['envelope_id'], 'EN-1')
+        self.assertEqual(failures[0]['target'], TARGET)
+        self.assertEqual(failures[0]['exception_type'], 'TypeError')
+        self.assertEqual(failures[0]['message'], 'null admission classes')
+        self.assertIn('Traceback', failures[0]['traceback'])
+        self.assertNotIn('EN-1', self.shadow.last)

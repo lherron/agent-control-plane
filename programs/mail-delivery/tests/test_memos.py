@@ -86,3 +86,35 @@ class MemoFeeders(TestCase):
         memos.accept(event('wrkq.kicker.unborn_birth_retry', targetSessionRef='target',
                            attempt=2, nextAttemptInMs=1800000))
         self.assertEqual(memos.birth['target']['kind'], 'not_hosted')
+
+    def test_unknown_log_events_tolerate_null_event_or_data(self):
+        memos = Memos()
+        memos.accept(event('mail_injector.started'))
+        before = memos.signature()
+        for row in (dict(event=None, data={}), dict(event='future.event', data=None),
+                    dict(event='future.event', data=[])):
+            memos.accept(row)
+        self.assertEqual(memos.signature(), before)
+
+    def test_missing_or_null_notice_fields_remain_unknown(self):
+        memos = Memos()
+        memos.accept(event('mail_injector.started'))
+        for fields in ({}, dict(envelopes=None, attempt=None, nextAttemptInMs=None)):
+            memos.accept(event('wrkq.kicker.failure_notice_failed', targetSessionRef='target', **fields))
+            self.assertIsNone(memos.notices['target']['envelopes'])
+            self.assertIsNone(memos.notices['target']['attempts'])
+            self.assertIsNone(memos.notices['target']['delay'])
+
+    def test_broker_movement_with_known_boundary_does_not_require_time(self):
+        memos = Memos()
+        memos.accept(event('mail_injector.started'))
+        memos.accept(event('wrkq.kicker.steer_held', runtimeId='rt',
+            hold='pane_not_quiescent', invocationId='inv', brokerSeq=4))
+        for timestamp in (None, 'missing'):
+            with self.subTest(timestamp=timestamp):
+                memos.quiet['rt'] = dict(since=None, invocation='inv', seq=4)
+                record = dict(type='tool.started', seq=5, invocationId='inv')
+                if timestamp is None:
+                    record['time'] = None
+                memos.broker('rt', record)
+                self.assertNotIn('rt', memos.quiet)
