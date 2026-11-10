@@ -11,6 +11,8 @@ const PRINCIPAL_FREE_METHODS = new Set([
   'wrkq.monitor.eventsView',
   'wrkq.envelope.birthEnvelope',
   'wrkq.commit.wait',
+  // A read; wrkq refuses an unknown principalRef field on it.
+  'wrkq.task.show',
 ])
 const REQUEST_TIMEOUT_MS = 15_000
 
@@ -159,6 +161,7 @@ export function createWrkqLedger(command = 'wrkq'): MailKickerLedger & { close()
     present: (params) => call('wrkq.envelope.present', params),
     fail: (params) => call('wrkq.envelope.fail', params),
     envelopeShow: (params) => call('wrkq.envelope.show', params),
+    taskShow: (params) => call('wrkq.task.show', params),
     eventsView: async (params) => {
       const view = await call<{ items?: unknown; high_water?: unknown }>(
         'wrkq.monitor.eventsView',

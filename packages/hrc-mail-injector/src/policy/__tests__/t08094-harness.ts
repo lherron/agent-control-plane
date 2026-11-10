@@ -154,6 +154,16 @@ class FakeLedger {
   eventsView(): Promise<{ items: never[]; highWater: number }> {
     return Promise.resolve({ items: [], highWater: 0 })
   }
+
+  /** Task state by id; an unlisted task reads `open`. */
+  readonly taskStates = new Map<string, string>()
+  readonly taskShowRequests: string[] = []
+  taskShowError: Error | undefined
+  taskShow(params: { task: string }): Promise<{ id: string; state: string }> {
+    this.taskShowRequests.push(params.task)
+    if (this.taskShowError !== undefined) return Promise.reject(this.taskShowError)
+    return Promise.resolve({ id: params.task, state: this.taskStates.get(params.task) ?? 'open' })
+  }
 }
 
 export type T08094Harness = {

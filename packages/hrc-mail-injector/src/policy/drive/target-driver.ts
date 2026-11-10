@@ -47,6 +47,7 @@ import {
   deliverToSeat,
   isRetiredHostRejection,
 } from './delivery.js'
+import { closeFyiForFinishedTask } from './finished-task.js'
 import { failExhaustedLaunch, recoverFailedLaunch } from './launch-recovery.js'
 import type { ActionableEnvelope } from './presentation.js'
 import { classifyBacklogFyi, readActionableEnvelopes, summonsATurn } from './presentation.js'
@@ -572,11 +573,27 @@ export async function driveMailTargetOnce(
   // is driven; it is never itself the wake, and it never mints a session. Routing it here instead silently stopped
   // delivering fyi mail to driven targets with an existing session and an
   // absent broker (regression in 70e683c7, caught by the T-07615 suite).
+  // The exception is a finished task's seat (T-12977), handled just below.
   if (seat.state === 'absent' && actionable.some((item) => summonsATurn(item.envelope))) {
     if (!(await launchHereOrSkip())) return
     const outcome = await birthForTarget(server, targetSessionRef, scopeRef, actionable, wakeReason)
     completeBirth(outcome)
     return outcome
+  }
+  // T-12977: the T-09643 fall-through is for live targets. A finished task's
+  // seat has no next turn, so its fyi closes here instead of starting it.
+  if (seat.state === 'absent') {
+    const closed = await closeFyiForFinishedTask(server, {
+      driveAttemptId,
+      targetSessionRef,
+      scopeRef,
+      actionable,
+    })
+    if (closed !== undefined) {
+      summary.terminalized = closed
+      complete('target_task_terminal')
+      return { outcome: 'undeliverable', failed: closed }
+    }
   }
   if (
     seat.state === 'unavailable' ||

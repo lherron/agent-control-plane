@@ -13,6 +13,7 @@ export type EnvelopeFailCallSite =
   | 'dispose_runtime_obligations'
   | 'non_landing_strikes_exhausted'
   | 'lapsed_obligations'
+  | 'target_task_terminal'
 
 type EnvelopeFailInput = {
   envelope: string
@@ -101,10 +102,13 @@ export async function failEnvelopeWithAudit(
   // authority to fail mail once it has. `non_landing_strikes_exhausted` is the
   // opposite evidence — the seat is live and is precisely why nothing lands, so
   // suppressing on liveness would suppress the only case the bound exists for.
+  // `target_task_terminal` rests on the task's state, not on the seat's: a
+  // finished task's fyi is closed whether or not a runtime row lingers.
   if (
     input.reason === 'undeliverable' &&
     input.callSite !== 'non_landing_strikes_exhausted' &&
-    input.callSite !== 'launch_birth_exhausted'
+    input.callSite !== 'launch_birth_exhausted' &&
+    input.callSite !== 'target_task_terminal'
   ) {
     const live = await liveRuntimeForTarget(server, input.targetSessionRef)
     if (live !== undefined) {

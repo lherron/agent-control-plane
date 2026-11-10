@@ -45,4 +45,6 @@ export type MailKickerLedger = {
   fail(params: WrkqEnvelopeFailParams): Promise<WrkqEnvelope>
   envelopeShow(params: WrkqEnvelopeShowParams): Promise<WrkqEnvelope>
   eventsView(params: WrkqMonitorEventsViewParams): Promise<WrkqMonitorEventsView>
+  /** One task's current state; read only to decide fyi delivery to its seat (T-12977). */
+  taskShow(params: { task: string }): Promise<{ id: string; state: string }>
 }
