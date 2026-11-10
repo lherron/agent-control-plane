@@ -368,4 +368,101 @@ describe('GET /v2/mobile/sessions', () => {
       { hrcClient }
     )
   })
+
+  test('carries HRC parked disposition on local and peer rows; null when unparked or unserved (T-13191)', async () => {
+    const PARKED_AT = '2026-11-10T16:00:00.000Z'
+    const parkedSession: HrcSessionRecord = {
+      ...LOCAL_SESSION,
+      hostSessionId: 'hsid-parked',
+      scopeRef: 'agent:foundry:project:agents:task:primary',
+    }
+    const item = (overrides: Record<string, unknown>) => ({
+      nodeId: 'svc',
+      laneRef: 'main',
+      generation: 3,
+      agentId: 'foundry',
+      createdAt: NOW,
+      effectiveStatus: 'inactive' as const,
+      executionMode: 'headless' as const,
+      lastActivityAt: NOW,
+      ...overrides,
+    })
+    const page = {
+      items: [
+        item({
+          hostSessionId: 'hsid-parked',
+          scopeRef: parkedSession.scopeRef,
+          disposition: 'parked',
+          dispositionAt: PARKED_AT,
+        }),
+        item({
+          hostSessionId: 'hsid-awake',
+          scopeRef: 'agent:cody:project:agents:task:primary',
+          disposition: null,
+          dispositionAt: null,
+        }),
+        // An older peer HRC that predates the fields.
+        item({
+          nodeId: 'mini',
+          hostSessionId: 'hsid-old-peer',
+          scopeRef: 'agent:mable:project:agents:task:primary',
+        }),
+        item({
+          nodeId: 'mini',
+          hostSessionId: 'hsid-parked-peer',
+          scopeRef: 'agent:foundry:project:wrkq:task:primary',
+          disposition: 'parked',
+          dispositionAt: PARKED_AT,
+        }),
+      ],
+      eventHighWater: { svc: 1 },
+      complete: true,
+      peerStatus: { mini: { state: 'healthy', checkedAt: NOW } },
+    } as unknown as SessionPageResponse
+    const hrcClient = {
+      listSessionsPage: async () => page,
+      getSessionFacets: async () => ({
+        total: 4,
+        byEffectiveStatus: { inactive: 4 },
+        byExecutionMode: { headless: 4 },
+        byAgentId: {},
+        byNodeId: {},
+        complete: true,
+        peerStatus: page.peerStatus,
+      }),
+      getStatus: async () => ({ node: { nodeId: 'svc' } }) as never,
+      getSession: async (hostSessionId: string) => ({ ...parkedSession, hostSessionId }),
+      // A parked seat has no runtime.
+      listRuntimes: async () => [],
+    } as unknown as AcpHrcClient
+
+    await withWiredServer(
+      async ({ request, json }) => {
+        const response = await request({ method: 'GET', path: '/v2/mobile/sessions?limit=50' })
+        expect(response.status).toBe(200)
+        const body = await json<{ sessions: Array<Record<string, unknown>> }>(response)
+        const byHost = new Map(body.sessions.map((s) => [s['hostSessionId'], s]))
+
+        const parked = byHost.get('hsid-parked')
+        expect(parked).toMatchObject({
+          summaryStatus: 'inactive',
+          status: 'inactive',
+          disposition: 'parked',
+          dispositionAt: PARKED_AT,
+        })
+        expect(parked?.['runtimeId']).toBeUndefined()
+        expect(byHost.get('hsid-parked-peer')).toMatchObject({
+          summaryStatus: 'inactive',
+          disposition: 'parked',
+          dispositionAt: PARKED_AT,
+        })
+        for (const host of ['hsid-awake', 'hsid-old-peer']) {
+          const row = byHost.get(host)
+          expect(row).toHaveProperty('disposition', null)
+          expect(row).toHaveProperty('dispositionAt', null)
+        }
+      },
+      { hrcClient }
+    )
+  })
 })

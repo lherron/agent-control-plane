@@ -157,6 +157,9 @@ type MobileSessionSummary = {
   projectionState?: 'answered' | 'unreachable' | 'refused' | 'invalid_response' | undefined
   projectionCheckedAt?: string | undefined
   projectionAnsweredAt?: string | undefined
+  /** T-13191: HRC's seat disposition from its session page item; null when unparked or unserved. */
+  disposition?: 'parked' | null | undefined
+  dispositionAt?: string | null | undefined
   sessionRef: string
   displayRef: string
   title: string
@@ -913,6 +916,12 @@ function peerProjectionState(
   return status.state === 'invalid-response' ? 'invalid_response' : status.state
 }
 
+function pageItemDisposition(
+  item: SessionPageItem
+): Pick<MobileSessionSummary, 'disposition' | 'dispositionAt'> {
+  return { disposition: item.disposition ?? null, dispositionAt: item.dispositionAt ?? null }
+}
+
 function projectThinIndexedSession(input: {
   item: SessionPageItem
   localNodeId: string
@@ -943,6 +952,7 @@ function projectThinIndexedSession(input: {
     executionMode: item.executionMode,
     summaryStatus: item.effectiveStatus,
     status: item.effectiveStatus,
+    ...pageItemDisposition(item),
     hostSessionId: item.hostSessionId,
     generation: item.generation,
     lastHrcSeq: 0,
@@ -997,6 +1007,7 @@ async function projectIndexedSession(input: {
     executionMode: input.item.executionMode,
     summaryStatus: input.item.effectiveStatus,
     status: input.item.effectiveStatus,
+    ...pageItemDisposition(input.item),
     lastActivityAt: input.item.lastActivityAt,
   }
 }
