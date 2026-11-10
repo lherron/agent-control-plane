@@ -43,6 +43,13 @@ export type SteerHold = {
   announced: boolean
 }
 
+/**
+ * One target's birth retry schedule. `dueWoken` marks that the ledger loop has
+ * already woken the target for this `nextAtMs` (T-13151); every reschedule
+ * replaces the entry, which clears it.
+ */
+export type BirthSweepBackoff = { attempts: number; nextAtMs: number; dueWoken?: true }
+
 /** Internal capability surface shared by the decomposed kicker state machines. */
 export type MailKickerContext = {
   readonly recipientHints?: RecipientHints
@@ -66,7 +73,7 @@ export type MailKickerContext = {
   readonly mailKickerTargetOperations: Map<string, Promise<void>>
   readonly mailKickerForeignHomeAnnounced: Map<string, string>
   readonly mailKickerBirthDeferredAnnounced: Map<string, string>
-  readonly mailKickerBirthSweepBackoff: Map<string, { attempts: number; nextAtMs: number }>
+  readonly mailKickerBirthSweepBackoff: Map<string, BirthSweepBackoff>
   /**
    * Sender-failure notices this process could not show, per target, for one
    * dispatch key (runtime + notice set): a different key starts clean.

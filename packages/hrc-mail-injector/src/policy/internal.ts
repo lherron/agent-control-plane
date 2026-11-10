@@ -63,6 +63,12 @@ export const PERIODIC_QUIET_BACKSTOP_MS = 10 * 60_000
 export const MAIL_KICKER_MAX_CONCURRENT_TARGET_DRIVES = 4
 export const BIRTH_SWEEP_BACKOFF_BASE_MS = 60_000
 /**
+ * First retry after HRC refused because a participant host is not serving the
+ * address (T-13151). HRC knocked the host in the same refusal, and a parked
+ * host rejoins within seconds. Later retries keep the ordinary schedule.
+ */
+export const PARTICIPANT_HOST_FIRST_RETRY_MS = 10_000
+/**
  * Backoff base for a refusal that only says THIS node lacks the project's
  * checkout. The hosting node normally births within a sweep, so the no-host
  * backstop must outlast a hosting node that is slow or stalled: fifth strike

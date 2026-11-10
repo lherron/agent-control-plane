@@ -299,3 +299,28 @@ export function participantOnlyRefusalFor(error: unknown): { message: string } |
   if (error.detail['reason'] !== 'participant-only') return undefined
   return { message: error.message }
 }
+
+/**
+ * HRC refused because the address's participant host is not serving it
+ * (T-13151; hrc-runtime contract participant-host-requested). HRC names three
+ * refusal sites, each typed by `detail.reason`:
+ *  - a birth through ensure or resume: 409 `stale_context`, `host_absent`
+ *    (its message is the reservation text, "… is bound to host incarnation …
+ *    (BOUND); its own runtime serves this address");
+ *  - a turn at the retained session: `participant_attempt_absorbing`;
+ *  - a turn at a lazy target: `participant_substitution`.
+ * HRC knocks the host in the same refusal, so the first retry is short. Keyed
+ * on the typed reason, never on the message text.
+ */
+const PARTICIPANT_HOST_REFUSAL_REASONS = new Set([
+  'host_absent',
+  'participant_attempt_absorbing',
+  'participant_substitution',
+])
+
+export function participantHostRefusalFor(error: unknown): { reason: string } | undefined {
+  if (!(error instanceof HrcDomainError)) return undefined
+  const reason = error.detail['reason']
+  if (typeof reason !== 'string' || !PARTICIPANT_HOST_REFUSAL_REASONS.has(reason)) return undefined
+  return { reason }
+}

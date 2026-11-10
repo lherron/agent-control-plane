@@ -3,7 +3,13 @@ import { parseAppSessionScopeRef } from 'hrc-core'
 import type { HrcMailDriveWakeReason } from 'hrc-injector-core'
 import { RecipientHints } from '../recipient-hints.js'
 
-import type { FailureNoticeBackoff, MailKickerContext, QuietTarget, SteerHold } from './context.js'
+import type {
+  BirthSweepBackoff,
+  FailureNoticeBackoff,
+  MailKickerContext,
+  QuietTarget,
+  SteerHold,
+} from './context.js'
 import type {
   ForeignHome,
   HrcInjectionPort,
@@ -31,7 +37,11 @@ import type { MailKickerLedger } from './ledger/client.js'
 import { disposeRuntimeObligations } from './terminal/disposal.js'
 import { failLapsedObligations } from './terminal/runtime-lapse.js'
 import { isRuntimeTerminal } from './terminal/runtime-status.js'
-import { chargeBirthSweepRefusal } from './wake/birth-retry.js'
+import {
+  chargeBirthSweepRefusal,
+  nextBirthRetryAt,
+  wakeDueBirthRetries,
+} from './wake/birth-retry.js'
 import { nextDeferredWakeAt, stopDeferredWakes } from './wake/deferred.js'
 import { runWrkqLedgerTail } from './wake/ledger-tail.js'
 import { recordPeriodicDrive } from './wake/quiet-targets.js'
@@ -59,7 +69,7 @@ export class MailKicker implements MailKickerContext {
   readonly mailKickerTargetOperations = new Map<string, Promise<void>>()
   readonly mailKickerForeignHomeAnnounced = new Map<string, string>()
   readonly mailKickerBirthDeferredAnnounced = new Map<string, string>()
-  readonly mailKickerBirthSweepBackoff = new Map<string, { attempts: number; nextAtMs: number }>()
+  readonly mailKickerBirthSweepBackoff = new Map<string, BirthSweepBackoff>()
   readonly mailKickerFailureNoticeBackoff = new Map<string, FailureNoticeBackoff>()
   readonly mailKickerLapsedRuntimes = new Set<string>()
   readonly mailKickerDisposalsPending = new Set<Promise<void>>()
@@ -159,6 +169,8 @@ export class MailKicker implements MailKickerContext {
           for (const target of due) this.wake(target, 'periodic')
           reminderRetryAt = due.length > 0 ? now + REMINDER_CHECK_TICKS * 1000 : 0
         }
+        // A refused birth retries at its backoff time, not the next sweep (T-13151).
+        wakeDueBirthRetries(this, now)
         // A coarse commit can belong to any project. Only the tail names
         // delivery targets; full recovery scans keep their independent clock.
         if (now >= nextSweepAt) {
@@ -185,7 +197,11 @@ export class MailKicker implements MailKickerContext {
         }
         const timeoutMs = Math.max(
           1000,
-          Math.min(25000, Math.min(nextSweepAt, reminderAt, nextDeferredWakeAt(this)) - Date.now())
+          Math.min(
+            25000,
+            Math.min(nextSweepAt, reminderAt, nextDeferredWakeAt(this), nextBirthRetryAt(this)) -
+              Date.now()
+          )
         )
         const started = Date.now()
         const result = await this.untilStopped(this.ledger.commitWait({ since: token, timeoutMs }))

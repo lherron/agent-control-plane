@@ -34,7 +34,8 @@ import { formatBacklogDigest, formatEnvelopePresentations } from '../ledger/pres
 import type { EnvelopePresentationForm, PresentableEnvelope } from '../ledger/presentation.js'
 import type { WrkqEnvelope } from '../ledger/types.js'
 import { failEnvelopeWithAudit } from '../terminal/envelope-terminal.js'
-import { presentationRuntimeIdFor } from './authority.js'
+import { scheduleParticipantHostRetry } from '../wake/birth-retry.js'
+import { participantHostRefusalFor, presentationRuntimeIdFor } from './authority.js'
 import { digestPresentationId } from './digest-group.js'
 import { landLaunchIfStarted, recordSteerFallback, steerRefusalFallback } from './landing.js'
 import type { ActionableEnvelope } from './presentation.js'
@@ -74,6 +75,27 @@ function isDefiniteDispatchRejection(error: unknown): error is HrcDomainError {
       isRetiredHostRejection(error) ||
       isLaunchCwdMissing(error))
   )
+}
+
+/**
+ * A refusal of a turn into an existing seat that proves nothing was written.
+ * HRC's participant gate refuses a parked host's address in turn admission,
+ * before any submission (T-13151), so it joins the dispatch proofs here. The
+ * launch door keeps its own classification.
+ */
+function isDefiniteSeatRejection(error: unknown): boolean {
+  return isDefiniteDispatchRejection(error) || participantHostRefusalFor(error) !== undefined
+}
+
+/** HRC knocked a parked participant's host: retry on the short clock, not the sweep. */
+function retryParkedParticipantSoon(
+  server: MailKickerContext,
+  targetSessionRef: string,
+  error: unknown
+): void {
+  const participantHost = participantHostRefusalFor(error)
+  if (participantHost !== undefined)
+    scheduleParticipantHostRetry(server, targetSessionRef, participantHost.reason)
 }
 
 /**
@@ -387,7 +409,8 @@ export async function deliverToSeat(
     // D2: a positively unwritten refusal leaves the envelope pending for the
     // next ordinary drive. Do not self-wake a persistent conflict into a loop.
     // A lost RPC response remains uncertain: the broker may have written.
-    if (isDefiniteDispatchRejection(error)) {
+    const notWritten = isDefiniteSeatRejection(error)
+    if (notWritten) {
       server.store.mailDelivery.clearIntent(item.envelope.id)
     } else {
       server.store.mailDelivery.markUncertain(item.envelope.id, 'dispatch_error', 'dispatch_error')
@@ -398,8 +421,9 @@ export async function deliverToSeat(
       envelope: item.envelope.id,
       door,
       error: errorText(error),
-      deliveryEvidence: isDefiniteDispatchRejection(error) ? 'not_written' : 'uncertain',
+      deliveryEvidence: notWritten ? 'not_written' : 'uncertain',
     })
+    retryParkedParticipantSoon(server, targetSessionRef, error)
     return 'refused'
   }
 
@@ -612,7 +636,8 @@ export async function deliverDigestToSeat(
       await failForMissingCwd(server, targetSessionRef, members, error, wakeReason)
       return { outcome: 'terminalized', members: members.length }
     }
-    if (isDefiniteDispatchRejection(error)) clearAll()
+    const notWritten = isDefiniteSeatRejection(error)
+    if (notWritten) clearAll()
     else uncertainAll('dispatch_error', 'dispatch_error')
     server.log('WARN', 'wrkq.kicker.delivery_failed', {
       targetSessionRef,
@@ -621,8 +646,9 @@ export async function deliverDigestToSeat(
       form: 'digest',
       door,
       error: errorText(error),
-      deliveryEvidence: isDefiniteDispatchRejection(error) ? 'not_written' : 'uncertain',
+      deliveryEvidence: notWritten ? 'not_written' : 'uncertain',
     })
+    retryParkedParticipantSoon(server, targetSessionRef, error)
     return { outcome: 'refused', members: members.length }
   }
 

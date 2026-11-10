@@ -45,6 +45,7 @@ import {
   BIRTH_SWEEP_BACKOFF_BASE_MS,
   BIRTH_SWEEP_MAX_REFUSALS,
   BIRTH_SWEEP_NOT_HOSTED_BASE_MS,
+  PARTICIPANT_HOST_FIRST_RETRY_MS,
   errorText,
 } from '../internal.js'
 import { targetSessionRefForLedgerScope } from '../ledger/scope.js'
@@ -275,4 +276,66 @@ export async function failUndeliverableMail(
     if (result.outcome === 'failed') failed++
   }
   return { failed }
+}
+
+/**
+ * Wake every target whose birth retry time has passed (T-13151).
+ *
+ * The backoff above used to be only a floor: nothing drove the target again
+ * until the next 300 s recovery sweep, so a 10 s or 60 s retry ran at up to
+ * five minutes. The ledger loop calls this on every pass (at most 25 s apart,
+ * and sooner when `nextBirthRetryAt` is nearer), so a retry runs at its time.
+ * Each scheduled time wakes once; a fresh refusal replaces the entry and arms
+ * the next one. The wake reason is the one the sweep's birth retries use.
+ */
+export function wakeDueBirthRetries(server: MailKickerContext, now: number): void {
+  for (const [targetSessionRef, backoff] of server.mailKickerBirthSweepBackoff) {
+    if (backoff.dueWoken === true || backoff.nextAtMs > now) continue
+    backoff.dueWoken = true
+    server.log('INFO', 'wrkq.kicker.birth_retry_due', {
+      targetSessionRef,
+      attempts: backoff.attempts,
+      lateMs: now - backoff.nextAtMs,
+    })
+    server.wake(targetSessionRef, 'periodic')
+  }
+}
+
+/** The earliest birth retry the ledger loop has not yet woken. */
+export function nextBirthRetryAt(server: MailKickerContext): number {
+  let next = Number.POSITIVE_INFINITY
+  for (const backoff of server.mailKickerBirthSweepBackoff.values()) {
+    if (backoff.dueWoken !== true) next = Math.min(next, backoff.nextAtMs)
+  }
+  return next
+}
+
+/**
+ * A turn at a parked participant's address was refused before anything was
+ * written (`participant_attempt_absorbing` or `participant_substitution`), and
+ * HRC knocked its host. No birth backoff applies to a turn door, so without
+ * this the next drive is the recovery sweep. Schedule one on the same clock:
+ * 10 s first, then the ordinary doubling. The sweep prunes the entry once the
+ * target is seated or no longer owed a birth, which also resets the doubling.
+ */
+export function scheduleParticipantHostRetry(
+  server: MailKickerContext,
+  targetSessionRef: string,
+  reason: string
+): void {
+  const attempts = (server.mailKickerBirthSweepBackoff.get(targetSessionRef)?.attempts ?? 0) + 1
+  const nextAttemptInMs =
+    attempts === 1
+      ? PARTICIPANT_HOST_FIRST_RETRY_MS
+      : BIRTH_SWEEP_BACKOFF_BASE_MS * 2 ** (attempts - 1)
+  server.mailKickerBirthSweepBackoff.set(targetSessionRef, {
+    attempts,
+    nextAtMs: Date.now() + nextAttemptInMs,
+  })
+  server.log('INFO', 'wrkq.kicker.participant_host_retry', {
+    targetSessionRef,
+    participantHostRefusal: reason,
+    attempts,
+    nextAttemptInMs,
+  })
 }

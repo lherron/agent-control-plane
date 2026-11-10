@@ -38,6 +38,7 @@ import {
   kickerScopeRefFor,
   liveRuntimeHomeElsewhere,
   localPlacementRefusalFor,
+  participantHostRefusalFor,
   participantOnlyRefusalFor,
   skipForeignHomedTarget,
 } from './authority.js'
@@ -163,11 +164,13 @@ async function birthForTarget(
         wakeReason
       )
     }
+    const participantHost = participantHostRefusalFor(error)
     server.log('WARN', 'wrkq.kicker.birth_failed', {
       targetSessionRef,
       wakeReason,
       envelope: summons.envelope.id,
       error: errorText(error),
+      ...(participantHost === undefined ? {} : { participantHostRefusal: participantHost.reason }),
     })
     if (scopeRef !== undefined) {
       server.store.mailDelivery.recordBirthRefusal({
@@ -214,7 +217,7 @@ async function birthForTarget(
     }
     const intent = server.store.mailDelivery.getIntent(summons.envelope.id)
     if (intent?.door === 'launch') {
-      await recoverFailedLaunch(server, intent, errorText(error))
+      await recoverFailedLaunch(server, intent, errorText(error), participantHost)
       return { outcome: 'birth-refused', launchRetry: true }
     }
     return { outcome: 'birth-refused' }

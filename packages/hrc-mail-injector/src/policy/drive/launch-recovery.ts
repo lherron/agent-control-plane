@@ -1,6 +1,10 @@
 import type { HrcMailDeliveryIntent } from 'hrc-injector-core'
 import type { MailKickerContext } from '../context.js'
-import { BIRTH_SWEEP_BACKOFF_BASE_MS, parseSessionRef } from '../internal.js'
+import {
+  BIRTH_SWEEP_BACKOFF_BASE_MS,
+  PARTICIPANT_HOST_FIRST_RETRY_MS,
+  parseSessionRef,
+} from '../internal.js'
 import { failEnvelopeWithAudit } from '../terminal/envelope-terminal.js'
 
 /** The launch bound belongs to the envelope, independently of scope backoff. */
@@ -24,11 +28,19 @@ export async function failExhaustedLaunch(
   return true
 }
 
-/** Release only a launch intent; broker submission uncertainty keeps its fence. */
+/**
+ * Release only a launch intent; broker submission uncertainty keeps its fence.
+ *
+ * `participantHost` is the typed reason when HRC refused because the address's
+ * participant host is not serving (T-13151): its first retry is short, because
+ * HRC knocked the host in the same refusal. Later attempts keep the ordinary
+ * doubling, so the envelope's three-attempt launch bound still spans minutes.
+ */
 export async function recoverFailedLaunch(
   server: MailKickerContext,
   intent: HrcMailDeliveryIntent,
-  error: string
+  error: string,
+  participantHost?: { reason: string }
 ): Promise<void> {
   const current = server.store.mailDelivery.getIntent(intent.envelopeId)
   if (current?.presentationId !== intent.presentationId || current.door !== 'launch') return
@@ -52,7 +64,10 @@ export async function recoverFailedLaunch(
   })
   server.store.mailDelivery.clearIntent(intent.envelopeId)
   server.mailKickerStalledDeliveryAnnounced.delete(intent.envelopeId)
-  const nextAttemptInMs = BIRTH_SWEEP_BACKOFF_BASE_MS * 2 ** (attempts - 1)
+  const nextAttemptInMs =
+    participantHost !== undefined && attempts === 1
+      ? PARTICIPANT_HOST_FIRST_RETRY_MS
+      : BIRTH_SWEEP_BACKOFF_BASE_MS * 2 ** (attempts - 1)
   server.mailKickerBirthSweepBackoff.set(intent.targetSessionRef, {
     attempts,
     nextAtMs: Date.now() + nextAttemptInMs,
@@ -63,6 +78,7 @@ export async function recoverFailedLaunch(
     presentationId: intent.presentationId,
     attempts,
     error,
+    ...(participantHost === undefined ? {} : { participantHostRefusal: participantHost.reason }),
     nextAttemptInMs,
   })
   await failExhaustedLaunch(server, intent.envelopeId, intent.targetSessionRef)
