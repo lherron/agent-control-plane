@@ -195,3 +195,48 @@ class Scoring(TestCase):
         self.assertEqual(r['gate']['new_envelopes'],2)
         self.assertEqual(r['counts_by_cohort']['backlog'],{'cannot_decide':1})
         self.assertEqual(r['gate_cohort'],'created_in_preview_window')
+
+    def test_rescore_preserves_previous_files_and_discloses_class_and_headline_changes(self):
+        from copy import deepcopy
+        original=self.run_score([self.row(1),self.row(4,'enqueue')])
+        md,js=write_report(original,self.root/'out')
+        old_json=js.read_bytes();old_md=md.read_bytes()
+        revised=deepcopy(original);revised['scorer_source_commit']='fixed-scorer'
+        revised['rows'][1]['classification']='agreed'
+        revised['gate']['new_compared_and_agreed']+=1
+        revised['gate']['new_uncompared']+=1
+        revised['gate']['new_uncompared_share']=0.5
+        md,js=write_report(revised,self.root/'out',scorer_change='Correct the first-state intent join.')
+        result=json.loads(js.read_text());audit=result['rescore']
+        self.assertEqual(audit['old_scorer_commit'],'fixture-scorer')
+        self.assertEqual(audit['new_scorer_commit'],'fixed-scorer')
+        self.assertEqual(audit['class_moves'],[dict(envelope_id='EN-4',old_class='differed_defect',new_class='agreed')])
+        self.assertEqual(audit['moved_out_of_defect'],['EN-4'])
+        self.assertTrue(audit['headline_changes'])
+        self.assertEqual((md.parent/audit['superseded_json']).read_bytes(),old_json)
+        self.assertEqual((md.parent/audit['superseded_markdown']).read_bytes(),old_md)
+        text=md.read_text();self.assertIn('Correct the first-state intent join.',text)
+        self.assertIn('Moved out of differed_defect: EN-4',text)
+        self.assertIn('Headline numbers changed:',text)
+        self.assertLess(text.index('Re-score:'),text.index('New injector-delivered:'))
+
+    def test_rescore_matching_result_is_explicit_and_different_window_is_not_a_rescore(self):
+        from copy import deepcopy
+        original=self.run_score([self.row(1)])
+        write_report(original,self.root/'out')
+        revised=deepcopy(original);revised['scorer_source_commit']='new-scorer'
+        md,_=write_report(revised,self.root/'out',scorer_change='Add report provenance only.')
+        self.assertIn('Re-score matches the previous result.',md.read_text())
+        revised['since']='2026-11-10T12:00:00Z'
+        md,js=write_report(revised,self.root/'other-window',previous=self.root/'out/score-2026-11-10.json',scorer_change='Different interval.')
+        self.assertNotIn('rescore',json.loads(js.read_text()))
+
+    def test_explicit_previous_score_is_copied_beside_separately_named_rescore(self):
+        from copy import deepcopy
+        original=self.run_score([self.row(1)])
+        _,previous=write_report(original,self.root/'original')
+        revised=deepcopy(original);revised['scorer_source_commit']='new-scorer'
+        _,result=write_report(revised,self.root/'rescored',previous=previous,scorer_change='Report-only correction.')
+        audit=json.loads(result.read_text())['rescore']
+        self.assertTrue((result.parent/audit['superseded_json']).is_file())
+        self.assertTrue(previous.is_file())

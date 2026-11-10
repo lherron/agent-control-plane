@@ -480,19 +480,72 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
     }
 
 
-def write_report(report: dict, out: Path | str) -> tuple[Path, Path]:
+def _rescore(report, previous, directory, change):
+    """Retain the earlier record before replacing a report of the same window."""
+    import hashlib
+    import shutil
+    old_bytes = previous.read_bytes()
+    old = json.loads(old_bytes)
+    if any(old.get(key) != report.get(key) for key in ('day', 'since', 'until')):
+        return None
+    old_commit = old.get('scorer_source_commit', old.get('source_commit', 'unknown'))
+    digest = hashlib.sha256(old_bytes).hexdigest()[:12]
+    stem = 'score-' + report['day'] + '-superseded-' + digest
+    archived_json = directory / (stem + '.json')
+    archived_json.write_bytes(old_bytes)
+    archived_md = directory / (stem + '.md')
+    if previous.with_suffix('.md').exists() and not archived_md.exists():
+        shutil.copyfile(previous.with_suffix('.md'), archived_md)
+    before = {row['envelope_id']: row['classification'] for row in old['rows']}
+    after = {row['envelope_id']: row['classification'] for row in report['rows']}
+    moves = [dict(envelope_id=identifier, old_class=before.get(identifier), new_class=after.get(identifier))
+             for identifier in sorted(before.keys() | after.keys()) if before.get(identifier) != after.get(identifier)]
+    headline_keys = ('new_injector_delivered', 'new_compared_and_agreed', 'new_uncompared',
+                     'new_envelopes', 'new_uncompared_share')
+    headlines = {key: dict(old=old.get('gate', {}).get(key), new=report['gate'].get(key))
+                 for key in headline_keys if old.get('gate', {}).get(key) != report['gate'].get(key)}
+    if not change and old_commit != report['scorer_source_commit']:
+        import subprocess
+        change = subprocess.check_output(['git', 'show', '-s', '--format=%s', report['scorer_source_commit']],
+            cwd=Path(__file__).resolve().parents[3], text=True).strip()
+    return dict(old_scorer_commit=old_commit, new_scorer_commit=report['scorer_source_commit'],
+        scorer_change=change or 'Same scorer; refreshed evidence.',
+        class_moves=moves, headline_changes=headlines,
+        moved_out_of_defect=[m['envelope_id'] for m in moves if m['old_class'] == 'differed_defect'],
+        matches=not moves and not headlines, superseded_json=archived_json.name,
+        superseded_markdown=archived_md.name if archived_md.exists() else None)
+
+
+def write_report(report: dict, out: Path | str, *, previous=None, scorer_change=None) -> tuple[Path, Path]:
     if not report.get('installed_program_commit') or not report.get('scorer_source_commit'):
         raise ValueError('both installed program and scorer commits are required')
     directory = Path(out)
     directory.mkdir(parents=True, exist_ok=True)
     json_path = directory / ('score-' + report['day'] + '.json')
     markdown_path = directory / ('score-' + report['day'] + '.md')
+    previous_path = Path(previous) if previous else json_path
+    report.pop('rescore', None)
+    if previous_path.exists():
+        audit = _rescore(report, previous_path, directory, scorer_change)
+        if audit is not None:
+            report['rescore'] = audit
     json_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n')
     gate = report['gate']
     lines = [f"# Mail delivery shadow — {report['day']} (UTC)", '',
              'Installed program commit: ' + report['installed_program_commit'], '',
-             'Scorer commit: ' + report['scorer_source_commit'], '',
-             f"New injector-delivered: {gate['new_injector_delivered']}; compared and agreed: {gate['new_compared_and_agreed']}.", '',
+             'Scorer commit: ' + report['scorer_source_commit'], '']
+    if 'rescore' in report:
+        audit = report['rescore']
+        lines += ['Re-score: ' + audit['old_scorer_commit'] + ' → ' + audit['new_scorer_commit'] + '.', '',
+                  'Scorer change: ' + audit['scorer_change'], '',
+                  'Superseded report: ' + audit['superseded_json'], '']
+        if audit['matches']:
+            lines += ['Re-score matches the previous result.', '']
+        else:
+            lines += ['Envelope class movements: ' + (json.dumps(audit['class_moves'], sort_keys=True) if audit['class_moves'] else 'none'), '',
+                      'Moved out of differed_defect: ' + (', '.join(audit['moved_out_of_defect']) or 'none'), '',
+                      'Headline numbers changed: ' + (json.dumps(audit['headline_changes'], sort_keys=True) if audit['headline_changes'] else 'none'), '']
+    lines += [f"New injector-delivered: {gate['new_injector_delivered']}; compared and agreed: {gate['new_compared_and_agreed']}.", '',
              f"New left uncompared: {gate['new_uncompared']}/{gate['new_envelopes']} ({gate['new_uncompared_share']:.1%}).", '',
              'Compared capability sources: ' + json.dumps(gate['capability_sources'], sort_keys=True), '',
              'Compared home sources: ' + json.dumps(gate['home_sources'], sort_keys=True) + '; binding predates admission proven: ' + str(gate['home_bindings_proven_before_admission']), '',
@@ -546,6 +599,8 @@ def main():
     parser.add_argument('--preview', action='store_true', help='bounded preview may span UTC dates; cohort is created within since/until')
     parser.add_argument('--program-commit', required=True, help='commit of the installed program that wrote these records')
     parser.add_argument('--scorer-commit', help='explicit scorer commit; defaults to this canonical checkout HEAD')
+    parser.add_argument('--previous-score', type=Path, help='earlier JSON for the same window; otherwise compare the existing output')
+    parser.add_argument('--scorer-change', help='one line explaining a re-score; defaults to the scorer commit subject')
     parser.add_argument('--since', help='inclusive ISO UTC window start, e.g. first program start')
     parser.add_argument('--until', help='exclusive ISO UTC window end')
     args = parser.parse_args()
@@ -558,7 +613,9 @@ def main():
     report.update(installed_program_commit=args.program_commit,
         scorer_source_commit=args.scorer_commit or subprocess.check_output(
             ['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).resolve().parents[3], text=True).strip())
-    for path in write_report(report, args.out):
+    change = args.scorer_change or subprocess.check_output(['git', 'show', '-s', '--format=%s', report['scorer_source_commit']],
+        cwd=Path(__file__).resolve().parents[3], text=True).strip()
+    for path in write_report(report, args.out, previous=args.previous_score, scorer_change=change):
         print(path)
 
 

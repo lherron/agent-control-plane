@@ -162,3 +162,10 @@ that can span midnight. Its new cohort is created within that interval. Daily
 reports retain their UTC-day cohort. Injector evidence is bounded by the report
 cutoff, so later admissions cannot inflate an earlier delivered count; daily
 reports may still use the following day's evidence when scoring after midnight.
+
+Scorer re-runs of the same `since`/`until` window preserve the superseded JSON
+and Markdown beside the new report. The header records both scorer commits,
+the change, every moved envelope class, departures from `differed_defect`, and
+headline changes; an unchanged result says so. `--previous-score <JSON>`
+compares a separately named earlier report; `--scorer-change` supplies the
+one-line explanation (otherwise the scorer commit subject is used).
