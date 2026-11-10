@@ -208,7 +208,7 @@ def first_delivery_comparison(identifier, observations, deliveries, required=Fal
         return dict(base, classification='cannot_decide', cannot_decide_kind='shadow_input_gap',
                     missing_field='first_delivery.snapshot_missing')
     reconstructed = snapshot.get('basis') == 'reconstructed'
-    chosen = admission['intent'] if admission else intent
+    chosen = admission['intent'] if reconstructed and admission else intent
     if reconstructed and (admission is None or snapshot.get('runtime_id') != admission['runtime_id']
                           or snapshot['at'] != admission['at']):
         return dict(base, classification='cannot_decide', cannot_decide_kind='injector_evidence_unmapped',
@@ -462,6 +462,8 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
 
 
 def write_report(report: dict, out: Path | str) -> tuple[Path, Path]:
+    if not report.get('installed_program_commit') or not report.get('scorer_source_commit'):
+        raise ValueError('both installed program and scorer commits are required')
     directory = Path(out)
     directory.mkdir(parents=True, exist_ok=True)
     json_path = directory / ('score-' + report['day'] + '.json')
@@ -469,6 +471,8 @@ def write_report(report: dict, out: Path | str) -> tuple[Path, Path]:
     json_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n')
     gate = report['gate']
     lines = [f"# Mail delivery shadow — {report['day']} (UTC)", '',
+             'Installed program commit: ' + report['installed_program_commit'], '',
+             'Scorer commit: ' + report['scorer_source_commit'], '',
              f"New injector-delivered: {gate['new_injector_delivered']}; compared and agreed: {gate['new_compared_and_agreed']}.", '',
              f"New left uncompared: {gate['new_uncompared']}/{gate['new_envelopes']} ({gate['new_uncompared_share']:.1%}).", '',
              'Compared capability sources: ' + json.dumps(gate['capability_sources'], sort_keys=True), '',
@@ -518,11 +522,21 @@ def main():
                         default=Path.home() / 'praesidium/var/logs/hrc-runtime/hrc-mail-injector.log')
     parser.add_argument('--day', required=True)
     parser.add_argument('--out', required=True, type=Path)
+    parser.add_argument('--program-commit', required=True, help='commit of the installed program that wrote these records')
+    parser.add_argument('--scorer-commit', help='explicit scorer commit; defaults to this canonical checkout HEAD')
     parser.add_argument('--since', help='inclusive ISO UTC window start, e.g. first program start')
     parser.add_argument('--until', help='exclusive ISO UTC window end')
     args = parser.parse_args()
-    for path in write_report(score(args.shadow_log, args.injector_db, args.day,
-                                  since=args.since, until=args.until, injector_log=args.injector_log), args.out):
+    import subprocess
+    import sys
+    subprocess.run([sys.executable, '-m', 'unittest', 'tests.test_live_score_regression'],
+                   cwd=Path(__file__).resolve().parents[1], check=True)
+    report = score(args.shadow_log, args.injector_db, args.day,
+                   since=args.since, until=args.until, injector_log=args.injector_log)
+    report.update(installed_program_commit=args.program_commit,
+        scorer_source_commit=args.scorer_commit or subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).resolve().parents[3], text=True).strip())
+    for path in write_report(report, args.out):
         print(path)
 
 

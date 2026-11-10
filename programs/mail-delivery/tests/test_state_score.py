@@ -228,12 +228,12 @@ class StateScoring(TestCase):
         self.assertEqual(report['rows'][0]['classification'],'agreed')
         self.assertEqual(len(report['rows'][0]['observation_scores']),1)
 
-    def test_observed_first_action_compares_with_admitted_door_not_refused_attempt(self):
+    def test_observed_first_action_compares_with_same_state_intent_before_later_retry(self):
         observed=self.observation('steer')
         observed.update(envelope_state='pending',envelope_state_at='2026-11-10T12:00:00Z')
         events=[self.event('delivery_intent',at='2026-11-10T12:00:58Z',envelope='EN-1',runtimeId='rt-1',door='steer'),
                 self.event('delivery_intent',at='2026-11-10T12:01:02Z',envelope='EN-1',runtimeId='rt-1',door='enqueue'),
                 self.event('delivery_admitted',at='2026-11-10T12:01:03Z',envelope='EN-1',runtimeId='rt-1',door='enqueue')]
         first=self.run_state_score([observed],events)['rows'][0]['first_delivery_comparison']
-        self.assertEqual(first['classification'],'differed_defect')
-        self.assertEqual(first['injector_decision'],'enqueue')
+        self.assertEqual(first['classification'],'agreed')
+        self.assertEqual(first['injector_decision'],'steer')

@@ -58,6 +58,7 @@ Run the operator report from `programs/mail-delivery`:
 ```sh
 python3 -m mail_delivery.score \
   --injector-db "$HOME/praesidium/var/state/acp/hrc-mail-injector.sqlite" \
+  --program-commit 81a6853246541f514432aff41ec6c51a62c06270 \
   --day 2026-11-10 \
   --out "$HOME/praesidium/var/wrkq-artifacts/T-13270"
 ```
@@ -130,3 +131,15 @@ is labelled too. No capability is derived from a door.
 
 Injector completions belong to the state in which their drive began, including
 a drive whose completion straddles wrkq's second-resolution presentation time.
+
+The gate distinguishes the installed program revision from the operator scorer
+revision. Fix/re-run the scorer from this canonical checkout without replacing
+the running program. Every written report requires both
+`installed_program_commit` and `scorer_source_commit`; Markdown prints both.
+The CLI requires `--program-commit`, derives its own checkout commit (or accepts
+`--scorer-commit`), and runs the fixed real-record regressions before reading
+live evidence. API/monitor callers must run
+`python3 -m unittest tests.test_live_score_regression` before using a changed
+scorer. Versioned inputs preserve the accepted hour's two known agreements, six
+cache defects, and EN-50888's drive-phase boundary. No installed-program restart
+is required by an operator scorer change.

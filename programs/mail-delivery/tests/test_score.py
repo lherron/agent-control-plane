@@ -45,7 +45,9 @@ class Scoring(TestCase):
     def run_score(self, rows):
         log = self.root / 'shadow.jsonl'
         log.write_text(''.join(json.dumps(row)+'\n' for row in rows))
-        return score(log, self.db, '2026-11-10')
+        report=score(log, self.db, '2026-11-10')
+        report.update(installed_program_commit='fixture-program',scorer_source_commit='fixture-scorer')
+        return report
 
     def test_five_classes_timing_and_real_rows_retained(self):
         rows = [self.row(1), self.row(2, 'enqueue', difference={'kind': 'design', 'reason': 'approved_change'}),
@@ -168,3 +170,14 @@ class Scoring(TestCase):
         md, _ = write_report(report, self.root/'out')
         self.assertIn('decision_failed: 2', md.read_text())
         self.assertIn('EN-99', md.read_text())
+
+    def test_report_requires_program_and_scorer_provenance(self):
+        report=self.run_score([self.row(1)])
+        report.pop('installed_program_commit',None)
+        report.pop('scorer_source_commit',None)
+        with self.assertRaisesRegex(ValueError,'commits'):
+            write_report(report,self.root/'out')
+        report.update(installed_program_commit='program-revision',scorer_source_commit='scorer-revision')
+        md,_=write_report(report,self.root/'out')
+        self.assertIn('Installed program commit: program-revision',md.read_text())
+        self.assertIn('Scorer commit: scorer-revision',md.read_text())
