@@ -260,3 +260,15 @@ class StateScoring(TestCase):
         r=score(log,self.db,'2026-11-10',until='2026-11-10T12:01:10Z',injector_log=injector)
         self.assertEqual(r['gate']['new_injector_delivered'],0)
         self.assertEqual(r['rows'][0]['classification'],'pending_evidence')
+
+    def test_second_precision_state_end_includes_same_second_but_precise_end_stays_strict(self):
+        import sqlite3
+        with sqlite3.connect(self.db) as connection:
+            connection.execute('DELETE FROM hrcmail_delivery_intents WHERE envelope_id=?', ('EN-1',))
+        pending=self.observation('steer');pending.update(envelope_state='pending',envelope_state_at='2026-11-10T12:00:00Z')
+        intent=self.event('delivery_intent',at='2026-11-10T12:01:02.521Z',envelope='EN-1',door='steer',form='full',runtimeId='rt-1')
+        for boundary,expected in [('2026-11-10T12:01:02Z','agreed'),('2026-11-10T12:01:02.000Z','differed_defect')]:
+            with self.subTest(boundary=boundary):
+                terminal=dict(pending,envelope_state='terminal',envelope_state_at=boundary,decided_at='2026-11-10T12:01:03.000Z',decision=dict(action='hold',reason='envelope_terminal'))
+                r=self.run_state_score([pending,terminal],[intent])
+                self.assertEqual(r['rows'][0]['observation_scores'][0]['classification'],expected)

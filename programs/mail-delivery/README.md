@@ -181,3 +181,10 @@ A different invocation or missing pre-admission proof remains
 `first_delivery.invocation_at_admission`; runtime replacement remains explicit.
 The later probe supplies only frozen invocation capabilities, never past seat
 state. Null later classes stay unknown.
+
+State-end timestamps from wrkq can have only whole-second precision. The scorer
+includes that final second, while explicit fractional-second boundaries remain
+strict; otherwise a matching injector intent can be incorrectly excluded. Real
+record EN-50982 is retained in the fixed scorer preflight beside the accepted
+hour and EN-50888 phase cases. Explicit presentation receipts still bound the
+pending state.

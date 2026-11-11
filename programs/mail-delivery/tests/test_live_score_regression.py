@@ -44,3 +44,15 @@ class LiveScorerRegression(TestCase):
         phase=self.fixture['phase'];row=next(v for v in r['rows'] if v['envelope_id']==phase['envelope_id'])
         observation=next(v for v in row['observation_scores'] if v['decided_at']==phase['observation_at'])
         self.assertEqual(observation['classification'],phase['expected'])
+
+    def test_EN_50982_second_precision_terminal_fence_keeps_its_matching_steer(self):
+        fixed=json.loads((Path(__file__).parent/'fixtures/scorer-live-20261111-EN50982.json').read_text())
+        canonical=str(Path.home()/'praesidium/var/run/praesidium/kernel.sock')
+        self.shadow.write_text(''.join(json.dumps(dict(r,kernel_socket=canonical))+'\n' for r in fixed['shadow']))
+        self.injector.write_text(''.join(json.dumps(r)+'\n' for r in fixed['injector']))
+        report=score(self.shadow,self.db,'2026-11-11',since='2026-11-11T00:07:00Z',until='2026-11-11T00:15:00Z',injector_log=self.injector)
+        row=report['rows'][0]
+        self.assertEqual(row['classification'],'agreed')
+        observed=next(r for r in row['observation_scores'] if r['decided_at']=='2026-11-11T00:07:12.807Z')
+        self.assertEqual(observed['classification'],'agreed')
+        self.assertEqual(observed['evidence'][0],'2026-11-11T00:07:25.521Z')

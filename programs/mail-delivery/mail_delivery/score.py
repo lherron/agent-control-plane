@@ -27,6 +27,12 @@ def epoch_ms(value: str) -> int:
     return int(parsed.timestamp() * 1000)
 
 
+def state_end_ms(value: str) -> int:
+    # wrkq updatedAt has whole-second precision. Its transition can occur
+    # anywhere in that second; an explicit millisecond fence stays exact.
+    return epoch_ms(value) + (1000 if '.' not in value else 0)
+
+
 def _decision(value):
     action = value['action']
     if action not in ('steer', 'enqueue', 'launch', 'preempt', 'hold', 'defer', 'skip', 'fail', 'cannot_decide'):
@@ -127,9 +133,10 @@ def comparison(shadow, intent, diagnostic, legacy_evidence, log_evidence, state_
         decided = epoch_ms(shadow['decided_at'])
         deadline = decided + 300000
         nonact = action in ('hold', 'defer')
-        for boundary in (state_until, observation_until if nonact else None):
-            if boundary:
-                deadline = min(deadline, epoch_ms(boundary))
+        if state_until:
+            deadline = min(deadline, state_end_ms(state_until))
+        if nonact and observation_until:
+            deadline = min(deadline, epoch_ms(observation_until))
         retry = shadow['decision'].get('retry_at')
         if nonact and retry is not None and retry > decided:
             deadline = min(deadline, retry)
@@ -475,6 +482,7 @@ def score(shadow_log: Path | str, injector_db: Path | str, day: str, *, since=No
         'evidence_limit': ('State-aware rows require a state-transition time. Exact-envelope evidence is within 300 s; '
                           'target-only evidence within 30 s. Earlier admissions never score a current intent/reminder hold. '
                           'Closed windows with no injector act agree by inaction for hold/defer and are defects for acts. '
+                          'Whole-second owner state-end fences include that second; precise fences stay exact. '
                           'Only open windows remain pending_evidence. DB tables retain latest rows, not history.'),
         'rows': rows,
     }

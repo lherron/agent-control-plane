@@ -2,7 +2,7 @@
 from collections import defaultdict
 import json
 from pathlib import Path
-from .score import epoch_ms, _door
+from .score import epoch_ms, state_end_ms, _door
 from . import timings as t
 
 
@@ -184,7 +184,7 @@ class InjectorEvidence:
             # comparison. Absence never authorizes matching an old row.
             return None
         begin = epoch_ms(begin_value)
-        end = epoch_ms(state_until) if state_until else float('inf')
+        end = state_end_ms(state_until) if state_until else float('inf')
         decided = epoch_ms(shadow['decided_at'])
         if state == 'pending':
             # The watch can miss a short presented state before an ack. Its
