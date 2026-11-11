@@ -1,5 +1,6 @@
 /** Desired ownership is a preference; only the dedicated SQLite lock admits delivery. */
 import { Database } from 'bun:sqlite'
+import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { StartedMailInjector } from './index.js'
 
@@ -27,59 +28,90 @@ type Log = (
 ) => void
 
 export class DeliveryOwner {
-  private db: Database
+  private db: Database | undefined
+  private reader: Database | undefined
   private ready = false
-  constructor(path: string) {
-    this.db = new Database(path, { create: true })
-    this.db.exec('PRAGMA busy_timeout=1000')
+  private last: OwnerRow = {
+    owner: 'injector',
+    changed_at: null,
+    delivering_owner: null,
+    delivering_pid: null,
+    delivering_since: null,
   }
-  private ensure() {
+  constructor(private path: string) {}
+  private ensure(): Database {
+    if (!this.db) {
+      this.db = new Database(this.path, { create: true })
+      this.db.exec('PRAGMA busy_timeout=1000')
+    }
     if (!this.ready) {
       this.db.exec(OWNER_SCHEMA)
       this.ready = true
     }
+    return this.db
   }
   read(): OwnerRow {
-    this.ensure()
-    return (
-      this.db.query<OwnerRow, []>('SELECT * FROM delivery_owner WHERE singleton = 1').get() ?? {
+    if (!this.reader) {
+      if (!existsSync(this.path)) return { ...this.last }
+      this.reader = new Database(this.path, { readonly: true })
+      this.reader.exec('PRAGMA busy_timeout=0')
+    }
+    try {
+      this.last = this.reader
+        .query<OwnerRow, []>('SELECT * FROM delivery_owner WHERE singleton = 1')
+        .get() ?? {
         owner: 'injector',
         changed_at: null,
         delivering_owner: null,
         delivering_pid: null,
         delivering_since: null,
       }
-    )
+    } catch (error) {
+      if (error instanceof Error && error.message === 'no such table: delivery_owner') {
+        this.last = {
+          owner: 'injector',
+          changed_at: null,
+          delivering_owner: null,
+          delivering_pid: null,
+          delivering_since: null,
+        }
+      } else if (
+        !(
+          error instanceof Error &&
+          'code' in error &&
+          (error.code === 'SQLITE_BUSY' || error.code === 'SQLITE_LOCKED')
+        )
+      ) {
+        throw error
+      }
+    }
+    return { ...this.last }
   }
   setOwner(owner: Owner) {
-    this.ensure()
-    this.db
-      .query(
-        'INSERT INTO delivery_owner (singleton, owner, changed_at) VALUES (1, ?, ?) ON CONFLICT(singleton) DO UPDATE SET owner=excluded.owner, changed_at=excluded.changed_at'
-      )
-      .run(owner, new Date().toISOString())
+    const db = this.ensure()
+    db.query(
+      'INSERT INTO delivery_owner (singleton, owner, changed_at) VALUES (1, ?, ?) ON CONFLICT(singleton) DO UPDATE SET owner=excluded.owner, changed_at=excluded.changed_at'
+    ).run(owner, new Date().toISOString())
   }
   report(owner: Owner, pid: number) {
-    this.ensure()
-    this.db
-      .query(
-        "INSERT OR IGNORE INTO delivery_owner (singleton, owner, changed_at) VALUES (1, 'injector', ?)"
-      )
-      .run(new Date().toISOString())
-    this.db
-      .query(
-        'UPDATE delivery_owner SET delivering_owner=?, delivering_pid=?, delivering_since=? WHERE singleton=1'
-      )
-      .run(owner, pid, new Date().toISOString())
+    const db = this.ensure()
+    db.query(
+      "INSERT OR IGNORE INTO delivery_owner (singleton, owner, changed_at) VALUES (1, 'injector', ?)"
+    ).run(new Date().toISOString())
+    db.query(
+      'UPDATE delivery_owner SET delivering_owner=?, delivering_pid=?, delivering_since=? WHERE singleton=1'
+    ).run(owner, pid, new Date().toISOString())
   }
   clear() {
-    this.ensure()
-    this.db.exec(
+    const db = this.db
+    if (!db) return
+    db.exec(
       'UPDATE delivery_owner SET delivering_owner=NULL, delivering_pid=NULL, delivering_since=NULL WHERE singleton=1'
     )
   }
   close() {
-    this.db.close()
+    this.reader?.close()
+    this.db?.close()
   }
 }
 

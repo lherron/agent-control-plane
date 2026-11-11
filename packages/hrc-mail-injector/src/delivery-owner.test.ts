@@ -1,5 +1,6 @@
+import { Database } from 'bun:sqlite'
 import { afterEach, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DelivererLock, DeliveryOwner, InjectorOwnerLoop } from './delivery-owner.js'
@@ -118,6 +119,34 @@ test('standby startup remains launchd compatible; stop forbids future starts', a
     await loop.step()
   } finally {
     lock.close()
+    flag.close()
+  }
+})
+
+test('reads create neither database nor table and retain last owner on busy', () => {
+  const path = statePath()
+  const flag = new DeliveryOwner(path)
+  expect(flag.read().owner).toBe('injector')
+  expect(existsSync(path)).toBe(false)
+  const db = new Database(path, { create: true })
+  try {
+    db.exec('CREATE TABLE existing (id)')
+    const before = readFileSync(path)
+    expect(flag.read().owner).toBe('injector')
+    expect(readFileSync(path)).toEqual(before)
+    flag.setOwner('port')
+    expect(flag.read().owner).toBe('port')
+    db.exec('BEGIN EXCLUSIVE')
+    expect(flag.read().owner).toBe('port')
+    const cold = new DeliveryOwner(path)
+    try {
+      expect(cold.read().owner).toBe('injector')
+    } finally {
+      cold.close()
+    }
+    db.exec('ROLLBACK')
+  } finally {
+    db.close()
     flag.close()
   }
 })

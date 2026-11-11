@@ -5,10 +5,11 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import sqlite3
 import unittest
 from types import SimpleNamespace
 
-from mail_delivery.delivery_owner import DeliveryOwner
+from mail_delivery.delivery_owner import DeliveryOwner, flip
 from mail_delivery.deliverer_lock import DelivererLock
 from mail_delivery.main import EntryLoop
 
@@ -32,6 +33,73 @@ class Ownership(unittest.TestCase):
         self.flag.set_owner('injector')
         with self.assertRaises(ValueError):
             self.flag.set_owner('invalid')
+
+    def test_reads_create_neither_database_nor_table(self):
+        self.assertEqual(self.flag.read()['owner'], 'injector')
+        self.assertFalse(self.path.exists())
+        with sqlite3.connect(self.path) as db:
+            db.execute('CREATE TABLE existing (id)')
+        before = self.path.read_bytes()
+        self.assertEqual(self.flag.read()['owner'], 'injector')
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_busy_read_keeps_last_owner(self):
+        self.flag.set_owner('port')
+        self.assertEqual(self.flag.read()['owner'], 'port')
+        db = sqlite3.connect(self.path, isolation_level=None)
+        try:
+            db.execute('BEGIN EXCLUSIVE')
+            self.assertEqual(self.flag.read()['owner'], 'port')
+            cold = DeliveryOwner(self.path)
+            try:
+                self.assertEqual(cold.read()['owner'], 'injector')
+            finally:
+                cold.close()
+        finally:
+            db.close()
+
+    def test_port_flip_refuses_unready_reporting_without_writes(self):
+        for reported, pid in ((None, None), ('port', os.getpid()), ('injector', 987654)):
+            with self.subTest(reported=reported):
+                if reported:
+                    self.flag.report(reported, pid)
+                before = self.path.read_bytes() if self.path.exists() else None
+                with self.assertRaisesRegex(RuntimeError, 'deploy the flag-following injector'):
+                    flip(self.flag, 'port', timeout=0)
+                self.assertEqual(self.path.read_bytes() if self.path.exists() else None, before)
+
+    def test_port_flip_missing_row_refused_and_empty_database_rollback_allowed(self):
+        from mail_delivery.delivery_owner import SCHEMA
+        with sqlite3.connect(self.path) as db:
+            db.execute(SCHEMA)
+        before = self.path.read_bytes()
+        with self.assertRaisesRegex(RuntimeError, 'deploy the flag-following injector'):
+            flip(self.flag, 'port', timeout=0)
+        self.assertEqual(self.path.read_bytes(), before)
+        with self.assertRaises(TimeoutError):
+            flip(self.flag, 'injector', timeout=0)
+        self.assertEqual(self.flag.read()['owner'], 'injector')
+
+    def test_port_flip_accepts_live_injector_and_rollback_always_works(self):
+        self.flag.report('injector', os.getpid())
+        with self.assertRaises(TimeoutError):
+            flip(self.flag, 'port', timeout=0)
+        self.assertEqual(self.flag.read()['owner'], 'port')
+        self.flag.report('port', 987654)
+        with self.assertRaises(TimeoutError):
+            flip(self.flag, 'injector', timeout=0)
+        self.assertEqual(self.flag.read()['owner'], 'injector')
+
+    def test_port_flip_never_uses_cached_busy_reporting(self):
+        self.flag.report('injector', os.getpid())
+        self.flag.read()
+        db = sqlite3.connect(self.path, isolation_level=None)
+        try:
+            db.execute('BEGIN EXCLUSIVE')
+            with self.assertRaises(sqlite3.OperationalError):
+                flip(self.flag, 'port', timeout=0)
+        finally:
+            db.close()
 
     def test_lock_excludes_until_release_and_close(self):
         first, second = DelivererLock(self.path), DelivererLock(self.path)

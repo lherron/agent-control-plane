@@ -45,7 +45,17 @@ program observes in shadow mode and the injector continues delivering.
 `delivering` boolean. Each new TypeScript controller emits another anchor for
 shadow replay; `mail_injector.mode` records `delivering` or `standing_by`.
 Python mode changes use `mail_delivery.mode` (`acting` or `shadow`). The three
-`delivering_*` columns report status only; the lock grants delivery authority.
+`delivering_*` columns report status; the lock grants delivery authority.
+The sole decision that reads reporting is the operator's flip to `port`: it
+requires a reported `injector` with a live PID, proving a flag-following
+injector has been deployed. Otherwise it refuses before writing and asks for
+that deployment first. Rollback to `injector` is always allowed; there is no
+force option. Deliverers never use reporting to grant admission.
+
+Flag reads use read-only connections, create neither database nor table, and
+treat a missing table or row as `injector`. During SQLite contention they keep
+the last known owner. Only a flip or reporting after lock acquisition creates
+the table; installing the shadow alongside a legacy injector leaves it absent.
 When kernel EOF sets `program.stopping`, main finishes the controller stop,
 clears reporting, and returns to the shell, retaining the lock until process
 exit. An unfinished stop is cut off by the shell's five-second grace; restart
