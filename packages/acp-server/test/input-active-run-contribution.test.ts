@@ -8,6 +8,76 @@ import {
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('input active-run contribution', () => {
+  test.each([
+    ['duplicate', 'reject', 'accepted_in_flight', 'accepted', undefined],
+    ['pending', 'reject', 'admission_pending', 'pending', 'hrc_pending'],
+    ['queue_recommended', 'reject', 'rejected', 'failed', 'unsupported'],
+    ['rejected', 'pending_only', 'rejected', 'failed', 'refused'],
+    ['throw', 'pending_only', 'admission_pending', 'failed', 'delivery_failed'],
+    ['throw', 'reject', 'rejected', 'failed', 'delivery_failed'],
+  ] as const)(
+    '%s with %s preserves outcome and replay',
+    async (status, fallback, kind, applicationStatus, reason) => {
+      const stores = createAdmissionStores()
+      let calls = 0
+      await withWiredServer(
+        async (fixture) => {
+          const sessionRef = {
+            scopeRef: `agent:larry:project:${fixture.seed.projectId}`,
+            laneRef: 'main',
+          }
+          const body = {
+            sessionRef,
+            content: 'context',
+            idempotencyKey: 'contribution-characterization',
+            intent: { kind: 'contribute_to_active_run', fallback },
+          }
+          const first = await fixture.request({ method: 'POST', path: '/v1/inputs', body })
+          const replay = await fixture.request({ method: 'POST', path: '/v1/inputs', body })
+          const payload = await first.json()
+          expect(first.status).toBe(201)
+          expect(replay.status).toBe(200)
+          expect(payload.admission.kind).toBe(kind)
+          expect(payload.currentState.reason).toBe(reason)
+          expect(payload.inputApplication.status).toBe(applicationStatus)
+          expect(payload.inputApplication.deliveryAttempts).toBe(1)
+          expect(await replay.json()).toEqual(payload)
+          expect(calls).toBe(1)
+          expect(fixture.runStore.listRuns()).toEqual([])
+          expect(stores.inputQueueStore.listForSession(sessionRef.scopeRef, 'main')).toEqual([])
+          expect(
+            stores.adminStore.systemEvents
+              .list({ projectId: fixture.seed.projectId })
+              .map((event) => event.kind)
+          ).toEqual([
+            kind === 'rejected'
+              ? 'input.rejected'
+              : kind === 'admission_pending'
+                ? 'input.application.pending'
+                : 'input.application.accepted',
+          ])
+        },
+        {
+          ...stores,
+          hrcClient: {
+            submitActiveRunContribution: async (request: { inputApplicationId: string }) => {
+              calls++
+              if (status === 'throw') throw new Error('delivery failure')
+              return {
+                status,
+                inputApplicationId: request.inputApplicationId,
+                ...(status === 'queue_recommended'
+                  ? { capability: { reason: 'unsupported' } }
+                  : {}),
+                ...(status === 'rejected' ? { errorCode: 'refused' } : {}),
+              }
+            },
+          } as never,
+        }
+      )
+    }
+  )
+
   test('explicit active-run contribution queues fallback quietly when HRC recommends queue', async () => {
     const stores = createAdmissionStores()
     const launchCalls: LaunchCall[] = []
