@@ -20,6 +20,8 @@ import json
 import os
 import sqlite3
 import sys
+import urllib.parse
+from .act_js import OrderedSet
 from .act_controller import create_mail_kicker
 from .act_hrc_port import CALLER, HrcClient, create_kicker_port
 from .act_js import iso_from_ms
@@ -45,7 +47,7 @@ def read_injector_import_marker(path, source_path=None):
     """hrc-injector-core `readInjectorImportMarker`: the durable provenance marker that gates startup."""
     if not os.path.exists(path):
         return None
-    db = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+    db = sqlite3.connect(f'file:{urllib.parse.quote(os.path.abspath(path))}?mode=ro', uri=True)
     try:
         if source_path is None:
             row = db.execute('SELECT source_path, imported_at FROM injector_store_imports '
@@ -66,11 +68,32 @@ def create_json_line_log(write=None):
             sys.stdout.flush()
 
     def log(level, event, detail):
-        data = json.loads(json.dumps(detail, default=str))
+        data = to_json_safe(detail)
         line = dict(ts=iso_from_ms(int(system_clock().timestamp() * 1000)), level=level.lower(),
                     component='hrc-mail-injector', event=event, **({'data': data} if len(data) > 0 else {}))
         write(json.dumps(line, ensure_ascii=False, separators=(',', ':')) + '\n')
     return log
+
+
+def to_json_safe(value):
+    """log-line.ts `toJsonSafe` plus JSON.stringify: a set is an array, a
+    non-finite number is null. None is written as null: the policy logs
+    explicit nulls (a probe diagnostic's retryable/transport, a hold's
+    invocationId), so a field the TypeScript leaves undefined is omitted at
+    its call site instead."""
+    if isinstance(value, (set, frozenset, OrderedSet)):
+        return [to_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): to_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_json_safe(item) for item in value]
+    if isinstance(value, float) and (value != value or value in (float('inf'), float('-inf'))):
+        return None
+    if isinstance(value, BaseException):
+        return dict(name=type(value).__name__, message=str(value))
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
 
 
 class StartedMailInjector:

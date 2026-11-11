@@ -346,10 +346,15 @@ class MailKicker:
         return asyncio.shield(operation)
 
     async def acquire_target_drive_slot(self, target_session_ref):
+        # The TypeScript returns an already-resolved promise on these paths, and
+        # its caller's `await` still yields once: a sweep starts every drive and
+        # logs sweep_complete before any drive runs. sleep(0) is that yield.
         if self.stopping or not self.enabled:
+            await asyncio.sleep(0)
             return False
         if self.active_target_drives < MAIL_KICKER_MAX_CONCURRENT_TARGET_DRIVES:
             self.active_target_drives += 1
+            await asyncio.sleep(0)
             return True
         future = asyncio.get_running_loop().create_future()
         self.target_drive_waiters.append(dict(targetSessionRef=target_session_ref, future=future))

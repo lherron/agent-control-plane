@@ -75,7 +75,9 @@ async def deliver_failure_notices(server, target_session_ref, seat_session):
         server.mail_kicker_failure_notice_backoff.pop(target_session_ref, None)
         server.store.mail_delivery.mark_failure_notices_delivered(target_session_ref, envelopes)
         server.log('INFO', 'wrkq.kicker.failure_notice_delivered', dict(
-            targetSessionRef=target_session_ref, runId=body.get('runId'), envelopes=envelopes))
+            targetSessionRef=target_session_ref,
+            **({} if body.get('runId') is None else {'runId': body['runId']}),  # JSON drops an undefined runId
+            envelopes=envelopes))
     except Exception as error:
         delay_ms = 0 if attempts == 1 else min(
             FAILURE_NOTICE_BACKOFF_BASE_MS * 2 ** (attempts - 2), FAILURE_NOTICE_BACKOFF_MAX_MS)
