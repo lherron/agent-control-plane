@@ -145,7 +145,7 @@ describes work but performs none. No intentional policy changes are enabled.
 Explicitly stamped flat fixture logs remain readable for T-13192 scoring tests; they lack
 state boundaries and are not evidence for installed live agreement.
 
-[POLICY.md](POLICY.md) records the source rules and historical qualifications.
+[mail-delivery-port-policy.md](../../architecture/contracts/mail-delivery-port-policy.md) records the source rules and historical qualifications.
 Live acceptance and first-hour score evidence are in the T-13270 artifact dir.
 Python tests remain opt-in, outside the repository's `just verify` gate.
 

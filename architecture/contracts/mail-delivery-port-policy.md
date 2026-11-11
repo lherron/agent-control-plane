@@ -2,8 +2,8 @@
 
 T-13270 update, 2026-11-10: Lance ruled this is a **port**, retaining the
 injector database and existing HRC/wrkq reads. The historical inventory below
-is a list of input fields, not requests for new owner APIs. `port_inputs.py`
-now supplies store-backed facts and native HRC probes; `memos.py` supplies
+is a list of input fields, not requests for new owner APIs. `programs/mail-delivery/mail_delivery/port_inputs.py`
+now supplies store-backed facts and native HRC probes; `programs/mail-delivery/mail_delivery/memos.py` supplies
 process-local outcomes from the injector log and observes broker movement.
 No section 5 redesign is enabled. An input gap is a shadow defect, not an ask
 against HRC or wrkq.
@@ -25,7 +25,7 @@ Live comparison additionally joins injector JSON-log decisions. A missing
 same-state decision is evaluated over a bounded evidence window: a closed hold/defer window without an injector act agrees by inaction, while an unmatched act is a defect; only open windows stay pending_evidence. Daily gate counts use envelopes
 created that UTC day, with older backlog alongside. No full-body admission is
 compared to a presented/intent-held observation. Log-fed memo dependencies and
-broker movement are tagged. See README for exact reads and time windows.
+broker movement are tagged. See the [mail-delivery README](../../programs/mail-delivery/README.md) for exact reads and time windows.
 
 First-delivery reconstruction runs from injector admission evidence independently of open-envelope visibility, using bounded watch history for as-of runtime status and labelled already-read invocation proof for capability.
 
@@ -42,7 +42,7 @@ are enabled.
 All observation fields except the envelope identifier default to unknown.
 The function asks only for facts relevant to the selected rule path. Owners
 must distinguish a confirmed empty record from unavailable data. Fact names
-below correspond to the dataclasses in `decision.py`.
+below correspond to the dataclasses in `programs/mail-delivery/mail_delivery/decision.py`.
 
 | Observation | Fields | Owner / current gap |
 | --- | --- | --- |
