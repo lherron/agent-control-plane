@@ -55,6 +55,7 @@ describe('real launcher prompt dispatch', () => {
                 initialPrompt: '  remember chartreuse  ',
               },
               waitForCompletion: true,
+              turnPolicy: 'guarded',
             })
             db.run(
               'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',

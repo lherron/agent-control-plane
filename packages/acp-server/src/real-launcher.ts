@@ -295,6 +295,12 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
               fences: dispatchFence,
               runtimeIntent: normalizedIntent,
               waitForCompletion: shouldWaitForCompletion,
+              // One launcher input is one HRC run, and the reply read keeps that
+              // run's last assistant message. A steer merged into the turn could
+              // replace the answer and post another sender's text to the bound
+              // interface, so the launcher asks for the guard explicitly rather
+              // than taking the door's default.
+              turnPolicy: 'guarded',
             },
             dispatchOrigin
           ),
