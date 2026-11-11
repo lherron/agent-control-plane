@@ -417,16 +417,17 @@ export function ensureC2Service(deps: {
   c2?: AcpC2Config | undefined
   hrcClient?: AcpHrcClient | undefined
   workClient?: WorkClient | undefined
+  agentInspectionAuthority?: ResolvedAcpServerDeps['agentInspectionAuthority'] | undefined
   adminStore?: ResolvedAcpServerDeps['adminStore'] | undefined
   workClientForPrincipal?: ResolvedAcpServerDeps['workClientForPrincipal'] | undefined
 }): C2Service | undefined {
   if (deps.c2 === undefined || deps.hrcClient === undefined) return undefined
   let service = services.get(deps.c2)
   if (service === undefined) {
-    const { hrcClient, adminStore, workClientForPrincipal } = deps
+    const { hrcClient, adminStore, workClientForPrincipal, agentInspectionAuthority } = deps
     const threads =
       adminStore && workClientForPrincipal
-        ? createThreads({ adminStore, hrcClient, workClientForPrincipal })
+        ? createThreads({ adminStore, hrcClient, workClientForPrincipal, agentInspectionAuthority })
         : undefined
     const openThreadSeat = threads
       ? async (scopeRef: string, requestId: string): Promise<StartedSeat | Refusal> => {

@@ -1,8 +1,11 @@
 /** Lance's thread writes, with wrkq replay/fences and explicit HRC partial outcomes. */
 import { existsSync } from 'node:fs'
 import { type WorkClient, WorkRpcError } from '@wrkq/client'
-import { HrcDomainError } from 'hrc-core'
+import { HrcDomainError, isTerminalRuntimeStatus } from 'hrc-core'
+import { agentCatalogResponseSchema } from 'spaces-aspc-protocol/agent-inspection'
 import type { ResolvedAcpServerDeps } from '../deps.js'
+import { loadWrkqProjectRegistry } from '../handlers/agent-inspection.js'
+import { mapLimit } from './hrc-adapter.js'
 import { archiveThreadSeat, startThreadSeat, threadSeats, writeThreadWork } from './thread-hrc.js'
 
 export class ThreadRequestError extends Error {}
@@ -66,7 +69,7 @@ export function threadLine(id: string, project: string): string {
 }
 export type ThreadsDeps = Pick<
   ResolvedAcpServerDeps,
-  'adminStore' | 'hrcClient' | 'workClientForPrincipal'
+  'adminStore' | 'hrcClient' | 'workClientForPrincipal' | 'agentInspectionAuthority'
 >
 export function createThreads(deps: ThreadsDeps) {
   const hrc = deps.hrcClient
@@ -83,18 +86,98 @@ export function createThreads(deps: ThreadsDeps) {
     const thread = await readThread(work, id)
     return { ...thread, note: thread.description, seatScopeRef: await seatRecord(work, id) }
   }
-  async function localProject(projectId: string): Promise<boolean> {
-    const project = deps.adminStore.projects.get(projectId)
-    const root = project?.rootDir ?? project?.homeDir
-    if (!root || !existsSync(root.replace(/^~(?=\/)/, process.env['HOME'] ?? ''))) return false
-    const location = await host().locateScope(`agent:mable:project:${projectId}:task:primary`)
-    return (
-      location.authority.state !== 'unknown' &&
-      (location.authority.state !== 'bound' || location.authority.isLocal)
+  async function projects() {
+    const registry = await loadWrkqProjectRegistry(await client())
+    const local = await mapLimit(registry, 8, async (project) => {
+      const slug = project.slug
+      if (!slug) return null
+      const root = project.root
+      if (!root || !existsSync(root.replace(/^~(?=\/)/, process.env['HOME'] ?? ''))) return null
+      const location = await host().locateScope(`agent:mable:project:${slug}:task:primary`)
+      if (
+        location.authority.state === 'unknown' ||
+        (location.authority.state === 'bound' && !location.authority.isLocal)
+      )
+        return null
+      const admin = deps.adminStore.projects.get(slug)
+      return {
+        projectId: slug,
+        displayName: admin?.displayName ?? project.title ?? slug,
+        rootDir: root,
+        defaultAgentId: admin?.defaultAgentId ?? 'mable',
+      }
+    })
+    return local
+      .filter((p): p is NonNullable<typeof p> => p !== null)
+      .sort((a, b) => a.projectId.localeCompare(b.projectId))
+  }
+  async function agents(projectId?: string) {
+    if (!deps.agentInspectionAuthority) throw new Error('agent_catalog_unavailable')
+    const catalog = agentCatalogResponseSchema.parse(
+      await deps.agentInspectionAuthority.catalogAgentInspection(projectId ? { projectId } : {})
     )
+    return catalog.agents
+      .filter((agent) => agent.sourceAvailability.profile && agent.errorCount === 0)
+      .map((agent) => {
+        const admin = deps.adminStore.agents.get(agent.agentId)
+        return {
+          agentId: agent.agentId,
+          displayName: agent.displayName ?? admin?.displayName ?? agent.agentId,
+          avatarUrl: agent.avatarUrl,
+          role: agent.role,
+          ...(admin?.profile ? { profile: admin.profile } : {}),
+        }
+      })
+      .sort((a, b) =>
+        a.agentId === 'mable' ? -1 : b.agentId === 'mable' ? 1 : a.agentId.localeCompare(b.agentId)
+      )
+  }
+  async function bookmarks() {
+    const hrc = host()
+    const getWork = hrc.getSessionWork?.bind(hrc)
+    if (!getWork) throw new Error('seat_work_unavailable')
+    // The owner has no bounded parked-seat enumeration. Offer running standing seats;
+    // never page through historical sessions to build a composer's optional field.
+    const live = (await host().listRuntimes({ omitState: true })).filter(
+      (runtime) =>
+        runtime.laneRef === 'main' &&
+        !isTerminalRuntimeStatus(runtime.status) &&
+        !/:task:(?:T|W)-/.test(runtime.scopeRef)
+    )
+    const unique = [...new Map(live.map((runtime) => [runtime.scopeRef, runtime])).values()]
+    const work = await client()
+    const open = new Map<string, Promise<boolean>>()
+    const seats = await mapLimit(unique, 8, async (runtime) => {
+      try {
+        const state = await getWork(runtime.scopeRef)
+        if (state.work.kind === 'workstream') {
+          const id = state.work.workstreamId
+          let check = open.get(id)
+          if (!check) {
+            check = readThread(work, id).then((thread) => !TERMINAL.has(thread.state))
+            open.set(id, check)
+          }
+          if (await check) return null
+        }
+        return {
+          scopeRef: runtime.scopeRef,
+          agent: runtime.scopeRef.split(':')[1],
+          project: runtime.scopeRef.split(':')[3],
+          status: 'active',
+          disposition: null,
+          work: state.work,
+        }
+      } catch (error) {
+        if (knownRefusal(error)) return null
+        throw error
+      }
+    })
+    return seats
+      .filter((s): s is NonNullable<typeof s> => s !== null)
+      .sort((a, b) => a.scopeRef.localeCompare(b.scopeRef))
   }
   async function preflightSeat(scope: string, id?: string) {
-    if (!/^agent:[^:]+:project:[^:]+:task:[^:]+$/.test(scope) || /:task:W-\d+$/.test(scope))
+    if (!/^agent:[^:]+:project:[^:]+:task:[^:]+$/.test(scope) || /:task:(?:T|W)-/.test(scope))
       throw new ThreadRequestError('bookmark_requires_standing_seat')
     const seat = (await threadSeats(host(), scope, true))[0]
     if (!seat || (seat.status !== 'active' && seat.disposition !== 'parked'))
@@ -197,43 +280,16 @@ export function createThreads(deps: ThreadsDeps) {
     client,
     read,
     async options(project?: string) {
-      const agents = deps.adminStore.agents.list().filter((a) => a.status === 'active')
-      const projects = []
-      for (const p of deps.adminStore.projects.list()) {
-        if (!(await localProject(p.projectId))) continue
-        projects.push(p)
-      }
-      const chosen = projects.find((p) => p.projectId === project)
-      const defaultAgent = chosen?.defaultAgentId ?? 'mable'
-      const seats = (await threadSeats(host(), undefined, true)).filter(
-        (s) =>
-          !/:task:W-\d+$/.test(s.scopeRef) && (s.status === 'active' || s.disposition === 'parked')
-      )
-      const threads = await allThreads(await client())
+      const [roster, local, seats] = await Promise.all([agents(project), projects(), bookmarks()])
+      const configured = local.find((p) => p.projectId === project)?.defaultAgentId
+      const defaultAgent = roster.some((a) => a.agentId === configured) ? configured : 'mable'
       return {
         ok: true,
-        agents,
-        projects,
+        agents: roster,
+        projects: local,
         defaultAgent,
-        seats: seats
-          .filter(
-            (s) =>
-              s.work?.kind !== 'workstream' ||
-              !threads.some(
-                (t) =>
-                  s.work?.kind === 'workstream' &&
-                  t.id === s.work.workstreamId &&
-                  !TERMINAL.has(t.state)
-              )
-          )
-          .map((s) => ({
-            scopeRef: s.scopeRef,
-            agent: s.scopeRef.split(':')[1],
-            project: s.scopeRef.split(':')[3],
-            status: s.status,
-            disposition: s.disposition,
-            work: s.work,
-          })),
+        seats,
+        bookmarkAvailability: 'running_standing_seats',
       }
     },
     async create(body: {
@@ -248,9 +304,9 @@ export function createThreads(deps: ThreadsDeps) {
       const own = body.prompt !== undefined
       const project = body.seat ? body.seat.split(':')[3] : body.project
       if (!project) throw new ThreadRequestError('project_required')
-      if (!body.seat && !(await localProject(project)))
+      if (!body.seat && !(await projects()).some((p) => p.projectId === project))
         throw new ThreadRequestError('project_not_local')
-      if (own && (!body.agent || deps.adminStore.agents.get(body.agent)?.status !== 'active'))
+      if (own && (!body.agent || !(await agents(project)).some((a) => a.agentId === body.agent)))
         throw new ThreadRequestError('agent_required')
       const title = own
         ? body.prompt?.trim().split(/\s+/).slice(0, 10).join(' ').slice(0, 100)
@@ -287,8 +343,8 @@ export function createThreads(deps: ThreadsDeps) {
             thread: check.conflict,
           }
       }
-      const projects = await work.wrkq.project.listView({ limit: 500 })
-      const covered = projects.items.find((p) => p.slug === project)
+      const registryProjects = await work.wrkq.project.listView({ limit: 500 })
+      const covered = registryProjects.items.find((p) => p.slug === project)
       if (!covered) throw new ThreadRequestError('project_unknown')
       const thread = await work.wrkq.task.create({
         path: `c2/threads/${slug}`,

@@ -13,7 +13,7 @@ The loopback thread routes create Lance-owned wrkq workstreams under `c2/threads
 
 ## How to get to it
 
-Call ACP's `/v1/c2/threads` routes on loopback. An absent socket peer and a non-loopback peer are denied. The composer options read ACP agent/project records; bodies come from wrkq. Write bodies carry `requestId`, and edits/close carry the `expectEtag` returned by Read. Instance c2 config exposes `threadIdleMs` (default four hours) and `threadSweepMs` (default ten minutes), populated from `ACP_C2_THREAD_IDLE_MS` and `ACP_C2_THREAD_SWEEP_MS`.
+Call ACP's `/v1/c2/threads` routes on loopback. An absent socket peer and a non-loopback peer are denied. The composer options read the existing ASP agent catalog and wrkq project registry, merging matching ACP admin presentation/default fields; bodies come from wrkq. Bookmark choices are running standing seats only: T-/W- scopes are excluded before work reads, and the HRC owner has no bounded enumeration of parked seats. The read never pages historical sessions. Write bodies carry `requestId`, and edits/close carry the `expectEtag` returned by Read. Instance c2 config exposes `threadIdleMs` (default four hours) and `threadSweepMs` (default ten minutes), populated from `ACP_C2_THREAD_IDLE_MS` and `ACP_C2_THREAD_SWEEP_MS`.
 
 ## Driving it
 

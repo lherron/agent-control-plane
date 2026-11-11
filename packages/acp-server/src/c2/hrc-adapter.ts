@@ -141,7 +141,7 @@ type SessionAttentionWire = {
   text?: string | undefined
 }
 
-async function mapLimit<T, R>(
+export async function mapLimit<T, R>(
   items: readonly T[],
   limit: number,
   fn: (item: T) => Promise<R>

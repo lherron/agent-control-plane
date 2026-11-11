@@ -25,10 +25,10 @@ export async function threadSeats(
 ): Promise<ThreadSeat[]> {
   const [sessions, runtimes] = await Promise.all([
     client.listSessions({ all: true, latestGeneration: true, ...(scopeRef ? { scopeRef } : {}) }),
-    client.listRuntimes(),
+    client.listRuntimes({ omitState: true, ...(scopeRef ? { scope: scopeRef } : {}) }),
   ])
   const eligible = new Set<string>()
-  if (withWork && client.listSessionsPage) {
+  if (withWork && !scopeRef && client.listSessionsPage) {
     let cursor: string | undefined
     do {
       const page = await client.listSessionsPage({
@@ -55,7 +55,7 @@ export async function threadSeats(
       ...(runtime?.lastActivityAt ? { lastActivityAt: runtime.lastActivityAt } : {}),
     }
     if (withWork && client.getSessionByContinuity && client.getSessionWork) {
-      if (!runtime && !eligible.has(session.scopeRef)) continue
+      if (!scopeRef && !runtime && !eligible.has(session.scopeRef)) continue
       let record: Awaited<ReturnType<NonNullable<AcpHrcClient['getSessionByContinuity']>>>
       try {
         record = await client.getSessionByContinuity({
