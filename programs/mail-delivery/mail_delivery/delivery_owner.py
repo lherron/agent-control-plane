@@ -2,7 +2,6 @@
 import argparse
 from datetime import datetime, timezone
 import json
-import os
 from pathlib import Path
 import sqlite3
 import time
@@ -77,10 +76,14 @@ def flip(flag, owner, timeout=30, poll=time.sleep):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('owner', nargs='?', choices=('injector', 'port'))
-    parser.add_argument('--state-path', type=Path, default=Path(os.environ.get(
-        'HRC_MAIL_INJECTOR_STATE_PATH', Path.home() / 'praesidium/var/state/acp/hrc-mail-injector.sqlite')))
+    parser.add_argument('--state-path', type=Path, help='explicit private database for isolated acceptance')
     args = parser.parse_args()
-    flag = DeliveryOwner(args.state_path)
+    from .node_config import state_path
+    try:
+        path = args.state_path if args.state_path is not None else state_path()
+    except ValueError as error:
+        parser.exit(1, f'{error}\n')
+    flag = DeliveryOwner(path)
     try:
         print(json.dumps(flip(flag, args.owner) if args.owner else flag.read()))
     except TimeoutError as error:

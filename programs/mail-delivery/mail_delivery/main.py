@@ -18,6 +18,10 @@ class EntryLoop:
         self.start, self.log = start, log
         self.controller = None
         self.waiting = False
+        self.clock = time.monotonic
+        self.last_owner = None
+        self.retry_at = 0
+        self.retry_delay = 1
 
     async def shutdown(self):
         if self.controller is not None:
@@ -31,9 +35,13 @@ class EntryLoop:
         if self.program.stopping:
             await self.shutdown()
             return
-        self.program.alive()
         owner = self.flag.read()['owner']
+        if owner != self.last_owner:
+            self.last_owner = owner
+            self.retry_at, self.retry_delay = 0, 1
         if owner == 'port' and self.controller is None:
+            if self.clock() < self.retry_at:
+                return
             if not self.lock.try_acquire():
                 if not self.waiting:
                     self.log('mail_delivery.lock_wait', holder_pid=self.flag.read()['delivering_pid'])
@@ -45,11 +53,16 @@ class EntryLoop:
                 self.controller = await self.start()
             except Exception as error:
                 # start() closes all opened clients/store before it raises.
-                self.log('mail_delivery.start_failed', level='error', message=str(error))
+                delay = self.retry_delay
+                self.retry_at = self.clock() + delay
+                self.retry_delay = min(30, delay * 2)
+                self.log('mail_delivery.start_failed', level='error', message=str(error),
+                         retry_in_seconds=delay)
                 if not self.program.stopping:
                     self.flag.clear()
                     self.lock.release()
                 return
+            self.retry_at, self.retry_delay = 0, 1
             if self.program.stopping:
                 await self.shutdown()
                 return
@@ -76,14 +89,13 @@ class ShadowLoop:
     Uses the same setup and tick as shadow.main; no acting policy uses decide().
     Keeps the original bounded shadow wait; never runs beside an acting controller.
     """
-    def __init__(self, program, state_path, socket_path):
-        from praesidium_kernel import Client
-        from .shadow import ContextClient, Shadow, TYPES, SWEEP_SECONDS
+    def __init__(self, program, state_path, socket_path, client):
+        from .shadow import Shadow, TYPES, SWEEP_SECONDS
         from .hrc_read import HrcRead
         from .memos import Memos, InjectorLogFeeder
         from .port_inputs import PortInputs, store_batch
         self.program = program
-        self.client = ContextClient(Client(program), program.config)
+        self.client = client
         self.memos = Memos()
         root = Path.home() / 'praesidium/var'
         self.feeder = InjectorLogFeeder(Path(os.environ.get('HRC_MAIL_INJECTOR_LOG_PATH', str(root / 'logs/hrc-runtime/hrc-mail-injector.log'))), self.memos)
@@ -93,6 +105,10 @@ class ShadowLoop:
         self.watches = {self.client.open_watch(kind): kind for kind in TYPES}
         self.deadline = time.monotonic() + SWEEP_SECONDS
         self.client.log('shadow.started', sweep_seconds=SWEEP_SECONDS, recovery_seconds=300)
+
+    def close(self):
+        for watch in self.watches:
+            watch.close()
 
     def tick(self):
         from .shadow import SWEEP_SECONDS
@@ -112,20 +128,26 @@ class ShadowLoop:
 
 
 async def run(program):
+    from .node_config import load_node_config, plist_path
+    # Kernel children inherit kernel settings, not the injector's launchd env.
+    # Apply the node plist before constructing any delivery path or client.
+    configured = load_node_config()
+    from praesidium_kernel import Client
+    from .shadow import ContextClient
     from .act_wrkq_ledger import WrkqLedger
     from .act_injector import start_mail_injector
-    from .act_hrc_port import HrcClient
     from .build_info import ACP_COMMIT
     root = Path.home() / 'praesidium/var'
     path = os.environ.get('HRC_MAIL_INJECTOR_STATE_PATH', str(root / 'state/acp/hrc-mail-injector.sqlite'))
     socket_path = os.environ.get('HRC_SOCKET_PATH', str(root / 'run/hrc/hrc.sock'))
-    shadow = ShadowLoop(program, path, socket_path)
-    log = shadow.client.log
-    flag, lock = DeliveryOwner(path), DelivererLock(path)
-    global _exit_lock
-    _exit_lock = lock
+    client = ContextClient(Client(program), program.config)
+    log = client.log
+    if not configured:
+        log('mail_delivery.node_config_missing', level='error', plist=str(plist_path()))
+    shadow = None
 
     async def start():
+        nonlocal shadow
         verifier = WrkqLedger()
         try:
             pin = await verifier.verify()
@@ -135,32 +157,37 @@ async def run(program):
             await verifier.close()
         if program.stopping:
             raise RuntimeError('program stopping')
-        user_agent = f'hrc-mail-injector/py-{ACP_COMMIT}'
-        status = await HrcClient(socket_path, caller='hrc-mail-injector', user_agent=user_agent).get_status()
-        node_id = status['node']['nodeId']
-        if program.stopping:
-            raise RuntimeError('program stopping')
-        controller = await start_mail_injector(dict(
-            socket_path=socket_path,
-            state_path=path, node_id=node_id,
-            user_agent=user_agent,
+        if shadow is not None:
+            shadow.close()
+            shadow = None
+        return await start_mail_injector(dict(
+            socket_path=socket_path, state_path=path,
+            node_id=os.environ.get('HRC_NODE_ID', 'max3'),
+            user_agent=f'hrc-mail-injector/py-{ACP_COMMIT}',
             log=lambda level, event, detail: log(event, level=level.lower(), **detail)))
-        return controller
 
-    loop = EntryLoop(program, flag, lock, start, log)
+    loop = None
+    if configured:
+        flag, lock = DeliveryOwner(path), DelivererLock(path)
+        global _exit_lock
+        _exit_lock = lock
+        loop = EntryLoop(program, flag, lock, start, log)
     log('mail_delivery.mode', mode='shadow')
     next_poll = 0
     while True:
         if program.stopping:
-            await loop.shutdown()
+            if shadow is not None:
+                shadow.close()
+            if loop is not None:
+                await loop.shutdown()
             return
-        program.alive()
-        if not program.stopping:
-            if time.monotonic() >= next_poll:
-                await loop.step()
-                next_poll = time.monotonic() + 1
-            if loop.controller is None and not program.stopping:
-                shadow.tick()
+        if loop is not None and time.monotonic() >= next_poll:
+            await loop.step()
+            next_poll = time.monotonic() + 1
+        if (loop is None or loop.controller is None) and not program.stopping:
+            if shadow is None:
+                shadow = ShadowLoop(program, path, socket_path, client)
+            shadow.tick()
         await asyncio.sleep(0.05)
     # No finally that closes the lock: program.stopping holds it until exit.
 

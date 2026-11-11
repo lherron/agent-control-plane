@@ -138,3 +138,42 @@ class Entry(unittest.IsolatedAsyncioTestCase):
         await self.loop.step()
         self.assertTrue(self.other.try_acquire())
         self.assertIsNone(self.flag.read()['delivering_pid'])
+
+    async def test_failed_starts_back_off_and_owner_change_resets(self):
+        clock = [0.0]
+        attempts = []
+        async def fail():
+            attempts.append(clock[0])
+            raise RuntimeError('offline')
+        self.loop.start = fail
+        self.loop.clock = lambda: clock[0]
+        self.flag.set_owner('port')
+        for moment in (0, .5, 1, 2, 3, 6, 7):
+            clock[0] = moment
+            await self.loop.step()
+        self.assertEqual(attempts, [0, 1, 3, 7])
+        self.flag.set_owner('injector')
+        await self.loop.step()
+        self.flag.set_owner('port')
+        await self.loop.step()
+        self.assertEqual(attempts, [0, 1, 3, 7, 7])
+
+
+class ShadowWatches(unittest.TestCase):
+    def test_close_drops_every_watch_and_reconstruction_starts_new_views(self):
+        from unittest.mock import Mock
+        from mail_delivery.main import ShadowLoop
+        watches = [Mock(), Mock(), Mock()]
+        client = Mock()
+        client.open_watch.side_effect = watches
+        program = SimpleNamespace(alive=lambda: None)
+        shadow = ShadowLoop(program, '/unused/injector.sqlite', '/unused/hrc.sock', client)
+        shadow.close()
+        for watch in watches:
+            watch.close.assert_called_once()
+        next_client = Mock()
+        next_client.open_watch.side_effect = [Mock(), Mock(), Mock()]
+        replacement = ShadowLoop(program, '/unused/injector.sqlite', '/unused/hrc.sock', next_client)
+        self.assertIsNot(shadow.shadow, replacement.shadow)
+        self.assertTrue(all(not view.ready for view in replacement.shadow.views.values()))
+        replacement.close()

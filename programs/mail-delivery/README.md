@@ -9,6 +9,17 @@ a controller. A flip waits for the previous controller to stop and close its
 clients/store before releasing the lock. A hung or suspended holder prevents
 handover until it resumes or exits; there is no timed bypass.
 
+At startup, main reads the injector's installed launchd plist
+(`~/Library/LaunchAgents/com.praesidium.hrc-mail-injector.plist`) and applies its
+`HRC_` settings and `PATH` before constructing delivery paths or clients. The
+flip command reads its database path from that same plist. A missing plist or
+missing `HRC_WRKQ_DB` leaves the program shadowing, logs
+`mail_delivery.node_config_missing` once, and admits no acting controller.
+`MAIL_DELIVERY_INJECTOR_PLIST` selects a scratch plist for isolated acceptance;
+production kernels leave it unset. Failed starts retry after 1, 2, 4 seconds,
+up to 30; successful start or an observed owner change resets the backoff.
+Shadow watches close before acting and rebuild from fresh views on stand-down.
+
 Local-node operator commands (installation and cutover require the node's
 authorized rollout; these commands change installed behavior):
 
