@@ -180,16 +180,28 @@ class StartCheck(LedgerCase):
     async def test_verify_accepts_the_pinned_hash_through_an_ordinary_refusal(self):
         _, ledger = self.standin([{'method': 'wrkq.envelope.show', 'reply': {'error': {
             'code': -32004, 'message': 'not found'}}}])
-        self.assertEqual(await ledger.verify(), {'protocolVersion': PIN['PROTOCOL_VERSION'],
-                                                 'protocolSchemaHash': PIN['PROTOCOL_SCHEMA_HASH']})
+        self.assertEqual(await ledger.verify(), {
+            'protocolVersion': PIN['PROTOCOL_VERSION'], 'protocolSchemaHash': PIN['PROTOCOL_SCHEMA_HASH'],
+            'matchesPin': True, 'pinnedVersion': PIN['PROTOCOL_VERSION'],
+            'pinnedSchemaHash': PIN['PROTOCOL_SCHEMA_HASH']})
 
-    async def test_verify_names_both_hashes_when_wrkq_differs(self):
-        _, ledger = self.standin([{'method': 'wrkq.envelope.show', 'reply': {'result': {}}}],
-                                 initialize=dict(INITIALIZE, protocolSchemaHash='sha256:' + '0' * 64))
-        with self.assertRaises(act_wrkq_ledger.WrkqProtocolMismatch) as caught:
+    async def test_a_hash_ahead_of_the_pin_is_reported_not_refused(self):
+        # The injector neither sends nor reads the hash, so it keeps delivering
+        # when wrkq moves ahead of ACP's pin; the port must start there too.
+        standin, ledger = self.standin([{'method': 'wrkq.envelope.show', 'reply': {'result': {}}}],
+                                       initialize=dict(INITIALIZE, protocolSchemaHash='sha256:' + '0' * 64,
+                                                       protocolVersion='2027-01-01'))
+        self.assertEqual(await ledger.verify(), {
+            'protocolVersion': '2027-01-01', 'protocolSchemaHash': 'sha256:' + '0' * 64,
+            'matchesPin': False, 'pinnedVersion': PIN['PROTOCOL_VERSION'],
+            'pinnedSchemaHash': PIN['PROTOCOL_SCHEMA_HASH']})
+        self.assertEqual(await ledger.envelope_show({'envelope': 'EN-1'}), {})
+        self.assertEqual(len(standin.connections()), 1)
+
+    async def test_verify_raises_when_the_read_cannot_be_made(self):
+        _, ledger = self.standin([{'method': 'wrkq.envelope.show', 'action': 'exit', 'exit_code': 2}])
+        with self.assertRaises(WrkqLedgerUnavailableError):
             await ledger.verify()
-        self.assertIn('sha256:' + '0' * 64, str(caught.exception))
-        self.assertIn(PIN['PROTOCOL_SCHEMA_HASH'], str(caught.exception))
 
     async def test_verify_reports_a_refused_handshake(self):
         _, ledger = self.standin([{'method': 'rpc.initialize', 'reply': {'error': {

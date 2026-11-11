@@ -50,7 +50,7 @@ class WorkRpcError(Exception):
 
 
 class WrkqProtocolMismatch(RuntimeError):
-    """The start check: wrkq does not speak the pinned protocol."""
+    """The start check: wrkq refused the rpc.initialize handshake."""
 
 
 def _js_truthy(value):
@@ -396,7 +396,12 @@ class WrkqLedger:
         }
 
     async def verify(self, envelope='EN-00000'):
-        """Start check: one envelope read on the delivery connection, then the pin."""
+        """Start check: one envelope read on the delivery connection.
+
+        Raises when the read cannot be made or wrkq refuses the handshake. A
+        schema hash or version that differs from the pin is reported in
+        `matchesPin`, never raised.
+        """
         from .wrkq_pin import PROTOCOL_SCHEMA_HASH, PROTOCOL_VERSION
         try:
             await self.envelope_show({'envelope': envelope})
@@ -416,11 +421,11 @@ class WrkqLedger:
             answered = {}
         server_hash = answered.get('protocolSchemaHash')
         server_version = answered.get('protocolVersion')
-        if server_hash != PROTOCOL_SCHEMA_HASH or server_version != PROTOCOL_VERSION:
-            raise WrkqProtocolMismatch(
-                f'wrkq protocol schema {server_hash} (version {server_version}) does not match '
-                f'the pinned @wrkq/client schema {PROTOCOL_SCHEMA_HASH} (version {PROTOCOL_VERSION})')
-        return {'protocolVersion': server_version, 'protocolSchemaHash': server_hash}
+        # Not an error: the injector neither sends nor reads the hash and keeps
+        # delivering when wrkq moves ahead of ACP's pin. The caller logs a warning.
+        return {'protocolVersion': server_version, 'protocolSchemaHash': server_hash,
+                'matchesPin': server_hash == PROTOCOL_SCHEMA_HASH and server_version == PROTOCOL_VERSION,
+                'pinnedVersion': PROTOCOL_VERSION, 'pinnedSchemaHash': PROTOCOL_SCHEMA_HASH}
 
 
 def _is_number(value):
