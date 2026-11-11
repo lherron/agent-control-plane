@@ -22,7 +22,7 @@ wakes = WeakKeyDictionary()
 async def observe_deferred_wake(server, envelope_id):
     forget_deferred_wake(server, envelope_id)
     envelope = await server.ledger.envelope_show({'envelope': envelope_id})
-    if server.stopping or envelope['state'] != 'deferred' or envelope.get('retryAt') is None:
+    if server.stopping or envelope.get('state') != 'deferred' or envelope.get('retryAt') is None:
         return
     scope_ref = (envelope.get('to') or {}).get('scopeRef')
     if scope_ref is None:
@@ -104,7 +104,7 @@ def arm(server, state):
                     scopes=list(OrderedSet(deadline['target'] for _, deadline in due)), includeFyi=True))
                 if server.stopping:
                     return
-                pending = set(envelope['id'] for envelope in view['items'] if envelope['state'] == 'pending')
+                pending = set(envelope.get('id') for envelope in view['items'] if envelope.get('state') == 'pending')
                 targets = OrderedSet()
                 for id, deadline in due:
                     if state['deadlines'].get(id) is not deadline:

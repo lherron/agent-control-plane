@@ -2,7 +2,6 @@
 cursor; translation of policy/wake/ledger-tail.ts.
 """
 import asyncio
-import json
 from .act_cold_start import run_mail_kicker_cold_start_catchup
 from .act_contracts import WrkqLedgerUnavailableError
 from .act_deferred import forget_deferred_wake, observe_deferred_wake
@@ -12,6 +11,7 @@ from .act_hrc_facts import hrc_facts
 from .act_internal import LEDGER_TAIL_PAGE_LIMIT, error_text, is_record
 from .act_scope import target_session_ref_for_ledger_scope
 from .act_types import obligation_summons
+from .store import _js_json_parse
 
 QUEUED_INJECTION_WITHDRAW_REASON = 'envelope_terminal_before_injection'
 
@@ -19,7 +19,7 @@ QUEUED_INJECTION_WITHDRAW_REASON = 'envelope_terminal_before_injection'
 async def withdraw_acked_queued_injection(server, event):
     if event.get('payload') is not None:
         try:
-            payload = json.loads(event['payload'])
+            payload = _js_json_parse(event['payload'])
             if is_record(payload) and payload.get('reason') == 'fyi_presented':
                 return
         except (ValueError, TypeError):
@@ -176,7 +176,7 @@ def wake_target_for_event(event, seated_session_refs):
     if event['eventType'] != 'envelope.created' or event.get('payload') is None:
         return None
     try:
-        parsed = json.loads(event['payload'])
+        parsed = _js_json_parse(event['payload'])
     except (ValueError, TypeError):
         return None
     if not is_record(parsed):

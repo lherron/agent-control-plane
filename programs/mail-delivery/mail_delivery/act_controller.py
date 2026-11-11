@@ -22,7 +22,7 @@ from .act_hrc_facts import hrc_facts
 from .act_internal import (DISPOSAL_DRAIN_DEADLINE_MS, LEDGER_SWEEP_TICKS, MAIL_DRIVE_TERMINAL_EVENTS,
                            MAIL_KICKER_MAX_CONCURRENT_TARGET_DRIVES, REMINDER_CHECK_TICKS, RUNTIME_TERMINAL_EVENTS,
                            error_text, format_session_ref)
-from .act_js import INFINITY, OrderedSet, date_parse, iso_from_ms
+from .act_js import INFINITY, OrderedSet, date_parse, iso_from_ms, js_get
 from .act_landing import commit_landing, observe_broker_landing
 from .act_ledger_tail import run_wrkq_ledger_tail
 from .act_quiet_targets import record_periodic_drive
@@ -42,6 +42,10 @@ def parse_app_session_scope_ref(scope_ref):
         return None
     app_id = scope_ref[len(APP_SESSION_SCOPE_PREFIX):]
     return dict(appId=app_id) if len(app_id) > 0 else None
+
+
+STOPPED = object()
+"""until_stopped's answer once stopping: distinct from any owner answer, null included."""
 
 
 def _wall_now_ms():
@@ -131,7 +135,7 @@ class MailKicker:
         facts = hrc_facts(self)
         try:
             head = await self.port.events_head()
-            hrc_seq, broker_commit = head['hrcSeq'], head['brokerCommit']
+            hrc_seq, broker_commit = js_get(head, 'hrcSeq'), js_get(head, 'brokerCommit')
 
             def lifecycle_state(state):
                 facts.lifecycle_stream_state(state)
@@ -159,9 +163,9 @@ class MailKicker:
             try:
                 if token is None:
                     initial = await self.until_stopped(self.ledger.commit_wait(dict(timeoutMs=25000)))
-                    if initial is None:
+                    if initial is STOPPED:
                         return
-                    token = initial['token']
+                    token = js_get(initial, 'token')
                 await self.until_stopped(self.run_tail_once())
                 if self.stopping:
                     return
@@ -188,10 +192,10 @@ class MailKicker:
                                                           next_birth_retry_at(self)) - self.now_ms())))
                 started = self.now_ms()
                 result = await self.until_stopped(self.ledger.commit_wait(dict(since=token, timeoutMs=timeout_ms)))
-                if result is None:
+                if result is STOPPED:
                     return
-                token = result['token']
-                changed = result['changed']
+                token = js_get(result, 'token')
+                changed = js_get(result, 'changed')
                 if not changed and self.now_ms() - started < min(1000, timeout_ms):
                     await self.pause(self.sweep_interval_ms)
             except Exception as error:
@@ -202,10 +206,12 @@ class MailKicker:
                 await self.pause(self.sweep_interval_ms)
 
     async def until_stopped(self, operation):
+        """The operation's result, or STOPPED (never a value wrkq can answer)
+        once the controller is stopping."""
         if self.stopping:
             if asyncio.iscoroutine(operation):
                 operation.close()
-            return None
+            return STOPPED
         # A JavaScript call starts its promise at once: start a coroutine eagerly.
         work = (asyncio.get_running_loop().create_task(operation, eager_start=True)
                 if asyncio.iscoroutine(operation) else asyncio.ensure_future(operation))
@@ -217,7 +223,7 @@ class MailKicker:
             done, _ = await asyncio.wait([work, stop], return_when=asyncio.FIRST_COMPLETED)
             if work in done:
                 return work.result()
-            return None
+            return STOPPED
         finally:
             stop.cancel()
 
@@ -231,6 +237,13 @@ class MailKicker:
             return
         self.stopping = True
         self.ledger_stop.set()
+        try:
+            await self.stop_and_drain()
+        finally:
+            # Even when an unsubscribe raised, nothing of this controller survives stop().
+            await self.cancel_survivors()
+
+    async def stop_and_drain(self):
         if self.ledger_loop is not None:
             await asyncio.wait([self.ledger_loop])
         hrc_facts(self).detach()
@@ -266,7 +279,6 @@ class MailKicker:
             _, pending = await asyncio.wait(operations, timeout=remaining / 1000)
             if pending:
                 break
-        await self.cancel_survivors()
 
     async def cancel_survivors(self):
         """Past the drain bound, end every task this controller started. A task

@@ -2,7 +2,6 @@
 (spec T-08092 rev 4, D2 step 5); translation of policy/drive/reconcile.ts.
 """
 import asyncio
-import json
 import math
 from weakref import WeakKeyDictionary
 from .act_contracts import HrcDomainError, HrcErrorCode
@@ -10,9 +9,10 @@ from .act_digest_group import digest_members
 from .act_hrc_facts import hrc_facts
 from .act_internal import (KICKER_SUBMISSION_TTL_MS, PERIODIC_QUIET_BACKSTOP_MS, RECONCILE_RUNTIME_READ_DEADLINE_MS,
                            STEER_WRITE_RECONCILE_GRACE_MS, error_text, is_record)
-from .act_js import date_parse
+from .act_js import UNDEFINED, date_parse
 from .act_landing import commit_landing_for_submission, land_launch_if_started, refuse_intent
 from .act_runtime_status import is_runtime_terminal
+from .store import _js_json_parse
 
 LANDED_EVENT_TYPES = {'submission.absorbed', 'submission.executed'}
 
@@ -110,7 +110,7 @@ async def reconcile_intent(server, intent, now=None):
                 evidence = _rejection_evidence(evidence_result)
                 if evidence == 'not_written':
                     return await refuse_intent(server, intent, 'input.rejected')
-                if evidence is None and await was_written_mid_turn(server, intent, runtime_id, submission_id, now):
+                if evidence is UNDEFINED and await was_written_mid_turn(server, intent, runtime_id, submission_id, now):
                     return await land_from_stream(server, intent, runtime_id, 'input.accepted')
                 if evidence == 'possibly_written':
                     server.store.mail_delivery.mark_uncertain(intent.envelope_id, 'input.rejected', 'possibly_written')
@@ -146,10 +146,13 @@ async def reconcile_intent(server, intent, now=None):
 
 
 def _rejection_evidence(evidence_result):
+    """`result?.op === 'input-rejection-evidence' ? result.deliveryEvidence : undefined`.
+    UNDEFINED (absent) and None (an explicit null) stay distinct: only the
+    first takes the mid-turn steer inference (reconcile.ts:211-221)."""
     result = evidence_result.get('result')
     if result is not None and result.get('op') == 'input-rejection-evidence':
-        return result.get('deliveryEvidence')
-    return None
+        return result.get('deliveryEvidence', UNDEFINED)
+    return UNDEFINED
 
 
 async def reconcile_gone_runtime(server, intent):
@@ -310,7 +313,7 @@ def note_broker_evidence(server, record):
     if not evidence:
         return
     try:
-        parsed = json.loads(record['brokerEventJson'])
+        parsed = _js_json_parse(record['brokerEventJson'])
         payload = parsed if is_record(parsed) else None
     except (ValueError, TypeError):
         payload = None

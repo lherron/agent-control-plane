@@ -4,7 +4,6 @@ Wire dictionaries retain their original keys. Functions use snake_case.
 """
 from __future__ import annotations
 import re
-from datetime import datetime
 from typing import Any, Literal, TypedDict, NotRequired
 
 WrkqEnvelopeObligation = Literal['reply_required', 'notify', 'fyi', 'note', 'none']
@@ -213,15 +212,18 @@ def obligation_owes_reply(obligation: WrkqEnvelopeObligation) -> bool:
     return obligation == 'reply_required'
 
 
+def _date_parse(value):
+    from .presentation_text import _ms  # Date.parse; imported late, presentation_text is a leaf
+    return _ms(value) if isinstance(value, str) else None
+
+
 def newest_presentation_receipt(envelope):
     newest = None
     newest_at = float('-inf')
     for receipt in envelope['presentedTo']:
-        try:
-            at = datetime.fromisoformat(receipt['presentedAt'].replace('Z', '+00:00')).timestamp()
-        except (ValueError, TypeError, KeyError):
-            at = float('-inf')
-        rank = at
+        # Date.parse: NaN (None here) for null, missing or unparseable ranks lowest.
+        at = _date_parse(receipt.get('presentedAt'))
+        rank = float('-inf') if at is None else at
         if rank >= newest_at:
             newest_at = rank
             newest = receipt

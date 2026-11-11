@@ -5,7 +5,7 @@ so the caller keeps the catch-up armed and retries on the next tick.
 """
 from .act_hrc_facts import hrc_facts
 from .act_internal import LEDGER_SWEEP_SCOPE_BATCH
-from .act_js import OrderedSet
+from .act_js import OrderedSet, js_gt_zero
 from .act_scope import target_session_ref_for_ledger_scope
 
 
@@ -28,9 +28,9 @@ async def homed_target_session_refs(server):
     """Every scope this node HOMES, seated or not, from the placement ledger."""
     refs = {}
     for record in (await hrc_facts(server).local_placement_bindings())['bindings']:
-        if record['state'] != 'active':
+        if record.get('state') != 'active':
             continue
-        if record['homeNodeId'] != server.node_id:
+        if record.get('homeNodeId') != server.node_id:
             continue
         session_ref = target_session_ref_for_ledger_scope(record['scopeRef'])
         if session_ref is not None:
@@ -43,7 +43,7 @@ async def run_mail_kicker_cold_start_catchup(server):
     targets = OrderedSet()
     for batch in chunk(homed, LEDGER_SWEEP_SCOPE_BATCH):
         view = await server.ledger.pending_view(dict(scopes=batch, includeFyi=True))
-        if view['repended'] > 0:
+        if js_gt_zero(view.get('repended')):
             server.log('INFO', 'wrkq.kicker.deferrals_repended', dict(repended=view['repended']))
         collect_pending_targets(view['items'], targets)
     server.log('INFO', 'wrkq.kicker.cold_start_catchup', dict(homedScopes=len(homed), targets=list(targets)))

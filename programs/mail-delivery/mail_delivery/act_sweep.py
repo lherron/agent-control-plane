@@ -7,7 +7,7 @@ from .act_cold_start import chunk, collect_pending_targets, homed_target_session
 from .act_contracts import WrkqLedgerUnavailableError
 from .act_hrc_facts import hrc_facts
 from .act_internal import LEDGER_SWEEP_SCOPE_BATCH, error_text
-from .act_js import OrderedSet, iso_from_ms
+from .act_js import OrderedSet, iso_from_ms, js_gt_zero
 from .act_quiet_targets import select_changed_periodic_targets
 from .act_reconcile import reconcile_open_intents
 from .act_runtime_lapse import sweep_lapsed_obligations
@@ -45,7 +45,7 @@ def run_mail_kicker_sweep(server):
         for batch in chunk(recipients, LEDGER_SWEEP_SCOPE_BATCH):
             try:
                 view = await server.ledger.pending_view(dict(scopes=batch, includeFyi=True))
-                if view['repended'] > 0:
+                if js_gt_zero(view.get('repended')):
                     server.log('INFO', 'wrkq.kicker.deferrals_repended', dict(repended=view['repended']))
                 collect_pending_targets(view['items'], outstanding)
             except Exception as error:

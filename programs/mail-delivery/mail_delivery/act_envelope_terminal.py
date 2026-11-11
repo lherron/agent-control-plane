@@ -62,5 +62,5 @@ async def fail_envelope_with_audit(server, input):
         **({} if input.get('presentationId') is None else {'presentationId': input['presentationId']}),
         envelope=input['envelope'], reason=input['reason'],
         **({} if input.get('runtime') is None else {'runtime': input['runtime']}),
-        state=failed['state']))
+        **({} if 'state' not in failed else {'state': failed['state']})))
     return dict(outcome='failed', envelope=failed)

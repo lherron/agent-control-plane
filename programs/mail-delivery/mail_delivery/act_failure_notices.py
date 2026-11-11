@@ -4,7 +4,6 @@ fyi-class: rendered from the ledger row, carrying no envelope and creating no
 obligation. It rides the scope's LIVE GENERATION and nothing else.
 """
 import hashlib
-import json
 from .act_authority import kicker_scope_ref_for
 from .act_hrc_facts import hrc_facts
 from .act_internal import (FAILURE_NOTICE_BACKOFF_BASE_MS, FAILURE_NOTICE_BACKOFF_MAX_MS,
@@ -13,6 +12,7 @@ from .act_internal import (FAILURE_NOTICE_BACKOFF_BASE_MS, FAILURE_NOTICE_BACKOF
 from .act_scope import target_session_ref_for_ledger_scope
 from .act_seat import observe_broker_seat
 from .presentation_text import format_envelope_failure_notice
+from .store import _js_json_parse
 
 
 def _sha256(*parts):
@@ -64,13 +64,14 @@ async def deliver_failure_notices(server, target_session_ref, seat_session):
         body = await server.port.enqueue(session, intent, prompt, dict(
             waitForCompletion=False, ttlMs=KICKER_SUBMISSION_TTL_MS, idempotencyKey=idempotency_key,
             submissionOrigin=dict(principalRef='system:hrc-kicker', scopeRef=session['scopeRef'])))
-        if body['status'] != 'started':
+        if body.get('status') != 'started':
             server.mail_kicker_failure_notice_backoff[target_session_ref] = dict(
                 key=notice_set, parkedRuntimeId=runtime_id, exhausted=exhausted, attempts=attempts,
                 nextAtMs=server.now_ms())
             server.log('WARN', 'wrkq.kicker.failure_notice_parked', dict(
                 targetSessionRef=target_session_ref, runtimeId=runtime_id, envelopes=envelopes, attempts=attempts,
-                reason='attempts_exhausted' if exhausted else 'replayed_non_start', status=body['status']))
+                reason='attempts_exhausted' if exhausted else 'replayed_non_start',
+                **({} if 'status' not in body else {'status': body['status']})))
             return
         server.mail_kicker_failure_notice_backoff.pop(target_session_ref, None)
         server.store.mail_delivery.mark_failure_notices_delivered(target_session_ref, envelopes)
@@ -134,7 +135,7 @@ def failed_payload(raw):
     if raw is None:
         return None
     try:
-        parsed = json.loads(raw)
+        parsed = _js_json_parse(raw)
     except (ValueError, TypeError):
         return None
     return parsed if is_record(parsed) else None

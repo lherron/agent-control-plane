@@ -38,3 +38,19 @@ def date_parse(value):
 
 
 INFINITY = float('inf')
+
+UNDEFINED = type('Undefined', (), {'__repr__': lambda self: 'undefined', '__bool__': lambda self: False})()
+"""JavaScript `undefined`, where the policy tells it apart from `null` (None)."""
+
+
+def js_get(value, key):
+    """`value.key`: None for an absent key, as `undefined` reads; raises on a
+    null or undefined `value`, as reading a property of one throws."""
+    if value is None or value is UNDEFINED:
+        raise TypeError(f"Cannot read properties of {'null' if value is None else 'undefined'} (reading '{key}')")
+    return value.get(key) if isinstance(value, dict) else getattr(value, key, None)
+
+
+def js_gt_zero(value):
+    """`value > 0` for a JSON number or a missing one (undefined > 0 is false)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0

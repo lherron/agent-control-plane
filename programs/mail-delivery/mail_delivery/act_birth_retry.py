@@ -106,8 +106,8 @@ async def fail_undeliverable_mail(server, target_session_ref, failure):
         return None
     try:
         home = await server.port.locate(scope_ref)
-        if home is not None and home['homeNodeId'] != server.node_id:
-            home_node_id = home['homeNodeId']
+        if home is not None and home.get('homeNodeId') != server.node_id:
+            home_node_id = home.get('homeNodeId')
             server.foreign_home_memo[scope_ref] = dict(homeNodeId=home_node_id, source='registry')
             resolved_birth = server.store.mail_delivery.resolve_birth_refusal(
                 target_session_ref, f'{scope_ref} is homed on {home_node_id}; this node has no authority to fail its mail')
@@ -132,7 +132,7 @@ async def fail_undeliverable_mail(server, target_session_ref, failure):
         result = await server.fail_envelope_with_audit(dict(
             envelope=envelope['id'], reason='undeliverable', detail=failure['detail'],
             targetSessionRef=target_session_ref, callSite=failure['callSite']))
-        if result['outcome'] == 'failed':
+        if result.get('outcome') == 'failed':
             failed += 1
     return dict(failed=failed)
 
