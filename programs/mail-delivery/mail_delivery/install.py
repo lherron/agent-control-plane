@@ -1,4 +1,8 @@
-"""Local-node source install; no daemon commands or remote activation."""
+"""Source install on the node that runs it; no daemon commands.
+
+A node without a git checkout gets the sources staged beside it (the
+`install-mail-delivery-on` recipe) and is told the commit with `--commit`.
+"""
 import argparse
 import json
 from pathlib import Path
@@ -12,10 +16,11 @@ except ImportError:  # direct recipe invocation
     from gen_wrkq_pin import write_pin, PROTOCOL_JS
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--uninstall', action='store_true')
-    args = parser.parse_args()
+    parser.add_argument('--commit', help='ACP revision of staged sources; read from git when omitted')
+    args = parser.parse_args(argv)
     parent = Path.home() / '.local/lib/praesidium-kernel/programs'
     target = parent / 'mail-delivery'
     if target.is_symlink():
@@ -26,7 +31,7 @@ def main():
         print(target)
         return
     source = Path(__file__).absolute().parent.parent
-    install(source, target, source.parent.parent)
+    install(source, target, source.parent.parent, commit=args.commit)
     print(target)
 
 

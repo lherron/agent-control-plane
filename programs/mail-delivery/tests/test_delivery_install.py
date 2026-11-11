@@ -28,3 +28,24 @@ class Install(unittest.TestCase):
             with self.assertRaises(ValueError):
                 install(source, target, checkout, commit='bad')
             self.assertIn('test-commit', (target / 'mail_delivery/build_info.py').read_text())
+
+
+class InstallWithoutCheckout(unittest.TestCase):
+    """A satellite node has no git checkout: the recipe stages the sources there
+    and names the commit, so the entry point must not ask git for it."""
+
+    def test_named_commit_is_stamped_without_calling_git(self):
+        from unittest import mock
+        from mail_delivery import install as module
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+
+            def no_git(*args, **kwargs):
+                raise AssertionError('git was called')
+            with mock.patch.object(module.Path, 'home', return_value=home), \
+                    mock.patch.object(module.subprocess, 'check_output', no_git), \
+                    mock.patch('builtins.print'):
+                module.main(['--commit', 'c0ffee'])
+            target = home / '.local/lib/praesidium-kernel/programs/mail-delivery'
+            self.assertIn("ACP_COMMIT = 'c0ffee'", (target / 'mail_delivery/build_info.py').read_text())
+            self.assertTrue((target / 'mail_delivery/main.py').is_file())
