@@ -96,7 +96,9 @@ export function createThreads(deps: ThreadsDeps) {
       const location = await host().locateScope(`agent:mable:project:${slug}:task:primary`)
       if (
         location.authority.state === 'unknown' ||
-        (location.authority.state === 'bound' && !location.authority.isLocal)
+        (location.authority.state === 'bound' && !location.authority.isLocal) ||
+        (location.authority.state === 'unbound' &&
+          (!('nodeId' in location.declared) || location.declared.nodeId !== location.localNodeId))
       )
         return null
       const admin = deps.adminStore.projects.get(slug)
