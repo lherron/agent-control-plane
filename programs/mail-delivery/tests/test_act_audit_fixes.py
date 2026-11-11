@@ -243,6 +243,7 @@ class TolerantReads(unittest.TestCase):
         """`body.status !== 'started'` holds for an undefined status."""
         self.ctx.store.mail_delivery.record_failure_notice(envelope_id='EN-00001', target_session_ref=TARGET,
                                                            notice='notice')
+        self.ctx.port.probe['admissionClasses'] = ['enqueue']  # T-13292: a steer-capable seat is steered
         self.ctx.port.replies['enqueue'] = [dict(runId='run-1')]
         run(deliver_failure_notices(self.ctx, TARGET, self.ctx.port.session))
         parked = [log for log in self.ctx.logs if log['event'] == 'wrkq.kicker.failure_notice_parked']

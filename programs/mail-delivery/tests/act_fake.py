@@ -1,4 +1,5 @@
 """Recording fake owner seams; real SQLite store, fixed clock and ids."""
+import asyncio
 import copy
 from datetime import datetime, timezone
 import json
@@ -118,10 +119,11 @@ class FakeContext:
         self.stopping = False
         self.sweep_interval_ms = 60000
         for name in ('pending_targets', 'target_operations', 'foreign_home_announced', 'birth_deferred_announced',
-                     'birth_sweep_backoff', 'failure_notice_backoff', 'delivery_backoff', 'steer_hold',
+                     'birth_sweep_backoff', 'failure_notice_backoff', 'failure_notice_outstanding', 'delivery_backoff', 'steer_hold',
                      'quiet_targets', 'reconcile_examined_at', 'live_runtime_seen_at'):
             setattr(self, 'mail_kicker_'+name, {})
-        for name in ('lapsed_runtimes', 'disposals_pending', 'stalled_delivery_announced', 'steer_refused', 'steer_fallback'):
+        for name in ('lapsed_runtimes', 'disposals_pending', 'stalled_delivery_announced', 'steer_refused', 'steer_fallback',
+                     'failure_notice_steer_fallback'):
             setattr(self, 'mail_kicker_'+name, set())
 
     def now_ms(self): return self.clock
@@ -130,6 +132,7 @@ class FakeContext:
         return f'00000000-0000-4000-8000-{self.uuid_seq:012}'
     def log(self, level, event, detail): self.logs.append(dict(level=level, event=event, detail=copy.deepcopy(detail)))
     def wake(self, target, reason): self.wakes.append(dict(target=target, reason=reason))
+    def spawn(self, coroutine): return asyncio.get_running_loop().create_task(coroutine, eager_start=True)
     async def deliver_failure_notices(self, target, session): pass
     async def fail_envelope_with_audit(self, input):
         row = await self.ledger.fail({k: v for k, v in input.items() if k in ('envelope', 'reason', 'runtime', 'detail')})

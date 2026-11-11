@@ -17,6 +17,16 @@ class FailureNoticeBackoff(TypedDict):
     nextAtMs: int
 
 
+class FailureNoticeClaim(TypedDict):
+    """The one notice submission outstanding for a target (T-13292)."""
+    door: str
+    envelopes: list[str]
+    noticeSet: str
+    runtimeId: str
+    attempts: int
+    submissionId: str | None
+
+
 class QuietTarget(TypedDict):
     fingerprint: str
     quietSinceMs: int
@@ -58,6 +68,8 @@ class MailKickerContext(Protocol):
     mail_kicker_birth_deferred_announced: dict[str, str]
     mail_kicker_birth_sweep_backoff: dict[str, BirthSweepBackoff]
     mail_kicker_failure_notice_backoff: dict[str, FailureNoticeBackoff]
+    mail_kicker_failure_notice_outstanding: dict[str, FailureNoticeClaim]
+    mail_kicker_failure_notice_steer_fallback: set[str]
     mail_kicker_lapsed_runtimes: set[str]
     mail_kicker_disposals_pending: set[Any]
     mail_kicker_boot_reconcile_pending: bool
@@ -73,6 +85,7 @@ class MailKickerContext(Protocol):
     def now_ms(self) -> int: ...
     def new_uuid(self) -> str: ...
     def log(self, level: str, event: str, detail: dict) -> None: ...
+    def spawn(self, coroutine: Any) -> Any: ...
     def wake(self, target_session_ref: str, reason: str) -> None: ...
     async def drain_target(self, target_session_ref: str) -> None: ...
     async def run_sweep_once(self) -> None: ...

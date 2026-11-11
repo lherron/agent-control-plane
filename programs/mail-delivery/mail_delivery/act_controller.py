@@ -17,7 +17,8 @@ from .act_authority import kicker_scope_ref_for
 from .act_deferred import next_deferred_wake_at, stop_deferred_wakes
 from .act_disposal import dispose_runtime_obligations
 from .act_envelope_terminal import fail_envelope_with_audit
-from .act_failure_notices import deliver_failure_notices
+from .act_failure_notices import (deliver_failure_notices, observe_failure_notice_landing,
+                                  release_failure_notices_for_runtime)
 from .act_hrc_facts import hrc_facts
 from .act_internal import (DISPOSAL_DRAIN_DEADLINE_MS, LEDGER_SWEEP_TICKS, MAIL_DRIVE_TERMINAL_EVENTS,
                            MAIL_KICKER_MAX_CONCURRENT_TARGET_DRIVES, REMINDER_CHECK_TICKS, RUNTIME_TERMINAL_EVENTS,
@@ -83,6 +84,10 @@ class MailKicker:
         self.mail_kicker_birth_deferred_announced = {}
         self.mail_kicker_birth_sweep_backoff = {}
         self.mail_kicker_failure_notice_backoff = {}
+        # T-13292: the one notice submission outstanding per target, and the
+        # notice sets whose steer was refused unwritten (they go by enqueue).
+        self.mail_kicker_failure_notice_outstanding = {}
+        self.mail_kicker_failure_notice_steer_fallback = set()
         self.mail_kicker_lapsed_runtimes = set()
         self.mail_kicker_disposals_pending = OrderedSet()
         self.landing_observer_operations = OrderedSet()
@@ -404,6 +409,12 @@ class MailKicker:
         if self.stopping:
             return
         note_broker_evidence(self, record)
+        try:
+            observe_failure_notice_landing(self, record)
+        except Exception as error:
+            self.log('WARN', 'wrkq.kicker.landing_observer_failed', dict(
+                invocationId=record.get('invocationId'), runtimeId=record.get('runtimeId'),
+                brokerEventType=record.get('type'), error=error_text(error)))
 
         async def observe():
             try:
@@ -452,6 +463,8 @@ def observe_mail_drive_lifecycle_event(server, event):
     if event['eventKind'] == 'turn.failed':
         record_delivery_broker_start_refusal(server, event)
     if event['eventKind'] in RUNTIME_TERMINAL_EVENTS:
+        if runtime_id is not None:
+            release_failure_notices_for_runtime(server, runtime_id)
         if runtime_id is None or runtime_id in server.mail_kicker_lapsed_runtimes:
             return
         target_session_ref = format_session_ref(event['scopeRef'], event['laneRef'])
