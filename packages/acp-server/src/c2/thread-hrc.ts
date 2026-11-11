@@ -78,24 +78,32 @@ export async function threadSeats(
   return seats
 }
 
-export async function startThreadSeat(
+/** The prompt is the first turn; existing sessions retain their conversation. */
+export async function submitThreadPrompt(
   client: AcpHrcClient,
   scopeRef: string,
-  requestId: string
-): Promise<void> {
+  requestId: string,
+  body: string,
+  ensure: boolean
+) {
+  if (!client.invoke || (ensure && !client.ensureTarget))
+    throw new Error('thread_submission_unavailable')
   const { intent } = await client.resolveRuntimeIntent({
     scopeRef,
     runMode: 'task',
     interactive: true,
     preferredMode: 'headless',
   })
-  await client.startRuntime({
-    sessionRef: `${scopeRef}/lane:main`,
+  const sessionRef = `${scopeRef}/lane:main`
+  if (ensure) await client.ensureTarget?.({ sessionRef, runtimeIntent: intent })
+  return client.invoke({
+    target: sessionRef,
+    body,
+    origin: { principalRef: 'agent:lance' },
     runtimeIntent: intent,
-    conflictPolicy: 'reject',
-    summonIntent: 'implicit',
+    coldBirth: { promptMode: 'append-to-priming' },
+    turnPolicy: 'open',
     idempotencyKey: requestId,
-    restartStyle: 'reuse_pty',
   })
 }
 

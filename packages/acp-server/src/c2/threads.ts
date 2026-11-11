@@ -9,7 +9,7 @@ import { mapLimit } from './hrc-adapter.js'
 import {
   archiveThreadSeat,
   startResumedThreadSeat,
-  startThreadSeat,
+  submitThreadPrompt,
   threadSeats,
   writeThreadWork,
 } from './thread-hrc.js'
@@ -244,14 +244,28 @@ export function createThreads(deps: ThreadsDeps) {
     if (!project) throw new ThreadRequestError('covered_project_missing')
     return project.slug
   }
-  async function start(thread: Thread, scope: string, requestId: string) {
+  async function start(thread: Thread, scope: string, requestId: string, ensure = true) {
     const outcomes: Record<string, unknown> = {
       created: true,
       threadId: thread.id,
       seatScopeRef: scope,
     }
     try {
-      await startThreadSeat(host(), scope, requestId)
+      const receipt = await submitThreadPrompt(
+        host(),
+        scope,
+        requestId,
+        `${threadLine(thread.id, await projectFor(thread, scope))}\n\n${thread.description}`,
+        ensure
+      )
+      if (receipt.admission === 'rejected')
+        return { ...outcomes, ok: false, outcome: 'start_failed', reason: receipt.reason, receipt }
+      if (
+        receipt.admission !== 'admitted' &&
+        !('status' in receipt && (receipt.status === 'accepted' || receipt.status === 'started'))
+      )
+        return { ...outcomes, ok: false, outcome: 'unknown_outcome', receipt }
+      outcomes['receipt'] = receipt
       outcomes['started'] = true
     } catch (error) {
       return {
@@ -265,32 +279,6 @@ export function createThreads(deps: ThreadsDeps) {
       await writeThreadWork(host(), scope, { kind: 'workstream', workstreamId: thread.id }, 1)
     } catch (error) {
       outcomes['work_refused'] = { reason: reason(error) }
-    }
-    try {
-      const sent = await host().steer({
-        target: `${scope}/lane:main`,
-        body: `${threadLine(thread.id, await projectFor(thread, scope))}\n\n${thread.description}`,
-        origin: { principalRef: LANCE },
-        idempotencyKey: `${requestId}:prompt`,
-      })
-      const receipt = sent as Record<string, unknown>
-      if (typeof receipt['runId'] !== 'string')
-        return {
-          ...outcomes,
-          ok: false,
-          outcome: 'prompt_not_sent',
-          reason: receipt['admission'] === 'rejected' ? receipt['reason'] : 'unknown_outcome',
-          receipt,
-        }
-      outcomes['receipt'] = sent
-    } catch (error) {
-      return {
-        ...outcomes,
-        ok: false,
-        outcome: 'prompt_not_sent',
-        reason: reason(error),
-        delivery: knownRefusal(error) ? 'not_submitted' : 'unknown_outcome',
-      }
     }
     return {
       ...outcomes,
@@ -312,7 +300,7 @@ export function createThreads(deps: ThreadsDeps) {
     const everRan =
       history.some((r) => r.scopeRef === scope && r.laneRef === 'main') ||
       Boolean(seat?.continuation)
-    if (!everRan) return start(thread, scope, requestId)
+    if (!everRan) return start(thread, scope, requestId, !seat)
     try {
       if (!host().resumeContinuation) throw new Error('resume_unavailable')
       // A successor without a runtime is already resumed, including after a refused start.

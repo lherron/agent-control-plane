@@ -224,6 +224,8 @@ export type AcpHrcClient = Pick<
       inputId?: string | undefined
     }
   ): ReturnType<HrcClient['interrupt']>
+  ensureTarget?: HrcClient['ensureTarget']
+  invoke?: HrcClient['invoke']
   resumeContinuation?: HrcClient['resumeContinuation']
   getSessionWork?: (scopeRef: string) => Promise<import('./hrc-client.js').SessionWorkState>
   putSessionWork?: (
