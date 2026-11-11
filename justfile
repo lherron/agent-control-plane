@@ -339,14 +339,14 @@ install-mail-delivery-on host:
     commit="$(git rev-parse HEAD)"
     stage='praesidium/var/scratch/agent-control-plane/mail-delivery-install'
     ssh '{{host}}' "rm -rf ~/$stage && mkdir -p ~/$stage/programs/mail-delivery/mail_delivery ~/$stage/node_modules/@wrkq/client/dist"
-    scp -q programs/mail-delivery/program.json "{{host}}:$stage/programs/mail-delivery/"
+    scp -q programs/mail-delivery/module.json "{{host}}:$stage/programs/mail-delivery/"
     scp -q $(git ls-files 'programs/mail-delivery/mail_delivery/*.py') "{{host}}:$stage/programs/mail-delivery/mail_delivery/"
     scp -q node_modules/@wrkq/client/dist/protocol.js "{{host}}:$stage/node_modules/@wrkq/client/dist/"
     ssh '{{host}}' "zsh -lc 'python3.14 ~/$stage/programs/mail-delivery/mail_delivery/install.py --commit $commit'"
 
-# The owner command on a satellite node, run from its installed program tree.
+# The owner command on a satellite node, run from its installed module tree (or the pre-rename program tree on a node the kernel rename has not reached).
 mail-delivery-owner-on host owner="":
-    ssh '{{host}}' "zsh -lc 'cd ~/.local/lib/praesidium-kernel/programs/mail-delivery && python3.14 -m mail_delivery.delivery_owner {{owner}}'"
+    ssh '{{host}}' "zsh -lc '{ cd ~/.local/lib/praesidium-kernel/modules/mail-delivery 2>/dev/null || cd ~/.local/lib/praesidium-kernel/programs/mail-delivery; } && python3.14 -m mail_delivery.delivery_owner {{owner}}'"
 
 # Remove the installed mail-delivery program sources from the executing node.
 uninstall-mail-delivery:

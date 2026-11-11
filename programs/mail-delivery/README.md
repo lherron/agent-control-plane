@@ -41,8 +41,9 @@ just mail-delivery-owner-on <host>            # print that node's owner row
 just mail-delivery-owner-on <host> port       # flip that node; `injector` reverses
 ```
 
-The installer copies `program.json` and `mail_delivery/*.py` into
-`~/.local/lib/praesidium-kernel/programs/mail-delivery/`, rejecting symlinks.
+The installer copies `module.json` and `mail_delivery/*.py` into
+`~/.local/lib/praesidium-kernel/modules/mail-delivery/`, rejecting symlinks,
+and removes the pre-rename `programs/mail-delivery/` tree if one is there.
 It generates `wrkq_pin.py` from ACP's installed `@wrkq/client` and
 `build_info.py` from the installed ACP commit. It stages the complete tree
 and renames it into place. The kernel replaces it after two stable scans;
