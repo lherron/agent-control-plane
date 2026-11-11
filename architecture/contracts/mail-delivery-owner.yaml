@@ -1,0 +1,84 @@
+id: agent-control-plane.mail-delivery-owner
+kind: contract
+status: active
+owner_project: agent-control-plane
+scope: Per-node handover between hrc-mail-injector and the kernel-hosted mail delivery port
+predicate: >
+  The mail delivery acting half follows T-13278 write-half-spec r2. It is a
+  translation of the injector's policy, using its database, owner calls and
+  identities. It introduces no HRC, wrkq or kernel functionality. The kernel
+  exception remains bounded by producer contract praesidium-kernel.program-host.
+  Direct wrkq calls retain agent:hrc; HRC failure-notice submissions retain
+  system:hrc-kicker. The acting path does not execute the shadow's decide().
+
+  ACP owns both readers of the per-node delivery_owner row. Its owner value
+  selects injector or port, with an absent row selecting injector. The row
+  expresses desired ownership; delivering_owner, delivering_pid and
+  delivering_since are reporting only and grant no delivery authority.
+
+  Every acting injector or port process must hold the same exclusive SQLite
+  transaction, BEGIN EXCLUSIVE with busy timeout zero, on the dedicated file
+  hrc-mail-injector.deliverer-lock.sqlite beside the delivery database. Each
+  process opens that file once; other code, including the flip command, does
+  not open it. The shadow does not acquire the lock. A successor constructs
+  its controller, reconciles or delivers only after acquiring the lock;
+  unsuccessful acquisition retries once a second without timed bypass.
+
+  A live predecessor retains the lock until its stop path has finished and
+  its HRC and wrkq clients and delivery store are closed. The Python stop path
+  cancels its tasks, closes its clients, closes its store, then releases the
+  lock. Late continuations cannot use a closed store or client. On program
+  shutdown the port retains the lock until exit; process death releases the
+  operating-system lock. A successor then uses the injector's existing
+  crash-reconciliation rules on the shared database without changing them.
+
+  The owner command changes the desired owner and observes the handover.
+  Its 30-second bound reports an incomplete handover and exits nonzero;
+  it never forces lock release or authorizes a second deliverer. A live
+  predecessor that does not stand down blocks takeover until it resumes
+  or is killed. FREQUENCY: every handover whose predecessor remains alive
+  holding the lock without finishing stop remains blocked for that interval;
+  this is a structural consequence, not a measured incident rate.
+
+  Cutover remains per node, reversible by the same owner command, after
+  completed implementation and the submitted acceptance. No shadow waiting
+  period is imposed. The injector and shadow are removed after all nodes
+  cut over. This contract grants no implementation, installation, activation
+  or service-restart authority beyond the existing operating rules.
+authority: >
+  Daedalus APPROVE of T-13278 write-half-spec r2 submitted in EN-50969,
+  2026-11-10. Resolves F1 from EN-50966 by excluding live predecessor and
+  successor controllers through one shared lock and the closed-client/store
+  release boundary. Creates this ACP-owned handover contract; producer
+  praesidium-kernel.program-host and HRC and wrkq contracts remain unchanged.
+source:
+  - wrkq:T-13278
+  - /Users/lherron/praesidium/var/wrkq-artifacts/T-13278/write-half-spec.md
+  - ../praesidium-kernel/architecture/contracts/program-host.yaml
+  - packages/hrc-mail-injector/src/index.ts
+  - packages/hrc-mail-injector/src/policy/controller.ts
+  - packages/hrc-mail-injector/src/wrkq-ledger.ts
+  - packages/hrc-injector-core/src/socket-injection-port.ts
+  - packages/hrc-injector-core/src/injector-state-store.ts
+  - packages/hrc-injector-core/src/mail/delivery-repository.ts
+validation_scope: >
+  Requester owns r2 sections 4 and 5: paired TypeScript/Python isolated
+  scenario comparisons, single-deliverer exclusion including a suspended
+  injector at flip, crash recovery and flag reversal, followed by submitted
+  per-node real-seat acceptance in hrcdev, svc, max3 order. This approval
+  adds no gate or waiting duration and does not attest any acceptance run.
+last_verified: >
+  2026-11-10 design verification of r2 and EN-50969 against controller.ts
+  stop and store close, index.ts stop and ledger close, socket-injection-port.ts
+  closed-call guard, wrkq-ledger.ts closed-call guard and transport cleanup,
+  injector-state-store.ts actual SQLite close, and the active producer
+  program-host contract. The requester's Bun/Python exclusion and SIGKILL
+  probe is reported evidence, not a test independently run by the reviewer.
+  No build, test, install, restart or cutover acceptance was run. Repository
+  commit hooks ran when recording this contract; they are not delivery
+  acceptance evidence.
+reopen_when: >
+  Desired-owner authority, reporting-column authority, lock file or lock
+  lifetime, controller admission, stop/release boundary, takeover timeout,
+  supported process overlap, delivery identities, shared-store semantics or
+  producer program-host boundary changes.
