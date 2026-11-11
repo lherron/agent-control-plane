@@ -4,7 +4,7 @@ status: active
 owner_project: agent-control-plane
 scope: Per-node handover between hrc-mail-injector and the kernel-hosted mail delivery port
 predicate: >
-  The mail delivery acting half follows T-13278 write-half-spec r2. It is a
+  The mail delivery acting half follows T-13278 write-half-spec r3. It is a
   translation of the injector's policy, using its database, owner calls and
   identities. It introduces no HRC, wrkq or kernel functionality. The kernel
   exception remains bounded by producer contract praesidium-kernel.program-host.
@@ -12,9 +12,18 @@ predicate: >
   system:hrc-kicker. The acting path does not execute the shadow's decide().
 
   ACP owns both readers of the per-node delivery_owner row. Its owner value
-  selects injector or port, with an absent row selecting injector. The row
-  expresses desired ownership; delivering_owner, delivering_pid and
-  delivering_since are reporting only and grant no delivery authority.
+  selects injector or port, with an absent row or table selecting injector.
+  Both sides read through a read-only connection; a busy read retains the
+  last known owner. Reading creates no table or other delivery-store state.
+  Only the owner command or a side that has acquired the lock creates the
+  table. The row expresses desired ownership; delivering_owner,
+  delivering_pid and delivering_since are observations and grant no delivery
+  authority. Deliverer admission never depends on those reporting columns.
+  The owner command alone uses them to refuse setting owner to port unless
+  the row already reports delivering_owner injector with a live pid. Refusal
+  writes nothing; setting owner to injector is never refused by this
+  precondition, and no force option bypasses it. This is a negative cutover
+  admission check, not permission to deliver without the shared lock.
 
   Every acting injector or port process must hold the same exclusive SQLite
   transaction, BEGIN EXCLUSIVE with busy timeout zero, on the dedicated file
@@ -28,8 +37,11 @@ predicate: >
   its HRC and wrkq clients and delivery store are closed. The Python stop path
   cancels its tasks, closes its clients, closes its store, then releases the
   lock. Late continuations cannot use a closed store or client. On program
-  shutdown the port retains the lock until exit; process death releases the
-  operating-system lock. A successor then uses the injector's existing
+  shutdown the port awaits the ordinary controller stop path and returns
+  from main without releasing the lock in code. The program shell exits
+  immediately on return or at its existing five-second stop bound; the port
+  retains the lock until exit. Process death releases the operating-system
+  lock. A successor then uses the injector's existing
   crash-reconciliation rules on the shared database without changing them.
 
   The owner command changes the desired owner and observes the handover.
@@ -40,10 +52,21 @@ predicate: >
   holding the lock without finishing stop remains blocked for that interval;
   this is a structural consequence, not a measured incident rate.
 
+  The port reads node delivery settings from the injector's installed
+  launchd plist at program start, including node id, HRC socket, delivery
+  store, wrkq address and token-file path, and PATH. Missing configuration
+  admits no acting controller. A different plist can be named for isolated
+  tests. The wrkq client preserves the TypeScript handshake: protocolVersion
+  and client info, without sending a schema hash. A server hash differing
+  from ACP's generated client pin is a warning, not a startup refusal;
+  an unavailable startup read or refused handshake still fails startup.
+
   Cutover remains per node, reversible by the same owner command, after
   completed implementation and the submitted acceptance. No shadow waiting
   period is imposed. The injector and shadow are removed after all nodes
-  cut over. This contract grants no implementation, installation, activation
+  cut over. An injector predating the flag and shared-lock protocol is
+  unsupported on a cut-over node; the port does not detect such a process.
+  This contract grants no implementation, installation, activation
   or service-restart authority beyond the existing operating rules.
 authority: >
   Daedalus APPROVE of T-13278 write-half-spec r2 submitted in EN-50969,
@@ -51,6 +74,10 @@ authority: >
   successor controllers through one shared lock and the closed-client/store
   release boundary. Creates this ACP-owned handover contract; producer
   praesidium-kernel.program-host and HRC and wrkq contracts remain unchanged.
+  Daedalus APPROVE of r3 submitted in EN-51058, 2026-11-10, amends flag-read
+  purity, the command's negative cutover admission, startup configuration
+  and handshake parity, and clarifies kernel-stop cleanup. The shared-lock
+  admission and closed-client/store release boundary remain unchanged.
 source:
   - wrkq:T-13278
   - /Users/lherron/praesidium/var/wrkq-artifacts/T-13278/write-half-spec.md
@@ -61,8 +88,17 @@ source:
   - packages/hrc-injector-core/src/socket-injection-port.ts
   - packages/hrc-injector-core/src/injector-state-store.ts
   - packages/hrc-injector-core/src/mail/delivery-repository.ts
+  - packages/hrc-mail-injector/src/delivery-owner.ts
+  - packages/hrc-mail-injector/src/cli.ts
+  - programs/mail-delivery/mail_delivery/main.py
+  - programs/mail-delivery/mail_delivery/delivery_owner.py
+  - programs/mail-delivery/mail_delivery/deliverer_lock.py
+  - programs/mail-delivery/mail_delivery/node_config.py
+  - programs/mail-delivery/mail_delivery/act_wrkq_ledger.py
+  - programs/mail-delivery/mail_delivery/act_injector.py
+  - ../cardo/crates/cardo-execution/python/cardo/program.py
 validation_scope: >
-  Requester owns r2 sections 4 and 5: paired TypeScript/Python isolated
+  Requester owns r3 sections 4 and 5: paired TypeScript/Python isolated
   scenario comparisons, single-deliverer exclusion including a suspended
   injector at flip, crash recovery and flag reversal, followed by submitted
   per-node real-seat acceptance in hrcdev, svc, max3 order. This approval
@@ -77,6 +113,15 @@ last_verified: >
   No build, test, install, restart or cutover acceptance was run. Repository
   commit hooks ran when recording this contract; they are not delivery
   acceptance evidence.
+  2026-11-10 r3: Read the revised specification and EN-51058; verified the
+  installed TypeScript client initialize frame at
+  node_modules/@wrkq/client/dist/client.js:52-55 against the Python client,
+  node_config.py plist loading and main.py acting admission, EntryLoop
+  shutdown and retained exit lock, act_injector.py teardown, and Cardo's
+  program shell return/EOF exit paths. The two D6 changes were disclosed
+  as not yet pushed and are approved as design, not attested implementation.
+  No build, test, install, restart or cutover acceptance was run; normal
+  repository commit hooks accompany the architecture-record amendment.
 reopen_when: >
   Desired-owner authority, reporting-column authority, lock file or lock
   lifetime, controller admission, stop/release boundary, takeover timeout,
