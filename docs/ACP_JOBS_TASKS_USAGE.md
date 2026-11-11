@@ -27,7 +27,7 @@ step's result to `job_step_runs`.
 | `probe` | run a **built-in named** probe (idle/work decision) | `branches.outcome` |
 | `wrkq-task` | idempotent create-or-find a wrkq task | continue/fail |
 | `pulpit-message` | deliver a message to an interface binding (Discord, etc.) | continue/fail |
-| `agent-dispatch` | prompt an agent seat through the collaboration ledger: a reply-required `wrkc say` from the ACP principal to the seat handle (lane `main` only) | continue/fail |
+| `agent-dispatch` | prompt an agent seat through the collaboration ledger: a reply-required wrkq room say from the ACP principal to the seat handle (lane `main` only) | continue/fail |
 | *(omitted)* / `agent` | legacy agent step — dispatch the step `input` as an agent turn | continue/fail |
 
 `probe.name` must be in the built-in registry (`knownProbeNames`:
@@ -295,6 +295,7 @@ the disabled drain can duplicate or lose an occurrence.
   `probe` gate (`wrkq-refactor-eligible.v1`) → `idle: succeed` / `work: <agent
   step>`. The canonical "only dispatch an agent when there's work" pattern.
 - **mneme / `xdevs-watch`** — `var/agents/mneme/schedules/xdevs-watch.toml`.
-  `exec` gate (`~/tools/xdevs-watch`) → `exitCode 0: pulpit` / `10: fresh agent
-  analyze` / `default: pulpit`. The "custom detector + conditional analysis"
-  pattern, with a debug pulpit on every run.
+  `exec` gate (`~/tools/xdevs-watch`) → `exitCode 0:` a quiet no-op tick (a
+  second `exec` posts it only when `XDEVS_POST_NOOP_TICKS_TO_DISCORD` is on) /
+  `10:` pulpit the new post, then a fresh agent analyze / `default:` debug
+  pulpit. The "custom detector + conditional analysis" pattern.

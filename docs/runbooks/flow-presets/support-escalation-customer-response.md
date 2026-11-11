@@ -1,20 +1,10 @@
 # Runbook — Support escalation waiting on customer response
 
-> ## ⚠️ Real-agent execution required
->
-> This scenario MUST be executed by real agent runtimes, not by an operator
-> issuing CLI commands with `--as agent:X`. Operator-CLI walks validate the CLI
-> surface but are NOT acceptance evidence.
->
-> ### Agent assignments
->
-> | Steps | Agent | Role |
-> | --- | --- | --- |
-> | 1, 6–7 | **Supervisor agent (rex)** | Publishes workflow, creates task + supervisor run, applies `wait_for_customer`, satisfies customer obligation |
-> | 2–5, 8–9 | **Participant agent (larry)** | Support agent — attaches triage summary, applies `start_triage`, records customer outreach, applies `reach_out`, applies `resume_resolution`, resolves |
->
-> See [`scenarios/flow-presets/README.md`](../../../scenarios/flow-presets/README.md) for the cross-cutting
-> real-agent execution policy.
+> **Kernel-only.** This walkthrough drives the in-memory `acp-core` workflow
+> kernel. The live ACP server no longer publishes workflows, creates kernel
+> tasks or runs supervisors (W6a, T-01936), so there is no live agent walk;
+> the checked command is
+> `bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts`.
 
 Scenario inputs: [workflow.json](../../../scenarios/flow-presets/support-escalation-customer-response/workflow.json)
 and [scenario.json](../../../scenarios/flow-presets/support-escalation-customer-response/scenario.json).

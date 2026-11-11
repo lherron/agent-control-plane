@@ -38,6 +38,11 @@ Routes:
 | `POST /v1/mobile/sessions` | http | Provision a new session — a suffix-roster slot for the quick-pick lanes, or the one exact scope the operator named. The client supplies a stable `requestId` per button press; transport retries reuse it. |
 | `POST /v1/mobile/sessions/:hostSessionId/input` | http | Literal input to a session. |
 | `POST /v1/mobile/sessions/:hostSessionId/interrupt` | http | Interrupt a session. |
+| `POST /v1/mobile/sessions/:hostSessionId/restart` | http | End the session's conversation and relaunch the same scope fresh through HRC's semantic restart; after HRC commits, ACP expires input queued for the dropped context. |
+| `GET /v1/mobile/sessions/:hostSessionId/timeline`, `.../diagnostics` | websocket | Per-session timeline frames and raw diagnostics; the path's `hostSessionId` is the only routing authority. |
+| `GET /v2/mobile/sessions` | http | Paginated session index. |
+| `GET /v2/mobile/dashboard` | websocket | Dashboard snapshot over the paginated, federation-aware session index. |
+| `/v1/mobile/c2/v2/*` (`snapshot`, `actions`, `actions/:requestId`, `artifacts/:id`) | http | C2 mobile cards host (`packages/acp-server/src/c2/`). The v1 C2 paths (`/v1/mobile/c2/cards`, `actions`, `artifacts`) answer `410 wire_version_unsupported`. |
 | `GET /v1/mobile/sessions/:hostSessionId/attach-info` | http | Loopback-only attach descriptor for an embedded terminal (HRCMac). |
 | `POST /v1/mobile/auth/pairing-code` | http | Loopback-only. Mint the single outstanding pairing code. |
 | `GET /v1/mobile/auth/devices` | http | Loopback-only. Paired devices + enforcement posture. |
@@ -45,7 +50,7 @@ Routes:
 | `POST /v1/mobile/auth/enforce` | http | Loopback-only. Arm/disarm bearer enforcement. |
 
 `POST /v1/mobile/sessions` accepts `agentId`, `projectId`, optional `taskId`,
-optional `viewerWindow`, and `requestId`. The server derives an HRC idempotency
+optional `viewerWindow`, optional `model`, optional `force`, and `requestId`. The server derives an HRC idempotency
 key from `requestId`, names the
 `agent:<agentId>:project:<projectId>:task:<taskId>` scope, and returns the scope
 HRC actually claimed. `taskId` is trimmed and defaults to `primary`; it is not
@@ -80,9 +85,16 @@ downstream with `stale_context`, not by ACP. Exact starts are refused with
 `session_roster_exhausted` / `idempotency_key_conflict` /
 `roster_claim_superseded` 409 mappings are unchanged.
 
-`viewerWindow` defaults to `ACP_MOBILE_VIEWER_WINDOW`, or `console` when the
-environment variable is unset. The route carries no auth of its own; it sits in
-the bearer tier described below like every other non-exempt mobile route.
+`viewerWindow` has no ACP default: when the client omits it, HRC derives the
+presentation from the scope shape; a supplied value is forwarded as
+`presentation.viewerWindow`. `model` is passed to declaration resolution as the
+provision model. `force` (`{ mode: "new_context" | "reconcile" |
+"launch_successor" }`, primary scope only, never with `model`) is the "Force new
+session" path in `handlers/mobile-force-primary.ts`: ACP resolves the exact
+`primary` scope through HRC and either force-restarts its context or
+exact-claims an absent scope, without walking the suffix roster. The route
+carries no auth of its own; it sits in the bearer tier described below like
+every other non-exempt mobile route.
 
 Before any HRC claim or start request, the route obtains the runtime-intent
 `harness` and `execution` from HRC declaration resolution
@@ -121,7 +133,7 @@ bearer never substitutes for locality.
 
 One decision function (`packages/acp-server/src/mobile-auth/gate.ts`) is called
 from both the HTTP router (`create-acp-server.ts`) and the Bun WS upgrade path
-(`cli.ts`, before `server.upgrade()`), so the two cannot drift. No handler carries
+(`acp-listener.ts`, before `server.upgrade()`), so the two cannot drift. No handler carries
 auth code of its own.
 
 Operator surface — the server is the state file's only writer, so the CLI mutates
@@ -146,8 +158,9 @@ pairing; only their SHA-256 is stored, and they never reach any log.
 `GET /v1/mobile/sessions/:hostSessionId/attach-info`
 (`packages/acp-server/src/handlers/mobile-attach-info.ts`) is the only route on
 this surface that *enforces* the loopback convention rather than assuming it. It
-exists so HRCMac can fast-attach an embedded libghostty terminal to a session's
-durable broker-tmux, and it **proxies** hrc-server's attach descriptor
+lets a local embedded-terminal client fast-attach to a session's durable
+broker-tmux (it was built for HRCMac, which hrc-ios decommissioned on
+2026-10-28), and it **proxies** hrc-server's attach descriptor
 (`hrcClient.getAttachDescriptor`) — `argv` is hrc-server's verbatim, and
 `socketPath`/`target` are read back out of that same argv rather than recomputed,
 so exactly one place knows how to build an attach command.
@@ -167,7 +180,7 @@ headless-without-tui) is `409 {"reason":"not_attachable"}`. Both codes are routi
 signals, not errors: the app falls back to the frame timeline. Success is
 `{ local: true, argv, socketPath, target, bindingFence }`, where `bindingFence`
 carries `runtimeId` + `generation` so the client can refuse to attach across a
-runtime rotation. Contract: `clients/hrc-ios/HRCMAC_EMBEDDED_TERMINAL_SPEC.md` §3.2.
+runtime rotation.
 
 The probe cannot start anything, which is what makes it safe to call on every
 window open. It asks hrc-server for a descriptor by **explicit `runtimeId`**, and
@@ -176,7 +189,7 @@ not an attachable broker is refused (`runtime_unavailable` → 409 not_attachabl
 rather than reprovisioned into one. A client that polls attach-info against a
 headless session therefore never conjures a tmux lease as a side effect.
 
-`handlers/mobile.ts` (~2,000 lines) covers federation-node projection types
+`handlers/mobile.ts` covers federation-node projection types
 (`FederationNodeRuntimeProjection`, `FederationPeerHealthObservation`, ...)
 imported from `hrc-core`, meaning this surface is federation-aware — it can
 represent remote-node session/runtime projections (`remote_runtime_projection`
@@ -189,13 +202,9 @@ federation Phase 1" — only local-session control is live today.
 
 `gateway-ios` is a **separate, standalone process** — `bun run packages/gateway-ios/src/main.ts` — that binds its own port
 (`ACP_IOS_GATEWAY_HOST`/`ACP_IOS_GATEWAY_PORT`, default
-`127.0.0.1:18480`). Lifecycle/live-delivery data comes directly from the HRC
-control socket (`HRC_SOCKET_PATH` / `HRC_CONTROL_SOCKET`), while durable room
-history comes from wrkq through `@wrkq/client` (`ACP_WRKQ_DB` / `WRKQ_DB`,
-with the legacy path variables accepted). During the rooms burn-in window,
-history is ledger-first with the frozen HRC message store retained as the
-lookback fallback. The process does not go through `acp-server` or ACP's own
-HTTP routes. It is not booted by
+`127.0.0.1:18480`). All of its data comes from the HRC control socket
+(`HRC_SOCKET_PATH` / `HRC_CONTROL_SOCKET`). The process does not go through
+`acp-server` or ACP's own HTTP routes. It is not booted by
 `acp server start`/`restart`; nothing in `server-runtime.ts` references it.
 
 Route surface (`packages/gateway-ios/src/routes.ts`):
@@ -203,33 +212,14 @@ Route surface (`packages/gateway-ios/src/routes.ts`):
 | Route | Kind | Purpose |
 |---|---|---|
 | `GET /v1/health` | http | Health + HRC capability flags. |
-| `GET /v1/sessions`, `POST /v1/sessions/refresh` | http | Session index list/filter (`mode`, `status`, `q`) and force-refresh. |
-| `GET /v1/history` | http | Progressive history projection. |
-| `POST /v1/input`, `POST /v1/interrupt` | http | Literal input / interrupt, fence-validated. |
-| `GET /v1/timeline` | websocket | Timeline snapshot + live frames for a `sessionRef` (optionally pinned to a `hostSessionId`/`generation`; omitted means active/latest for that session lineage only — never all sibling generations). |
-| `GET /v1/diagnostics/events` | websocket | Raw HRC lifecycle event stream, filterable by category/eventKind. |
+| `GET /v1/sessions`, `POST /v1/sessions/refresh` | http | Session index list/filter (`mode`, `status`, `q`) and force-refresh; status is derived from the runtime as `active`, `stale` or `inactive`. |
+| `POST /v1/input`, `POST /v1/interrupt` | http | Literal input / interrupt, fence-validated; input to a non-interactive session is `400 session_not_interactive`. |
+| `GET /v1/diagnostics/events` | websocket | Raw HRC lifecycle event stream for a `sessionRef`, filterable by category/eventKind. |
+| `GET /v1/history`, `GET /v1/timeline` | retired | `410 timeline_moved`: history and timeline authority moved to the ACP `/v1/mobile/history` and `/v1/mobile/sessions/:hostSessionId/timeline` routes. |
 
 Optional bearer-token enforcement in front of all routes via
-`ACP_IOS_GATEWAY_TOKEN`.
-
-### Known state (per `tests/fixtures/mobile/gateway-ios-smoke.md`, 2026-04-30)
-
-A full end-to-end smoke against a live HRC server found the module's
-`start()` was still a stub that never bound a listener; that was fixed in
-the same pass. After the fix, most routes passed smoke (health, session
-listing/filtering, diagnostics WS, history paging, input/interrupt
-validation, bearer-token enforcement, clean SIGTERM). Open caveats recorded
-at that time:
-
-- Session status derivation reports every session as `inactive` regardless
-  of real activity (`session-index.ts`).
-- The timeline WS snapshot is empty by design — `history.frames` is always
-  `[]` until it's wired to the reverse-paged history projector.
-- `POST /v1/input` against a non-interactive (headless) session returns
-  `code='runtime_unavailable'` instead of the intended
-  `code='session_not_interactive'`.
-- The diagnostics WS occasionally emits a stray `snapshot` envelope it
-  isn't supposed to (cosmetic).
+`ACP_IOS_GATEWAY_TOKEN`. `tests/fixtures/mobile/gateway-ios-smoke.md` records
+the 2026-04-30 live smoke of this binary.
 
 Treat `gateway-ios` as a dev/exploratory harness for the HRC session
 surface, not the shipped mobile backend — the shipped surface for an actual
@@ -239,6 +229,5 @@ iOS app today is `/v1/mobile/*` on `acp-server` (surface 1 above).
 
 - Building or debugging the real mobile app integration → `/v1/mobile/*` on
   `:18470` (surface 1).
-- Poking at raw HRC session/diagnostics data and ledger-backed collaboration
-  history with a lighter standalone surface → `gateway-ios` on `:18480`
-  (surface 2), keeping in mind the open caveats above.
+- Poking at raw HRC session index and diagnostics data with a lighter
+  standalone surface → `gateway-ios` on `:18480` (surface 2).

@@ -385,10 +385,8 @@ Keep as current operator/package docs:
 - `AGENTS.md` and `CLAUDE.md`: agent-facing operational instructions.
 - `packages/*/README.md` and package-local smoke docs.
 - `tests/conformance/acp-workflow/README.md`: conformance suite guide.
-- `docs/runbooks/flow-presets/*.md`: scenario runbooks.
-- `docs/acp-supervisor-playbook.md` and
-  `docs/acp-workflow-verification.md`: historical/current workflow-kernel
-  verification material tied to conformance tests.
+- `docs/runbooks/flow-presets/*.md`: kernel scenario runbooks checked by the
+  flow-presets conformance test.
 
 Treat as historical or migration material unless current source says otherwise:
 

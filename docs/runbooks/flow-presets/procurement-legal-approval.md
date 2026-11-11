@@ -1,22 +1,10 @@
 # Runbook — Procurement & legal approval (vendor wait + legal review)
 
-> ## ⚠️ Real-agent execution required
->
-> This scenario MUST be executed by real agent runtimes, not by an operator
-> issuing CLI commands with `--as agent:X`. Operator-CLI walks validate the CLI
-> surface but are NOT acceptance evidence.
->
-> ### Agent assignments
->
-> | Steps | Agent | Role |
-> | --- | --- | --- |
-> | 1, 4–6 | **Supervisor agent (rex)** | Publishes workflow, creates task + supervisor run, routes to vendor, waits for vendor, satisfies vendor obligation |
-> | 2–3 | **Participant agent (larry)** | Requester — attaches `request_packet`, applies `submit_request` |
-> | 7–8 | **Participant agent (curly)** | Legal reviewer — applies `resume_legal_review`, attaches `legal_review`, satisfies legal obligation |
-> | 9–11 | **Participant agent (cody)** | Procurement lead — applies `complete_legal_review`, attaches `approval_record`, applies `approve` |
->
-> See [`scenarios/flow-presets/README.md`](../../../scenarios/flow-presets/README.md) for the cross-cutting
-> real-agent execution policy.
+> **Kernel-only.** This walkthrough drives the in-memory `acp-core` workflow
+> kernel. The live ACP server no longer publishes workflows, creates kernel
+> tasks or runs supervisors (W6a, T-01936), so there is no live agent walk;
+> the checked command is
+> `bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts`.
 
 Scenario inputs: [workflow.json](../../../scenarios/flow-presets/procurement-legal-approval/workflow.json)
 and [scenario.json](../../../scenarios/flow-presets/procurement-legal-approval/scenario.json).
@@ -189,7 +177,7 @@ Attach `legal_review` evidence (kernel `attachEvidence` or inline on the satisfy
 
 ## Negative checks
 
-SoD is enforced by explicit `sod` requirements on `resume_legal_review` (`legal_reviewer` `notSameAs` `[requester, procurement_lead]`) and on `approve` / `reject` (`procurement_lead` `notSameAs` `[requester, legal_reviewer]`). `RoleSpec.mustDifferFrom` is metadata only in the current kernel and is not auto-enforced — the explicit `sod` requirements are what reject these cases.
+SoD is enforced by explicit `sod` requirements on `resume_legal_review` (`legal_reviewer` `notSameAs` `[requester, procurement_lead]`) and on `complete_legal_review`, `approve` and `reject` (`procurement_lead` `notSameAs` `[requester, legal_reviewer]`). `RoleSpec.mustDifferFrom` is metadata only in the current kernel and is not auto-enforced — the explicit `sod` requirements are what reject these cases.
 
 - **sod_violation — procurement_lead == requester:** Create a separate task binding `requester` AND `procurement_lead` to the same actor (e.g. both `alex`). After legal review is satisfied, `complete_legal_review` rejects with `sod_violation`, preventing `final_approval`.
 - **sod_violation — procurement_lead == legal_reviewer:** Create a separate task binding `procurement_lead` AND `legal_reviewer` to the same actor. After the vendor obligation is satisfied, `resume_legal_review` rejects with `sod_violation`, preventing `final_approval`.
