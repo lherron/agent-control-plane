@@ -1,4 +1,6 @@
 """The broker's observed seat; translation of policy/drive/seat.ts."""
+import math
+from decimal import Decimal
 from .act_internal import is_runtime_unavailable_status
 
 
@@ -27,11 +29,11 @@ async def observe_broker_seat(server, session):
     steer_capable = 'steer' in (probe.get('admissionClasses') or [])
     created_at = {} if runtime.get('createdAt') is None else {'runtimeCreatedAt': runtime['createdAt']}
     if seat['state'] == 'turn-active':
-        return dict(state='turn-active', runtimeId=runtime['runtimeId'], turnId=str(seat['turnId']),
+        return dict(state='turn-active', runtimeId=runtime['runtimeId'], turnId=_js_string(seat.get('turnId', 'undefined')),
                     steerCapable=steer_capable,
                     **({'awaitingInput': True} if runtime['status'] == 'awaiting_input' else {}), **created_at)
     if seat['state'] == 'turn-observed':
-        return dict(state='turn-observed', runtimeId=runtime['runtimeId'], turnId=str(seat['turnId']))
+        return dict(state='turn-observed', runtimeId=runtime['runtimeId'], turnId=_js_string(seat.get('turnId', 'undefined')))
     if seat['state'] == 'idle':
         return dict(state='idle', runtimeId=runtime['runtimeId'], steerCapable=steer_capable,
                     **({'awaitingInput': True} if runtime['status'] == 'awaiting_input' else {}), **created_at)
@@ -55,3 +57,36 @@ def normalize_probe_diagnostic(probe_error):
 def bounded_text(value, limit):
     raw = value.encode('utf-16-le', 'surrogatepass')
     return value if len(raw) // 2 <= limit else raw[:max(0, limit - 13) * 2].decode('utf-16-le', 'surrogatepass') + '…[truncated]'
+
+
+def _js_string(value):
+    """JavaScript String() for values carried in a JSON seat probe."""
+    if value is None:
+        return 'null'
+    if value is True:
+        return 'true'
+    if value is False:
+        return 'false'
+    if isinstance(value, (int, float)):
+        try:
+            number = float(value)
+        except OverflowError:
+            number = math.inf if value > 0 else -math.inf
+        if math.isnan(number):
+            return 'NaN'
+        if math.isinf(number):
+            return 'Infinity' if number > 0 else '-Infinity'
+        if number == 0:
+            return '0'
+        text = repr(number)
+        if 1e-6 <= abs(number) < 1e21:
+            text = format(Decimal(text), 'f')
+            return text.rstrip('0').rstrip('.') if '.' in text else text
+        mantissa, exponent = text.split('e')
+        exponent = int(exponent)
+        return f"{mantissa.removesuffix('.0')}e{'+' if exponent >= 0 else ''}{exponent}"
+    if isinstance(value, list):
+        return ','.join('' if item is None else _js_string(item) for item in value)
+    if isinstance(value, dict):
+        return '[object Object]'
+    return str(value)
