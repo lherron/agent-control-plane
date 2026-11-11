@@ -40,12 +40,14 @@ Source anchors (repo-relative): justfile; .githooks; .github/workflows; launchd.
 - Surface: `recipe:install-hrc-viewer-launchd`
 - Surface: `recipe:install-log-rotation`
 - Surface: `recipe:install-mail-delivery`
+- Surface: `recipe:install-mail-delivery-on`
 - Surface: `recipe:install-mail-delivery-shadow`
 - Surface: `recipe:launchd-install`
 - Surface: `recipe:launchd-uninstall`
 - Surface: `recipe:lint`
 - Surface: `recipe:lint-fix`
 - Surface: `recipe:mail-delivery-owner`
+- Surface: `recipe:mail-delivery-owner-on`
 - Surface: `recipe:publish-dev`
 - Surface: `recipe:publish-dev-dry-run`
 - Surface: `recipe:publish-worktree`
@@ -71,7 +73,7 @@ Use `just --list`, `git config --get core.hooksPath`, and source plist/workflow 
 
 Run `just verify-feature-map` (structural check) and `bun scripts/verify-feature-map.ts --self-test` (isolated missing-feature/invalid-map rejection). Run `ASP_PROJECT=agent-control-plane just verify` for the full owned gate; preserve existing gate order and normal git hooks. Installed `acp --help` is read-only surface evidence.
 
-Run `just test-mail-delivery` for the opt-in standard-library Python policy, ownership and scoring tests in `programs/mail-delivery/tests` (`python3.14 -m unittest`). The local `install-mail-delivery` / `uninstall-mail-delivery` recipes copy/remove the kernel program, with `-shadow` aliases retained during cutover. Installation stages the manifest and Python sources plus generated wrkq pin and ACP provenance; it needs no daemon restart. With desired owner `injector` (the default), the program shadows. `just mail-delivery-owner` prints the row; with `injector` or `port` it changes desired ownership and waits up to 30 seconds for reporting, naming the holder PID on timeout. Delivery requires the shared exclusive SQLite lock on both sides; the command never opens that lock. Installation and real-node flips remain operator-authorized rollout actions. Tests stay outside `just verify` and prove source behavior with fixtures; isolated scenario and installed acceptance are separate. See [the program README](../../../../../programs/mail-delivery/README.md) for acting/shadow behavior and scoring limits.
+Run `just test-mail-delivery` for the opt-in standard-library Python policy, ownership and scoring tests in `programs/mail-delivery/tests` (`python3.14 -m unittest`). The local `install-mail-delivery` / `uninstall-mail-delivery` recipes copy/remove the kernel program, with `-shadow` aliases retained during cutover. Installation stages the manifest and Python sources plus generated wrkq pin and ACP provenance; it needs no daemon restart. With desired owner `injector` (the default), the program shadows. `just mail-delivery-owner` prints the row; with `injector` or `port` it changes desired ownership and waits up to 30 seconds for reporting, naming the holder PID on timeout. Delivery requires the shared exclusive SQLite lock on both sides; the command never opens that lock. For a satellite node without a current ACP checkout, `just install-mail-delivery-on <ssh-host>` refuses a dirty `programs/mail-delivery`, stages the committed sources and the wrkq pin source on that node over ssh, and runs the same installer there with this checkout's commit (`install.py --commit`); `just mail-delivery-owner-on <ssh-host> [owner]` runs the owner command from that node's installed tree. Both were used for the hrcdev and svc cutover on 2026-11-11; neither has an automated test beyond the installer's unit test. Installation and real-node flips remain operator-authorized rollout actions. Tests stay outside `just verify` and prove source behavior with fixtures; isolated scenario and installed acceptance are separate. See [the program README](../../../../../programs/mail-delivery/README.md) for acting/shadow behavior and scoring limits.
 
 ## Gotchas
 

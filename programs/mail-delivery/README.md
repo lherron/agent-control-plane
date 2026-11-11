@@ -32,6 +32,15 @@ just mail-delivery-owner injector  # reverse handover
 just uninstall-mail-delivery
 ```
 
+On a satellite node with no current ACP checkout (hrcdev, svc), run these from
+max3's checkout instead; `host` is the ssh name (`hrcdev`, `mini` for svc):
+
+```sh
+just install-mail-delivery-on <host>          # stage committed sources there, run the installer
+just mail-delivery-owner-on <host>            # print that node's owner row
+just mail-delivery-owner-on <host> port       # flip that node; `injector` reverses
+```
+
 The installer copies `program.json` and `mail_delivery/*.py` into
 `~/.local/lib/praesidium-kernel/programs/mail-delivery/`, rejecting symlinks.
 It generates `wrkq_pin.py` from ACP's installed `@wrkq/client` and

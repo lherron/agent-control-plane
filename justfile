@@ -330,9 +330,7 @@ test-mail-delivery:
 install-mail-delivery:
     python3.14 programs/mail-delivery/mail_delivery/install.py
 
-# Install the program on a satellite node that has no current ACP checkout: stage
-# this checkout's committed sources and wrkq pin source there over ssh, then run
-# the same installer on that node. `host` is the ssh name (hrcdev; mini for svc).
+# Install the program on a satellite node over ssh from this checkout's committed sources (host: hrcdev, or mini for svc).
 install-mail-delivery-on host:
     #!/usr/bin/env bash
     set -euo pipefail
