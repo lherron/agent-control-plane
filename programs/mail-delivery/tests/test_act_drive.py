@@ -123,6 +123,26 @@ class DriveTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.c.ledger.rows[row['id']]['terminal'])
         self.assertFalse(any(call['method'] == 'ensure_target_session' for call in self.c.transcript))
 
+    async def test_finished_workstream_fyi_closes_without_birth(self):
+        """A thread seat is agent@project:W-<n>; its W- workstream row is read like a task."""
+        target = 'agent:clod:project:hrc-runtime:task:W-13296/lane:main'
+        self.c.port.runtimes = []
+        self.c.ledger.task_state = 'completed'
+        row = self.c.ledger.say(obligation='fyi', to=dict(principalRef='agent:clod', scopeRef=target.split('/')[0]))
+        await drive_mail_target_once(self.c, target, 'insert')
+        self.assertIn([dict(task='W-13296')], [call['args'] for call in self.c.transcript if call['method'] == 'task_show'])
+        self.assertTrue(self.c.ledger.rows[row['id']]['terminal'])
+        self.assertFalse(any(call['method'] == 'ensure_target_session' for call in self.c.transcript))
+        fail = next(call['args'][0] for call in self.c.transcript if call['method'] == 'fail')
+        self.assertEqual(fail['detail'], "target_task_terminal: W-13296 is completed; a finished thread's seat is not started for an fyi")
+
+    async def test_open_workstream_fyi_is_not_closed(self):
+        target = 'agent:clod:project:hrc-runtime:task:W-13296/lane:main'
+        self.c.port.runtimes = []
+        row = self.c.ledger.say(obligation='fyi', to=dict(principalRef='agent:clod', scopeRef=target.split('/')[0]))
+        await drive_mail_target_once(self.c, target, 'insert')
+        self.assertFalse(self.c.ledger.rows[row['id']]['terminal'])
+
     async def test_parked_seat_holds_without_opening_intent(self):
         self.c.port.runtimes[0]['status'] = 'awaiting_input'
         row = self.c.ledger.say()

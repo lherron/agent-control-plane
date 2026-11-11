@@ -1,9 +1,14 @@
-"""Finished-task fyi handling; translation of policy/drive/finished-task.ts."""
+"""Finished-task fyi handling; translation of policy/drive/finished-task.ts.
+
+The port's own addition: a thread seat is `agent@project:W-<n>`, and its W-
+workstream row is read and judged like a task. The TypeScript injector knows
+only T- ids.
+"""
 import re
 from .act_internal import error_text, normalize_target_session_ref
 
 TERMINAL_TASK_STATES = {'completed', 'cancelled', 'archived', 'deleted'}
-WRKQ_TASK_ID = re.compile(r'^T-[0-9]+$')
+WRKQ_TASK_ID = re.compile(r'^[TW]-[0-9]+$')  # a task, or a workstream (thread) row
 
 
 def task_id_of(scope_ref):
@@ -32,7 +37,8 @@ async def close_fyi_for_finished_task(server, input):
         return None
     if state not in TERMINAL_TASK_STATES:
         return None
-    detail = f"target_task_terminal: {task_id} is {state}; a finished task's seat is not started for an fyi"
+    noun = 'thread' if task_id.startswith('W-') else 'task'
+    detail = f"target_task_terminal: {task_id} is {state}; a finished {noun}'s seat is not started for an fyi"
     server.log('INFO', 'wrkq.kicker.target_task_terminal', dict(
         driveAttemptId=input['driveAttemptId'], targetSessionRef=input['targetSessionRef'], taskId=task_id,
         taskState=state, envelopeIds=[item['envelope']['id'] for item in input['actionable']]))

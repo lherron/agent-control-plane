@@ -14,6 +14,9 @@ TARGET = SCOPE + '/lane:main'
 class ReviewFixTests(unittest.IsolatedAsyncioTestCase):
     def test_task_scope_parser_never_trims_identity(self):
         self.assertEqual(task_id_of(SCOPE), 'T-13281')
+        self.assertEqual(task_id_of('agent:cody:project:c2:task:W-13296'), 'W-13296')
+        for standing in ('primary', 'minisvc', 'W-', 'WT-1', 'w-1', 'W-1x'):
+            self.assertIsNone(task_id_of('agent:cody:project:c2:task:' + standing))
         for whitespace in (' ', '\n', '\ufeff', '\u00a0'):
             for value in (whitespace + SCOPE, SCOPE + whitespace):
                 with self.subTest(value=value):
