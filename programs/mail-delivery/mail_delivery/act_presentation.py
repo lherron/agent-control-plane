@@ -4,6 +4,7 @@ from .act_hrc_facts import hrc_facts
 from .act_scope import target_session_ref_for_ledger_scope
 from .act_types import newest_presentation_receipt, obligation_summons
 from .presentation_text import _ms
+from .store import _JS_WHITESPACE
 
 
 async def read_actionable_envelopes(server, target_session_ref):
@@ -71,7 +72,7 @@ def summons_a_turn(envelope):
 def actionable_directives(actionable):
     for item in actionable:
         raw = item['envelope'].get('materializationIntent')
-        raw = raw.strip() if raw is not None else None
+        raw = raw.strip(_JS_WHITESPACE) if raw is not None else None
         if raw is not None and len(raw) > 0:
             return raw
     return None

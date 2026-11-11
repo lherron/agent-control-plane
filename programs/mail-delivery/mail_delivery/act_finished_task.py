@@ -10,7 +10,8 @@ def task_id_of(scope_ref):
     if scope_ref is None:
         return None
     try:
-        normalize_target_session_ref(scope_ref+'/lane:main')
+        if normalize_target_session_ref(scope_ref+'/lane:main') != scope_ref+'/lane:main':
+            return None
         parts = scope_ref.split(':')
         task_id = parts[5] if len(parts) >= 6 and parts[4] == 'task' else None
     except ValueError:

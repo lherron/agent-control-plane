@@ -187,7 +187,7 @@ class HrcFacts:
             self.entries.pop(key, None)
         pending = self.inflight.get(key)
         if pending is not None and options.get('fresh') is not True:
-            return await pending
+            return await asyncio.shield(pending)
         epoch = self.lifecycle_epoch
         async def perform_read():
             self.reads[counter] += 1
@@ -198,10 +198,16 @@ class HrcFacts:
         read = asyncio.create_task(perform_read(), eager_start=True)
         self.inflight[key] = read
         try:
-            return await read
+            return await asyncio.shield(read)
         finally:
-            if self.inflight.get(key) is read:
-                self.inflight.pop(key, None)
+            def release(done):
+                if self.inflight.get(key) is done:
+                    self.inflight.pop(key, None)
+            if read.done():
+                release(read)
+            else:
+                # Cancelling a waiter must neither cancel nor unshare the load.
+                read.add_done_callback(release)
 
 
 def scope_of(target_session_ref):

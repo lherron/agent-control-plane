@@ -1,5 +1,6 @@
 """Constants and helpers translated from policy/internal.ts."""
 import re
+from .store import _JS_WHITESPACE
 
 RUNTIME_TERMINAL_EVENTS = set([
   'runtime.terminated',
@@ -81,12 +82,12 @@ def is_record(value):
 
 
 def parse_session_ref(session_ref):
-    normalized = session_ref.strip()
+    normalized = session_ref.strip(_JS_WHITESPACE)
     parts = normalized.split('/')
     if len(parts) != 2 or not parts[1].startswith('lane:'):
         raise ValueError('sessionRef must use "<scopeRef>/lane:<laneRef>" format')
-    scope_ref = parts[0].strip()
-    lane_ref = parts[1][len('lane:'):].strip()
+    scope_ref = parts[0].strip(_JS_WHITESPACE)
+    lane_ref = parts[1][len('lane:'):].strip(_JS_WHITESPACE)
     if not scope_ref or not lane_ref:
         raise ValueError('sessionRef must include scopeRef and laneRef')
     return {'scopeRef': scope_ref, 'laneRef': lane_ref}
