@@ -322,14 +322,22 @@ cp-test prompt="List skills available. Use only what is in your context, no tool
         --model claude/sonnet \
         "{{prompt}}"
 
-# Read-only mail delivery shadow policy and scoring tests (opt-in, outside verify).
+# Mail delivery behaviour and shadow scoring tests (opt-in, outside verify).
 test-mail-delivery:
-    cd programs/mail-delivery && python3 -m unittest
+    cd programs/mail-delivery && python3.14 -m unittest
 
-# Install only the read-only program sources on the executing node.
-install-mail-delivery-shadow:
-    python3 programs/mail-delivery/mail_delivery/install.py
+# Install the mode-choosing program sources on the executing node.
+install-mail-delivery:
+    python3.14 programs/mail-delivery/mail_delivery/install.py
 
-# Remove the local kernel-hosted mail delivery shadow.
-uninstall-mail-delivery-shadow:
-    python3 programs/mail-delivery/mail_delivery/install.py --uninstall
+uninstall-mail-delivery:
+    python3.14 programs/mail-delivery/mail_delivery/install.py --uninstall
+
+# Compatibility names during per-node cutover.
+install-mail-delivery-shadow: install-mail-delivery
+
+uninstall-mail-delivery-shadow: uninstall-mail-delivery
+
+# Change desired delivery owner and observe handover (never forces the lock).
+mail-delivery-owner owner="":
+    cd programs/mail-delivery && python3.14 -m mail_delivery.delivery_owner {{owner}}

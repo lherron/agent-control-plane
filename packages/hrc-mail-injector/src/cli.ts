@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { DelivererLock, DeliveryOwner, InjectorOwnerLoop } from './delivery-owner.js'
 import { startMailInjector } from './index.js'
 import { inspectMailEnvelope } from './inspect.js'
 import { createJsonLineLog } from './log-line.js'
@@ -22,25 +23,33 @@ if (args.length > 0) throw new Error('usage: hrc-mail-injector [inspect EN-xxxxx
 const socketPath = process.env['HRC_SOCKET_PATH']
 if (socketPath === undefined || socketPath === '') throw new Error('HRC_SOCKET_PATH is required')
 const sourcePath = process.env['HRC_MAIL_KICKER_STATE_PATH']
-const injector = await startMailInjector({
-  socketPath,
-  statePath,
-  ...(sourcePath === undefined || sourcePath === '' ? {} : { importFrom: { sourcePath } }),
-  nodeId: process.env['HRC_NODE_ID'] ?? 'max3',
-})
-
-// hrc-runtime's install-mail-injector-launchd proves startup by matching
-// `"status":"running"` in the new log bytes.
-createJsonLineLog()('INFO', 'mail_injector.started', {
-  status: 'running',
-  subscriber: 'mail',
-  statePath: injector.statePath,
-  importMarker: injector.importMarker,
-})
+const log = createJsonLineLog()
+const flag = new DeliveryOwner(statePath)
+const lock = new DelivererLock(statePath)
+const loop = new InjectorOwnerLoop(
+  flag,
+  lock,
+  () =>
+    startMailInjector({
+      socketPath,
+      statePath,
+      ...(sourcePath === undefined || sourcePath === '' ? {} : { importFrom: { sourcePath } }),
+      nodeId: process.env['HRC_NODE_ID'] ?? 'max3',
+    }),
+  log
+)
+let stopping = false
 const stop = async () => {
-  await injector.stop()
+  if (stopping) return
+  stopping = true
+  await loop.stop()
+  flag.close()
+  lock.close()
   process.exit(0)
 }
 process.once('SIGINT', () => void stop())
 process.once('SIGTERM', () => void stop())
-await new Promise<void>(() => {})
+while (!stopping) {
+  await loop.step()
+  await Bun.sleep(1000)
+}

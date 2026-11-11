@@ -1,28 +1,51 @@
-# Mail delivery shadow
+# Mail delivery
 
-A Python 3.14 standard-library port of the injector decision policy, hosted as
-kernel program `mail-delivery`. This step only observes and logs; it never
-submits, starts, presents, fails, defers, withdraws or declares a subscriber.
+A Python 3.14 port of `hrc-mail-injector`, hosted as kernel program
+`mail-delivery` through `mail_delivery.main`. The `delivery_owner` row in the
+injector database selects `injector` (the default when absent) or `port`.
+Each process must hold an exclusive SQLite transaction on the dedicated
+`hrc-mail-injector.deliverer-lock.sqlite` beside that database before starting
+a controller. A flip waits for the previous controller to stop and close its
+clients/store before releasing the lock. A hung or suspended holder prevents
+handover until it resumes or exits; there is no timed bypass.
 
-From the canonical ACP checkout, on the local node:
+Local-node operator commands (installation and cutover require the node's
+authorized rollout; these commands change installed behavior):
 
 ```sh
 just test-mail-delivery
-just install-mail-delivery-shadow
-prae node get max3
+just install-mail-delivery
+just mail-delivery-owner           # desired owner and observational reporting
+just mail-delivery-owner port      # wait up to 30 seconds for handover
+just mail-delivery-owner injector  # reverse handover
+just uninstall-mail-delivery
 ```
 
-The installer copies only `program.json` and `mail_delivery/*.py` into
+The installer copies `program.json` and `mail_delivery/*.py` into
 `~/.local/lib/praesidium-kernel/programs/mail-delivery/`, rejecting symlinks.
-It stages a complete tree and renames it into place. The kernel starts or
-replaces it after two stable scans; no service restart is needed.
-`just uninstall-mail-delivery-shadow` removes that local tree. Neither recipe
-contacts another node. T-13270 authorizes installation on max3 only.
+It generates `wrkq_pin.py` from ACP's installed `@wrkq/client` and
+`build_info.py` from the installed ACP commit. It stages the complete tree
+and renames it into place. The kernel replaces it after two stable scans;
+no daemon restart is needed. The old `-shadow` recipe names remain aliases.
+The installer neither reads nor flips the flag. With owner `injector`, the
+program observes in shadow mode and the injector continues delivering.
+
+`mail_injector.started` reports process health (`status: running`) and a
+`delivering` boolean. Each new TypeScript controller emits another anchor for
+shadow replay; `mail_injector.mode` records `delivering` or `standing_by`.
+Python mode changes use `mail_delivery.mode` (`acting` or `shadow`). The three
+`delivering_*` columns report status only; the lock grants delivery authority.
+When kernel EOF sets `program.stopping`, main finishes the controller stop,
+clears reporting, and returns to the shell, retaining the lock until process
+exit. An unfinished stop is cut off by the shell's five-second grace; restart
+uses the same open-intent reconciliation as the injector.
+
+In shadow mode, the existing observation and scoring behavior is preserved:
 
 The kernel pins the interpreter and supplies program identity/configuration.
 `Client(program)` watches `room.mail`, `seat` and `runtime`; each reset replaces
 the corresponding view. Owner detail/task reads go through that read-only
-client, using explicit selectors. No `pendingView` call is made: it re-pends
+client, using explicit selectors. In shadow mode no `pendingView` call is made: it re-pends
 wrkq deferrals. Scope-less interface mail belongs to ACP gateways and is
 excluded from agent-seat decisions.
 
