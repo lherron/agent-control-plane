@@ -99,6 +99,28 @@ export async function startThreadSeat(
   })
 }
 
+/** Start the selected continuation successor without claiming another generation. */
+export async function startResumedThreadSeat(
+  client: AcpHrcClient,
+  scopeRef: string,
+  hostSessionId: string
+): Promise<void> {
+  const { intent } = await client.resolveRuntimeIntent({
+    scopeRef,
+    runMode: 'task',
+    interactive: true,
+    preferredMode: 'headless',
+  })
+  const started = await client.startRuntime({
+    hostSessionId,
+    intent,
+    allowStaleGeneration: true,
+    restartStyle: 'reuse_pty',
+  })
+  if (!started.runtimeId || isTerminalRuntimeStatus(started.status))
+    throw new Error('runtime_start_not_admitted')
+}
+
 export async function archiveThreadSeat(
   client: AcpHrcClient,
   seat: ThreadSeat,

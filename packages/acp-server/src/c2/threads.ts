@@ -6,7 +6,13 @@ import { agentCatalogResponseSchema } from 'spaces-aspc-protocol/agent-inspectio
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import { loadWrkqProjectRegistry } from '../handlers/agent-inspection.js'
 import { mapLimit } from './hrc-adapter.js'
-import { archiveThreadSeat, startThreadSeat, threadSeats, writeThreadWork } from './thread-hrc.js'
+import {
+  archiveThreadSeat,
+  startResumedThreadSeat,
+  startThreadSeat,
+  threadSeats,
+  writeThreadWork,
+} from './thread-hrc.js'
 
 export class ThreadRequestError extends Error {}
 export type Thread = Awaited<ReturnType<WorkClient['wrkq']['task']['show']>>
@@ -71,6 +77,20 @@ export type ThreadsDeps = Pick<
   ResolvedAcpServerDeps,
   'adminStore' | 'hrcClient' | 'workClientForPrincipal' | 'agentInspectionAuthority'
 >
+// Routes construct short-lived services; share admission across those services and the card host.
+const pendingOpens = new WeakMap<object, Map<string, Promise<unknown>>>()
+function coalesceOpen<T>(host: object, id: string, operation: () => Promise<T>): Promise<T> {
+  let pending = pendingOpens.get(host)
+  if (!pending) {
+    pending = new Map()
+    pendingOpens.set(host, pending)
+  }
+  const existing = pending.get(id)
+  if (existing) return existing as Promise<T>
+  const result = operation().finally(() => pending.delete(id))
+  pending.set(id, result)
+  return result
+}
 export function createThreads(deps: ThreadsDeps) {
   const hrc = deps.hrcClient
   async function client(): Promise<WorkClient> {
@@ -276,6 +296,49 @@ export function createThreads(deps: ThreadsDeps) {
       ...outcomes,
       ok: !outcomes['work_refused'],
       outcome: outcomes['work_refused'] ? 'work_refused' : 'created',
+    }
+  }
+  async function openSeat(id: string, requestId: string) {
+    const work = await client()
+    const thread = await readThread(work, id)
+    const scope = await seatRecord(work, id)
+    if (!scope) return { ok: false, outcome: 'seat_refused', reason: 'no_own_seat' }
+    if (TERMINAL.has(thread.state))
+      return { ok: false, outcome: 'seat_refused', reason: 'thread_closed' }
+    const seat = (await threadSeats(host(), scope))[0]
+    if (seat?.status === 'active' && seat.runtimeId && seat.runtimeStatus)
+      return { ok: true, outcome: 'already_running', seatScopeRef: scope }
+    const history = await host().listRuntimes({ all: true, scope })
+    const everRan =
+      history.some((r) => r.scopeRef === scope && r.laneRef === 'main') ||
+      Boolean(seat?.continuation)
+    if (!everRan) return start(thread, scope, requestId)
+    try {
+      if (!host().resumeContinuation) throw new Error('resume_unavailable')
+      // A successor without a runtime is already resumed, including after a refused start.
+      const successor =
+        !seat || history.some((runtime) => runtime.hostSessionId === seat.hostSessionId)
+          ? await host().resumeContinuation?.({ sessionRef: `${scope}/lane:main` })
+          : seat
+      if (!successor) throw new Error('resume_unavailable')
+      try {
+        await startResumedThreadSeat(host(), scope, successor.hostSessionId)
+      } catch (error) {
+        return {
+          ok: false,
+          outcome: knownRefusal(error) ? 'start_failed' : 'unknown_outcome',
+          reason: reason(error),
+          seatScopeRef: scope,
+        }
+      }
+      return { ok: true, outcome: 'resumed', seatScopeRef: scope }
+    } catch (error) {
+      return {
+        ok: false,
+        outcome: knownRefusal(error) ? 'seat_refused' : 'unknown_outcome',
+        reason: reason(error),
+        seatScopeRef: scope,
+      }
     }
   }
   return {
@@ -498,33 +561,8 @@ export function createThreads(deps: ThreadsDeps) {
       }
       return { ok: true, outcome: 'updated', thread: await read(id) }
     },
-    async open(id: string, requestId: string) {
-      const work = await client()
-      const thread = await readThread(work, id)
-      const scope = await seatRecord(work, id)
-      if (!scope) return { ok: false, outcome: 'seat_refused', reason: 'no_own_seat' }
-      if (TERMINAL.has(thread.state))
-        return { ok: false, outcome: 'seat_refused', reason: 'thread_closed' }
-      const seat = (await threadSeats(host(), scope))[0]
-      if (seat?.status === 'active' && seat.runtimeId && seat.runtimeStatus)
-        return { ok: true, outcome: 'already_running', seatScopeRef: scope }
-      const history = await host().listRuntimes({ all: true, scope })
-      const everRan =
-        history.some((r) => r.scopeRef === scope && r.laneRef === 'main') ||
-        Boolean(seat?.continuation)
-      if (!everRan) return start(thread, scope, requestId)
-      try {
-        if (!host().resumeContinuation) throw new Error('resume_unavailable')
-        await host().resumeContinuation?.({ sessionRef: `${scope}/lane:main` })
-        return { ok: true, outcome: 'resumed', seatScopeRef: scope }
-      } catch (error) {
-        return {
-          ok: false,
-          outcome: knownRefusal(error) ? 'seat_refused' : 'unknown_outcome',
-          reason: reason(error),
-          seatScopeRef: scope,
-        }
-      }
+    open(id: string, requestId: string) {
+      return coalesceOpen(host(), id, () => openSeat(id, requestId))
     },
     async close(id: string, body: { requestId: string; expectEtag: number; outcome?: string }) {
       const work = await client()
