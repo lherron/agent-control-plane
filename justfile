@@ -330,12 +330,14 @@ test-mail-delivery:
 install-mail-delivery:
     python3.14 programs/mail-delivery/mail_delivery/install.py
 
+# Remove the installed mail-delivery program sources from the executing node.
 uninstall-mail-delivery:
     python3.14 programs/mail-delivery/mail_delivery/install.py --uninstall
 
 # Compatibility names during per-node cutover.
 install-mail-delivery-shadow: install-mail-delivery
 
+# Compatibility alias for removing the installed mail-delivery program sources.
 uninstall-mail-delivery-shadow: uninstall-mail-delivery
 
 # Change desired delivery owner and observe handover (never forces the lock).
