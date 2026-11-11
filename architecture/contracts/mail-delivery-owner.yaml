@@ -90,12 +90,12 @@ source:
   - packages/hrc-injector-core/src/mail/delivery-repository.ts
   - packages/hrc-mail-injector/src/delivery-owner.ts
   - packages/hrc-mail-injector/src/cli.ts
-  - programs/mail-delivery/mail_delivery/main.py
-  - programs/mail-delivery/mail_delivery/delivery_owner.py
-  - programs/mail-delivery/mail_delivery/deliverer_lock.py
-  - programs/mail-delivery/mail_delivery/node_config.py
-  - programs/mail-delivery/mail_delivery/act_wrkq_ledger.py
-  - programs/mail-delivery/mail_delivery/act_injector.py
+  - ../praesidium-kernel/modules/mail-delivery/mail_delivery/main.py
+  - ../praesidium-kernel/modules/mail-delivery/mail_delivery/delivery_owner.py
+  - ../praesidium-kernel/modules/mail-delivery/mail_delivery/deliverer_lock.py
+  - ../praesidium-kernel/modules/mail-delivery/mail_delivery/node_config.py
+  - ../praesidium-kernel/modules/mail-delivery/mail_delivery/act_wrkq_ledger.py
+  - ../praesidium-kernel/modules/mail-delivery/mail_delivery/act_injector.py
   - ../cardo/crates/cardo-execution/python/cardo/program.py
 validation_scope: >
   Requester owns r3 sections 4 and 5: paired TypeScript/Python isolated

@@ -322,42 +322,13 @@ cp-test prompt="List skills available. Use only what is in your context, no tool
         --model claude/sonnet \
         "{{prompt}}"
 
-# Mail delivery behaviour and shadow scoring tests (opt-in, outside verify).
-test-mail-delivery:
-    cd programs/mail-delivery && python3.14 -m unittest
+# The mail-delivery module's source, installer and tests live in praesidium-kernel (modules/mail-delivery) since 2026-11-11.
+# These two owner recipes stay until the TypeScript injector is deleted; they run the owner command from a node's installed module tree.
 
-# Install the mode-choosing program sources on the executing node.
-install-mail-delivery:
-    python3.14 programs/mail-delivery/mail_delivery/install.py
-
-# Install the program on a satellite node over ssh from this checkout's committed sources (host: hrcdev, or mini for svc).
-install-mail-delivery-on host:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    [[ -z "$(git status --porcelain -- programs/mail-delivery)" ]] ||
-      { echo 'install-mail-delivery-on: programs/mail-delivery has uncommitted changes' >&2; exit 1; }
-    commit="$(git rev-parse HEAD)"
-    stage='praesidium/var/scratch/agent-control-plane/mail-delivery-install'
-    ssh '{{host}}' "rm -rf ~/$stage && mkdir -p ~/$stage/programs/mail-delivery/mail_delivery ~/$stage/node_modules/@wrkq/client/dist"
-    scp -q programs/mail-delivery/module.json "{{host}}:$stage/programs/mail-delivery/"
-    scp -q $(git ls-files 'programs/mail-delivery/mail_delivery/*.py') "{{host}}:$stage/programs/mail-delivery/mail_delivery/"
-    scp -q node_modules/@wrkq/client/dist/protocol.js "{{host}}:$stage/node_modules/@wrkq/client/dist/"
-    ssh '{{host}}' "zsh -lc 'python3.14 ~/$stage/programs/mail-delivery/mail_delivery/install.py --commit $commit'"
-
-# The owner command on a satellite node, run from its installed module tree (or the pre-rename program tree on a node the kernel rename has not reached).
-mail-delivery-owner-on host owner="":
-    ssh '{{host}}' "zsh -lc '{ cd ~/.local/lib/praesidium-kernel/modules/mail-delivery 2>/dev/null || cd ~/.local/lib/praesidium-kernel/programs/mail-delivery; } && python3.14 -m mail_delivery.delivery_owner {{owner}}'"
-
-# Remove the installed mail-delivery program sources from the executing node.
-uninstall-mail-delivery:
-    python3.14 programs/mail-delivery/mail_delivery/install.py --uninstall
-
-# Compatibility names during per-node cutover.
-install-mail-delivery-shadow: install-mail-delivery
-
-# Compatibility alias for removing the installed mail-delivery program sources.
-uninstall-mail-delivery-shadow: uninstall-mail-delivery
-
-# Change desired delivery owner and observe handover (never forces the lock).
+# Change desired delivery owner on this node and observe handover (never forces the lock).
 mail-delivery-owner owner="":
-    cd programs/mail-delivery && python3.14 -m mail_delivery.delivery_owner {{owner}}
+    cd ~/.local/lib/praesidium-kernel/modules/mail-delivery && python3.14 -m mail_delivery.delivery_owner {{owner}}
+
+# The same owner command on a satellite node over ssh (host: hrcdev, or mini for svc).
+mail-delivery-owner-on host owner="":
+    ssh '{{host}}' "zsh -lc 'cd ~/.local/lib/praesidium-kernel/modules/mail-delivery && python3.14 -m mail_delivery.delivery_owner {{owner}}'"
