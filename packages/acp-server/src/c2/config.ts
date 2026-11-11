@@ -13,6 +13,9 @@ import { join } from 'node:path'
 export type AcpC2Config = {
   /** Vesta's seat scopeRef, e.g. `agent:vesta:project:c2:task:primary`. */
   vestaSeat: string
+  /** Thread idle archive limit and sweep cadence; ordinary instance configuration. */
+  threadIdleMs?: number | undefined
+  threadSweepMs?: number | undefined
   /**
    * This node's id as it appears in `home.node`, `seat.node` and receipts.
    * Default: HRC's declared `status.node.nodeId`.

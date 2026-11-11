@@ -1,4 +1,5 @@
 import { handleC2Action, handleC2Snapshot, handleC2V1Gone } from '../c2/routes.js'
+import { handleThreadCreate, handleThreadOptions } from '../c2/thread-routes.js'
 import { handleCreateAdminAgent, handleListAdminAgents } from '../handlers/admin-agents.js'
 import { handleReconcileAdminContributions } from '../handlers/admin-contributions-reconcile.js'
 import {
@@ -196,6 +197,8 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('GET', '/v1/sessions')]: handleListSessions,
     [exactRouteKey('POST', '/v1/sessions/reset')]: handleResetSession,
     [exactRouteKey('GET', '/v1/mobile/health')]: handleMobileHealth,
+    [exactRouteKey('GET', '/v1/c2/threads/options')]: handleThreadOptions,
+    [exactRouteKey('POST', '/v1/c2/threads')]: handleThreadCreate,
     [exactRouteKey('GET', '/v1/mobile/c2/cards')]: handleC2V1Gone,
     [exactRouteKey('POST', '/v1/mobile/c2/actions')]: handleC2V1Gone,
     [exactRouteKey('GET', '/v1/mobile/c2/v2/snapshot')]: handleC2Snapshot,

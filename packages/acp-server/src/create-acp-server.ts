@@ -1,4 +1,5 @@
 import { ensureC2Service, stopC2Service } from './c2/controller-host.js'
+import { startThreadSweep } from './c2/thread-sweep.js'
 import { type AcpServerDeps, resolveAcpServerDeps } from './deps.js'
 import { errorResponse } from './http.js'
 import { authorizeMobileRequest, mobileUnauthorizedResponse } from './mobile-auth/gate.js'
@@ -40,6 +41,7 @@ export function createAcpServer(deps: AcpServerDeps): AcpServer {
   const paramRoutes = buildParamRoutes()
   // T-12207: the C2 controller is always on wherever C2 config and HRC exist.
   ensureC2Service(resolvedDeps)
+  const stopThreadSweep = startThreadSweep(resolvedDeps)
 
   function matchRoute(method: string, pathname: string): MatchedRoute | undefined {
     const exactRouteHandler = exactRouteHandlers[exactRouteKey(method, pathname)]
@@ -51,6 +53,7 @@ export function createAcpServer(deps: AcpServerDeps): AcpServer {
 
   return {
     async close(): Promise<void> {
+      stopThreadSweep()
       stopC2Service(resolvedDeps)
     },
     routeTemplate(method: string, pathname: string): string {

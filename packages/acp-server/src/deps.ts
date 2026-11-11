@@ -224,6 +224,12 @@ export type AcpHrcClient = Pick<
       inputId?: string | undefined
     }
   ): ReturnType<HrcClient['interrupt']>
+  resumeContinuation?: HrcClient['resumeContinuation']
+  getSessionWork?: (scopeRef: string) => Promise<import('./hrc-client.js').SessionWorkState>
+  putSessionWork?: (
+    input: import('./hrc-client.js').SessionWorkWrite,
+    principalRef: string
+  ) => Promise<import('./hrc-client.js').SessionWorkState>
   listSessionsPage?: HrcClient['listSessionsPage']
   /** T-10418: home-routed continuity read behind remote timeline/history lookup. */
   getSessionByContinuity?: HrcClient['getSessionByContinuity']

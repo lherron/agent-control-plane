@@ -14,6 +14,8 @@ import {
   type ActionResponse,
   Controller,
   PRODUCTION_VESTA,
+  type Refusal,
+  type StartedSeat,
   WIRE_VERSION,
   handoffScope,
   online,
@@ -25,10 +27,12 @@ import {
 import type { WorkClient } from '@wrkq/client'
 import { writeLogLine } from 'acp-core'
 
-import type { AcpHrcClient } from '../deps.js'
+import type { AcpHrcClient, ResolvedAcpServerDeps } from '../deps.js'
 import { mintArtifactId, serveArtifact } from './artifacts.js'
 import { type AcpC2Config, C2_DEFAULTS, defaultArtifactRoots } from './config.js'
 import { type C2HrcHost, createC2HrcHost, splitSessionRef } from './hrc-adapter.js'
+import { threadSeats } from './thread-hrc.js'
+import { createThreads } from './threads.js'
 
 export const C2_CONTROLLER_PRINCIPAL = 'system:c2-controller'
 export const C2_PHONE_PRINCIPAL = 'agent:lance'
@@ -132,13 +136,17 @@ export function eitherHandoffSince(
 export function createC2Service(
   config: AcpC2Config,
   hrcClient: AcpHrcClient,
-  workClient?: WorkClient | undefined
+  workClient?: WorkClient | undefined,
+  openThreadSeat?:
+    | ((scopeRef: string, requestId: string) => Promise<StartedSeat | Refusal>)
+    | undefined
 ): C2Service {
   const pollMs = config.pollMs ?? C2_DEFAULTS.pollMs
   const coalesceMs = Math.min(pollMs, 2_000)
   const roots = config.artifactRoots ?? defaultArtifactRoots()
   const host: C2HrcHost = createC2HrcHost({
     client: hrcClient,
+    openThreadSeat,
     vestaSeat: config.vestaSeat,
     principal: C2_CONTROLLER_PRINCIPAL,
     node: config.node,
@@ -409,11 +417,50 @@ export function ensureC2Service(deps: {
   c2?: AcpC2Config | undefined
   hrcClient?: AcpHrcClient | undefined
   workClient?: WorkClient | undefined
+  adminStore?: ResolvedAcpServerDeps['adminStore'] | undefined
+  workClientForPrincipal?: ResolvedAcpServerDeps['workClientForPrincipal'] | undefined
 }): C2Service | undefined {
   if (deps.c2 === undefined || deps.hrcClient === undefined) return undefined
   let service = services.get(deps.c2)
   if (service === undefined) {
-    service = createC2Service(deps.c2, deps.hrcClient, deps.workClient)
+    const { hrcClient, adminStore, workClientForPrincipal } = deps
+    const threads =
+      adminStore && workClientForPrincipal
+        ? createThreads({ adminStore, hrcClient, workClientForPrincipal })
+        : undefined
+    const openThreadSeat = threads
+      ? async (scopeRef: string, requestId: string): Promise<StartedSeat | Refusal> => {
+          const id = scopeRef.split(':').at(-1) ?? ''
+          const thread = await threads.read(id)
+          if (thread.seatScopeRef !== scopeRef)
+            return {
+              code: 'start_failed',
+              detail: { stage: 'declaration', reason: 'seat_not_owned' },
+            }
+          const result = await threads.open(id, requestId)
+          if (!result.ok) {
+            if (result.outcome === 'unknown_outcome')
+              throw new Error(String('reason' in result ? result.reason : result.outcome))
+            return {
+              code: 'start_failed',
+              detail: {
+                stage: 'declaration',
+                reason: 'reason' in result ? result.reason : result.outcome,
+              },
+            }
+          }
+          const seat = (await threadSeats(hrcClient, scopeRef))[0]
+          if (!seat?.runtimeId) throw new Error('thread_start_unconfirmed')
+          return {
+            sessionRef: `${scopeRef}/lane:main`,
+            hostSessionId: seat.hostSessionId,
+            runtimeId: seat.runtimeId,
+            generation: seat.generation,
+            replayed: result.outcome === 'already_running',
+          }
+        }
+      : undefined
+    service = createC2Service(deps.c2, hrcClient, deps.workClient, openThreadSeat)
     services.set(deps.c2, service)
   }
   return service
@@ -428,5 +475,13 @@ export function stopC2Service(deps: { c2?: AcpC2Config | undefined }): void {
 /** Production config: the default Vesta seat unless this instance names another. */
 export function c2ConfigFromEnv(env: NodeJS.ProcessEnv = process.env): AcpC2Config {
   const vestaSeat = env['ACP_C2_VESTA_SEAT']?.trim()
-  return { vestaSeat: vestaSeat !== undefined && vestaSeat !== '' ? vestaSeat : PRODUCTION_VESTA }
+  const duration = (key: string, fallback: number) => {
+    const value = Number(env[key])
+    return Number.isFinite(value) && value > 0 ? value : fallback
+  }
+  return {
+    vestaSeat: vestaSeat !== undefined && vestaSeat !== '' ? vestaSeat : PRODUCTION_VESTA,
+    threadIdleMs: duration('ACP_C2_THREAD_IDLE_MS', 14_400_000),
+    threadSweepMs: duration('ACP_C2_THREAD_SWEEP_MS', 600_000),
+  }
 }

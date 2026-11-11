@@ -35,6 +35,14 @@ export type ListSeatHandoffsQuery = {
   all?: boolean | undefined
 }
 
+/** Independently fenced HRC continuity work register (`/v1/sessions/work`). */
+export type SessionWork =
+  | { kind: 'none' }
+  | { kind: 'task'; taskId: string }
+  | { kind: 'workstream'; workstreamId: string }
+export type SessionWorkState = { work: SessionWork; workEtag: number }
+export type SessionWorkWrite = { scopeRef: string; work: SessionWork; ifMatch: number }
+
 type Params = Record<string, string | number | boolean | readonly string[] | undefined>
 
 function query(params: Params): string {
@@ -64,6 +72,21 @@ function eventParams(q: HrcEventSelectors): Params {
 }
 
 export class AcpHrcSdkClient extends HrcClient implements HrcRouteReader {
+  /** Thread routes use HRC's independently fenced continuity work register. */
+  getSessionWork(scopeRef: string): Promise<SessionWorkState> {
+    return this.getJson(`/v1/sessions/work?scopeRef=${encodeURIComponent(scopeRef)}&laneRef=main`)
+  }
+
+  async putSessionWork(input: SessionWorkWrite, principalRef: string): Promise<SessionWorkState> {
+    const response = await this.unixFetch('/v1/sessions/work', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-hrc-principal-ref': principalRef },
+      body: JSON.stringify({ ...input, laneRef: 'main' }),
+    })
+    if (!response.ok) await this.throwTypedError(response)
+    return (await response.json()) as SessionWorkState
+  }
+
   /** `GET /v1/seat-handoffs` (T-12715): what `prae seat handoff find` reads. */
   listSeatHandoffs(query: ListSeatHandoffsQuery): Promise<{ handoffs: HrcSeatHandoff[] }> {
     const params = new URLSearchParams()

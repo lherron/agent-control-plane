@@ -57,6 +57,9 @@ export type C2HrcHostOptions = {
   literalInputTimeoutMs: number
   /** Handoff lookup (T-12233 §4); absent means the rotated wake reads `handoff=unknown`. */
   handoffSince?: ((scopeRef: string, sinceIso: string) => Promise<boolean | null>) | undefined
+  openThreadSeat?:
+    | ((scopeRef: string, requestId: string) => Promise<StartedSeat | Refusal>)
+    | undefined
   log(line: string): void
 }
 
@@ -746,6 +749,14 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     principalRef: string,
     steer: Steer
   ): Promise<Receipt | Refusal> {
+    const scope = splitSessionRef(target.sessionRef).scopeRef
+    if (/:task:W-\d+$/.test(scope) && options.openThreadSeat) {
+      const state = await client.getSessionAttention({ scopeRef: scope, laneRef: 'main' })
+      if (!state.runtimeLive) {
+        const opened = await options.openThreadSeat(scope, steer.key)
+        if ('code' in opened) return opened
+      }
+    }
     let reply: Awaited<ReturnType<C2HrcClient['steer']>>
     try {
       reply = await withinDeadline(
@@ -855,6 +866,8 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
      */
     async start(sessionRef: string, requestId: string): Promise<StartedSeat | Refusal> {
       const { scopeRef } = splitSessionRef(sessionRef)
+      if (/:task:W-\d+$/.test(scopeRef) && options.openThreadSeat)
+        return options.openThreadSeat(scopeRef, requestId)
       let intent: Awaited<ReturnType<C2HrcClient['resolveRuntimeIntent']>>['intent']
       try {
         const resolved = await client.resolveRuntimeIntent({
