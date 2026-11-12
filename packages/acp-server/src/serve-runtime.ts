@@ -6,7 +6,6 @@ import { openSqliteConversationStore } from 'acp-conversation'
 import { writeLogLine } from 'acp-core'
 import { openInterfaceStore } from 'acp-interface-store'
 import { openSqliteJobsStore } from 'acp-jobs-store'
-import { createAcpReconciler, readReconcilerConfig } from 'acp-reconciler'
 import { openAcpStateStore } from 'acp-state-store'
 import { openCoordinationStore } from 'coordination-substrate'
 import { createAspcService } from 'spaces-aspc'
@@ -199,21 +198,6 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     inspectAgentSelection: (request: Parameters<typeof aspcService.inspectAgentSelection>[0]) =>
       aspcService.inspectAgentSelection(request),
   }
-  const reconcilerConfig = readReconcilerConfig(process.env)
-  const reconciler =
-    reconcilerConfig === undefined
-      ? undefined
-      : createAcpReconciler({
-          config: reconcilerConfig,
-          workClient: await wrkfLifecycle.clientForPrincipal(reconcilerConfig.principalRef),
-          log: (line) =>
-            writeLogLine({
-              level: 'info',
-              component: 'acp-reconciler',
-              event: 'reconciler.log',
-              data: { message: line.replace(/^acp-reconciler: /, '') },
-            }),
-        })
   const serverDeps = {
     ...(wrkqStore !== undefined ? { wrkqStore } : {}),
     coordStore,
@@ -272,14 +256,6 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
         data: { message },
       }),
   })
-  void reconciler?.start().catch((error) => {
-    writeLogLine({
-      level: 'error',
-      component: 'acp-reconciler',
-      event: 'reconciler.start_failed',
-      err: error,
-    })
-  })
   // One store instance for the whole daemon: `serverDeps` is resolved twice (HTTP
   // router + WS upgrade path), and two stores over one flat file would mean two
   // writers and a gate that could disagree with itself between HTTP and WS.
@@ -334,7 +310,6 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
       }
       await schedulerLoop?.stop()
       commitBus.close()
-      await reconciler?.stop()
       for (const bunServer of bunServers) {
         bunServer.stop(true)
       }

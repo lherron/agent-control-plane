@@ -36,8 +36,8 @@ They do not describe the wrkf-backed `/v1/tasks/:taskId` server routes.
 
 ## Delegated work
 
-- [Reconciler reference](../packages/acp-reconciler/README.md) — Live request marker, reserve-before-start protocol, stall rules, configuration and read-only explain command.
-- [Delegated request lifecycle](proposals/acp-reconciler-design/delegated-request-lifecycle.png) — As-built lifecycle diagram ([editable](proposals/acp-reconciler-design/delegated-request-lifecycle.arris.json)).
+Specialist requests use reply-required room mail to the request's task seat.
+Mail delivery starts the worker; its reply carries the result and evidence.
 
 Finished design and smoke records live with their tasks: the PBC harness drafts
 on T-11912, provider-contribution checklist on T-01381, reconciler intent and

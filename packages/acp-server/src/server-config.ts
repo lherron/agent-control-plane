@@ -305,12 +305,6 @@ export function renderHelp(): string {
     '  WRKF_BIN          Defaults to wrkf',
     '  ACP_WRKF_DISABLED Set to 1 or true to bypass wrkf startup in local dev/test',
     '  ACP_C2_VESTA_SEAT  Vesta seat whose C2 scope row and asks this instance serves; defaults to agent:vesta:project:c2:task:primary',
-    '  ACP_RECONCILER_NODE Designated HRC node for the delegated-session reconciler; unset = not run',
-    '  ACP_RECONCILER_INTERVAL_MS Scan interval, 30000-60000; defaults to 45000',
-    '  ACP_RECONCILER_GLOBAL_CAPACITY Defaults to 4',
-    '  ACP_RECONCILER_AGENT_CAPACITY Defaults to 2',
-    '  ACP_RECONCILER_CLAIM_WINDOW_MS Defaults to 600000',
-    '  ACP_RECONCILER_PRINCIPAL Defaults to agent:acp-reconciler',
   ].join('\n')
 }
 

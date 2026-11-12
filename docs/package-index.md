@@ -27,7 +27,6 @@ repo first for their implementation. HRC runtime authority remains in
 | [`acp-jobs-store`](https://github.com/lherron/agent-control-plane/tree/main/packages/acp-jobs-store) | SQLite jobs, job runs, and step runs. |
 | [`acp-ops-projection`](https://github.com/lherron/agent-control-plane/tree/main/packages/acp-ops-projection) | Operator dashboard event and session projections, including payload redaction. |
 | [`acp-ops-reducer`](https://github.com/lherron/agent-control-plane/tree/main/packages/acp-ops-reducer) | Client dashboard state reducer for snapshots and streamed updates. |
-| [`acp-reconciler`](https://github.com/lherron/agent-control-plane/tree/main/packages/acp-reconciler) | Reserves and starts delegated wrkq requests through HRC; reports stalled assignments. |
 | [`acp-server`](https://github.com/lherron/agent-control-plane/tree/main/packages/acp-server) | ACP HTTP server, workflow orchestration, jobs, gateway hosting, and runtime/session integration. |
 | [`acp-state-store`](https://github.com/lherron/agent-control-plane/tree/main/packages/acp-state-store) | Runs, input admission and attempts, transition outbox, workflow runtime state, and mobile timeline projection. |
 | [`acp-viewer`](https://github.com/lherron/agent-control-plane/tree/main/packages/acp-viewer) | Browser-based read-only operator dashboard. |

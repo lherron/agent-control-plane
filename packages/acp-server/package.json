@@ -33,7 +33,6 @@
     "acp-conversation": "*",
     "acp-core": "*",
     "acp-ops-projection": "*",
-    "acp-reconciler": "*",
     "acp-interface-store": "*",
     "acp-jobs-store": "*",
     "acp-state-store": "*",
