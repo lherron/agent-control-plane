@@ -43,8 +43,6 @@ Source anchors (repo-relative): justfile; .githooks; .github/workflows; launchd.
 - Surface: `recipe:launchd-uninstall`
 - Surface: `recipe:lint`
 - Surface: `recipe:lint-fix`
-- Surface: `recipe:mail-delivery-owner`
-- Surface: `recipe:mail-delivery-owner-on`
 - Surface: `recipe:publish-dev`
 - Surface: `recipe:publish-dev-dry-run`
 - Surface: `recipe:publish-worktree`
@@ -67,7 +65,7 @@ Use `just --list`, `git config --get core.hooksPath`, and source plist/workflow 
 
 Run `just verify-feature-map` (structural check) and `bun scripts/verify-feature-map.ts --self-test` (isolated missing-feature/invalid-map rejection). Run `ASP_PROJECT=agent-control-plane just verify` for the full owned gate; preserve existing gate order and normal git hooks. Installed `acp --help` is read-only surface evidence.
 
-The mail-delivery module's source, installer and tests live in praesidium-kernel (`modules/mail-delivery`); its defects route to that project. ACP keeps two recipes until the TypeScript injector is deleted: `just mail-delivery-owner [owner]` prints this node's delivery-owner row from the installed module tree (`~/.local/lib/praesidium-kernel/modules/mail-delivery`), and with `injector` or `port` changes desired ownership and waits up to 30 seconds for reporting, naming the holder PID on timeout; `just mail-delivery-owner-on <ssh-host> [owner]` runs the same command on a satellite node. Delivery requires the shared exclusive SQLite lock on both sides; the command never opens that lock. Real-node flips are operator-authorized rollout actions and have no automated test.
+The mail-delivery module's source, installer and tests live in praesidium-kernel (`modules/mail-delivery`); its defects route to that project. The TypeScript injector's launchd service was stopped on max3, hrcdev and svc on 2026-11-12, and ACP has no delivery-owner recipe: nobody hands delivery back to the injector.
 
 ## Gotchas
 

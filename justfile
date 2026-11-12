@@ -320,14 +320,3 @@ cp-test prompt="List skills available. Use only what is in your context, no tool
         --target-dir /Users/lherron/praesidium/rex-home \
         --model claude/sonnet \
         "{{prompt}}"
-
-# The mail-delivery module's source, installer and tests live in praesidium-kernel (modules/mail-delivery) since 2026-11-11.
-# These two owner recipes stay until the TypeScript injector is deleted; they run the owner command from a node's installed module tree.
-
-# Change desired delivery owner on this node and observe handover (never forces the lock).
-mail-delivery-owner owner="":
-    cd ~/.local/lib/praesidium-kernel/modules/mail-delivery && python3.14 -m mail_delivery.delivery_owner {{owner}}
-
-# The same owner command on a satellite node over ssh (host: hrcdev, or mini for svc).
-mail-delivery-owner-on host owner="":
-    ssh '{{host}}' "zsh -lc 'cd ~/.local/lib/praesidium-kernel/modules/mail-delivery && python3.14 -m mail_delivery.delivery_owner {{owner}}'"
