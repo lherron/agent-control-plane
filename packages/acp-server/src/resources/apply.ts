@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
 import {
   type InterfaceBinding,
   type InterfaceStore,
@@ -19,6 +23,59 @@ import {
 
 import { unassignedFederatedScheduleMessage } from '../jobs/execution-status.js'
 import { validateJobOutputConfig } from '../jobs/job-output-config.js'
+
+// ---------------------------------------------------------------------------
+// Schedule-module cutover guard (temporary; deleted with the schedule half of
+// this projection when the last cron job has moved).
+//
+// A schedule file is read by two schedulers during cutover: this projection and
+// the praesidium-kernel `schedule` module. The module arms a job only when its
+// key is enabled in the module's cutover list. A job armed there must stay
+// disabled here, whatever the file's own `enabled` says, or both would fire it.
+// ---------------------------------------------------------------------------
+
+const SCHEDULE_CUTOVER_LIST = path.join(os.homedir(), 'praesidium/var/state/schedule/cutover.json')
+
+/** Keys (`<agent>/<name>`) the schedule module holds armed. Missing or unreadable file: none. */
+function readScheduleCutoverKeys(): ReadonlySet<string> {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(SCHEDULE_CUTOVER_LIST, 'utf8'))
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return new Set()
+    }
+    return new Set(
+      Object.entries(parsed as Record<string, unknown>)
+        .filter(
+          ([, entry]) =>
+            typeof entry === 'object' &&
+            entry !== null &&
+            (entry as Record<string, unknown>)['enabled'] === true
+        )
+        .map(([key]) => key)
+    )
+  } catch {
+    return new Set()
+  }
+}
+
+/** `agent-clod.disk-sample` is the module's `clod/disk-sample`. */
+function scheduleCutoverKey(slug: string): string | undefined {
+  const match = /^agent-([^.]+)\.(.+)$/.exec(slug)
+  return match === null ? undefined : `${match[1]}/${match[2]}`
+}
+
+function withScheduleCutover(
+  resource: Pick<ManagedResourceProjection, 'resourceKind' | 'projectionPk' | 'desiredJson'>,
+  cutoverKeys: ReadonlySet<string>
+): ManagedResourceProjection['desiredJson'] {
+  if (resource.resourceKind !== 'scheduled-job') {
+    return resource.desiredJson
+  }
+  const desired = resource.desiredJson
+  const slug = typeof desired['slug'] === 'string' ? desired['slug'] : resource.projectionPk
+  const key = scheduleCutoverKey(slug)
+  return key !== undefined && cutoverKeys.has(key) ? { ...desired, disabled: true } : desired
+}
 
 // ---------------------------------------------------------------------------
 // Types (API contract frozen by Phase C RED tests)
@@ -665,6 +722,7 @@ export async function applyPlanWithStores(
   input: ApplyManagedResourcesWithStoresInput
 ): Promise<ApplyManagedResourcesResult> {
   const outcomes: ResourceOutcome[] = []
+  const scheduleCutoverKeys = readScheduleCutoverKeys()
 
   for (const resource of input.plan.resources) {
     const base = {
@@ -701,7 +759,7 @@ export async function applyPlanWithStores(
         sourcePath: resource.sourcePath,
         sourceHash: resource.sourceHash,
         desiredProjectionHash: resource.desiredProjectionHash,
-        desiredJson: resource.desiredJson,
+        desiredJson: withScheduleCutover(resource, scheduleCutoverKeys),
         now: input.now,
       }
       const result =
