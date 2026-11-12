@@ -1,7 +1,7 @@
 # Agent Control Plane
 
 Agent Control Plane (ACP) is where events become turns for Praesidium. It owns
-gateway surfaces and HRC injectors, alongside agents, sessions, jobs, and
+gateway surfaces, alongside agents, sessions, jobs, and
 wrkf-backed task lifecycle facades.
 
 The current implementation source of truth is

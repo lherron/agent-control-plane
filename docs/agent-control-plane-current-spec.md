@@ -17,7 +17,7 @@ ACP owns:
 - HTTP and CLI facades for agents, projects, sessions, jobs, gateways, mobile,
   deliveries, and workflow execution helpers.
 - HRC launch, session resolution, input admission, run records, dispatch
-  fencing, delivery targets, HRC injector policy, and dashboard projections.
+  fencing, delivery targets, and dashboard projections.
 - Local admin/interface/conversation/jobs/coordination/state stores needed for
   ACP operation and projections.
 
@@ -48,14 +48,16 @@ ACP-authoritative.
 - `gateway-discord`: Discord gateway embedded through `acp server restart` in
   the dev stack.
 - `gateway-ios`: mobile gateway surface.
-- `hrc-mail-injector`, `hrc-viewer`: HRC-facing injector and presentation
-  sidecars owned and published by ACP.
+- `hrc-viewer`: HRC-facing presentation sidecar owned and published by ACP.
 - `acp-ops-projection`, `acp-ops-reducer`, `acp-viewer`: dashboard/viewer
   contracts and apps. Older docs mention `acp-ops-web`, but no tracked
   `packages/acp-ops-web/package.json` is present in this checkout.
 - `coordination-substrate`: coordination ledger.
 - `wrkq-lib`: TypeScript access to wrkq SQLite state.
 - `wlearn`: workflow-learning trace/replay CLI helpers.
+
+Collaboration-mail delivery is not part of ACP. It lives in praesidium-kernel
+`modules/mail-delivery`.
 
 ## Runtime And Config
 

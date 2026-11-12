@@ -13,7 +13,8 @@ provenance: authored
 All packages below live in this ACP checkout under `packages/`. In particular,
 the `hrc-*` names here describe HRC-facing clients and presentation; search this
 repo first for their implementation. HRC runtime authority remains in
-`hrc-runtime`.
+`hrc-runtime`. Collaboration-mail delivery is not an ACP package; it lives in
+praesidium-kernel `modules/mail-delivery`.
 
 | Package | Responsibility |
 | --- | --- |
@@ -33,8 +34,6 @@ repo first for their implementation. HRC runtime authority remains in
 | [`coordination-substrate`](https://github.com/lherron/agent-control-plane/tree/main/packages/coordination-substrate) | SQLite coordination events, handoffs, and wake requests. |
 | [`gateway-discord`](https://github.com/lherron/agent-control-plane/tree/main/packages/gateway-discord) | Discord ingress, replies, bindings, and lifecycle event cards. |
 | [`gateway-ios`](https://github.com/lherron/agent-control-plane/tree/main/packages/gateway-ios) | Mobile HTTP/WebSocket API, session capabilities, history, timeline, and input controls. |
-| [`hrc-injector-core`](https://github.com/lherron/agent-control-plane/tree/main/packages/hrc-injector-core) | HRC socket injection boundary and durable delivery-store helpers. |
-| [`hrc-mail-injector`](https://github.com/lherron/agent-control-plane/tree/main/packages/hrc-mail-injector) | Standalone collaboration-mail delivery owner using wrkq and HRC. |
 | [`hrc-viewer`](https://github.com/lherron/agent-control-plane/tree/main/packages/hrc-viewer) | Ghostty/Ghostmux terminal presentation sidecar, panes, status bars, and agent colors (`src/agent-theme.ts`). |
 | [`wlearn`](https://github.com/lherron/agent-control-plane/tree/main/packages/wlearn) | Workflow trace learning tools, deterministic replay, and promotion readiness. |
 | [`wrkq-lib`](https://github.com/lherron/agent-control-plane/tree/main/packages/wrkq-lib) | Async wrkq RPC adapters for ACP store ports and the collaboration ledger. |

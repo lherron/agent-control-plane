@@ -37,8 +37,8 @@ source:
   - packages/gateway-discord/src/discord-ingress.ts
   - packages/gateway-discord/src/ledger-responses.ts
   - packages/acp-interface-store/src/repos/discord-ledger-projection-repo.ts
-  - packages/hrc-mail-injector/src/policy/drive/landing.ts
-  - packages/hrc-mail-injector/src/policy/wake/ledger-tail.ts
+  - ../praesidium-kernel/modules/mail-delivery/mail_delivery/act_landing.py
+  - ../praesidium-kernel/modules/mail-delivery/mail_delivery/act_ledger_tail.py
 producer_contract: hrc-runtime architecture/contracts/federated-input-interrupt.yaml
 validation_scope: >
   Requester owns T-12177 rev 2's live svc and max3 turn-stop gates, late-cancel
