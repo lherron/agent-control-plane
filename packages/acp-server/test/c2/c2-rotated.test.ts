@@ -8,8 +8,6 @@
  */
 import { describe, expect, test } from 'bun:test'
 
-import type { WorkClient } from '@wrkq/client'
-
 import { type C2Acp, SEAT, VESTA, settle, withC2Acp } from './c2-acp.js'
 
 const VESTA_REF = `${VESTA}/lane:main`
@@ -117,22 +115,6 @@ function nudge(acp: C2Acp, n: number): void {
   })
 }
 
-function fakeWorkClient(createdAt: string | null, calls: unknown[]): WorkClient {
-  return {
-    wrkq: {
-      handoff: {
-        listView: async (params: unknown) => {
-          calls.push(params)
-          return {
-            items:
-              createdAt === null ? [] : [{ id: 'H-1', status: 'pending', created_at: createdAt }],
-          }
-        },
-      },
-    },
-  } as unknown as WorkClient
-}
-
 describe('the rotated line over ACP', () => {
   test('a quit is ignored until HRC records it; then one line, the asks record untouched, nothing more on relaunch', async () => {
     await withC2Acp(
@@ -176,37 +158,10 @@ describe('the rotated line over ACP', () => {
     )
   })
 
-  test('a wrkq handoff since the record suppresses the line; an older one reads handoff=no', async () => {
-    const calls: unknown[] = []
-    await withC2Acp(
-      async (acp) => {
-        await settle()
-        quit(acp)
-        nudge(acp, 1)
-        await settle()
-        expect(rotatedLines(acp)).toEqual([])
-        expect(calls).toContainEqual(
-          expect.objectContaining({ scopeRef: 'agent:smokey:project:c2', status: 'all' })
-        )
-      },
-      { config: { settleMs: 0 }, workClient: fakeWorkClient('2099-01-01T00:00:00Z', calls) }
-    )
-    await withC2Acp(
-      async (acp) => {
-        await settle()
-        quit(acp)
-        nudge(acp, 1)
-        await settle()
-        expect(rotatedLines(acp)).toEqual([`${LINE} handoff=no`])
-      },
-      { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
-    )
-  })
-
   describe('a prae self-restart (T-12715)', () => {
     const RESTART = `[c2] rotated ${SEAT} gen 2\u21923 reason=self-restart prior=rt-c2fixture-acp rows=ship`
 
-    test('an HRC handoff since the record suppresses the line, with no wrkq handoff', async () => {
+    test('an HRC handoff since the record suppresses the line', async () => {
       await withC2Acp(
         async (acp) => {
           await settle()
@@ -224,7 +179,7 @@ describe('the rotated line over ACP', () => {
             )
           ).toBe(true)
         },
-        { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
+        { config: { settleMs: 0 } }
       )
     })
 
@@ -238,7 +193,7 @@ describe('the rotated line over ACP', () => {
           await settle()
           expect(rotatedLines(acp)).toEqual([`${RESTART} handoff=no`])
         },
-        { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
+        { config: { settleMs: 0 } }
       )
     })
 
@@ -271,7 +226,7 @@ describe('the rotated line over ACP', () => {
           await settle()
           expect(rotatedLines(acp)).toEqual([`${RESTART} handoff=no`])
         },
-        { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
+        { config: { settleMs: 0 } }
       )
     })
 
@@ -285,7 +240,7 @@ describe('the rotated line over ACP', () => {
           await settle()
           expect(rotatedLines(acp)).toEqual([`${RESTART} handoff=unknown`])
         },
-        { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
+        { config: { settleMs: 0 } }
       )
     })
 
@@ -300,7 +255,7 @@ describe('the rotated line over ACP', () => {
             `[c2] rotated ${SEAT} gen 2\u21923 reason=self-restart/user_initiated_session_end prior=rt-c2fixture-acp rows=ship handoff=no`,
           ])
         },
-        { config: { settleMs: 0 }, workClient: fakeWorkClient('2000-01-01T00:00:00Z', []) }
+        { config: { settleMs: 0 } }
       )
     })
   })
