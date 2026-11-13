@@ -35,10 +35,36 @@ predicate: >
   or warned start-over. Persisted submitted attempts reconcile once with the
   exact body; unresolved attempts become explicit uncertain state rather than an
   unexplained durable lock.
+  T-13458 adds optional scopeConfirmation with mode require and optional
+  confirmedTaskId only for ordinary primary, minisvc and minilab roster creates;
+  force and exact/non-roster combinations are refused. Absence retains legacy
+  behavior. ACP carries the option through HRC conflictPolicy confirm, never
+  through a silently ignorable suffix field or a locally selected exact scope.
+  A typed 409 session_scope_confirmation_required preserves requestId and
+  detail.scopeConfirmation with baseTaskId, authoritative occupied scopeRef,
+  sessionRef, hostSessionId, generation and isLive, and proposedTaskId. This
+  specific refusal proves no candidate claim or start and permits retiring that
+  logical attempt. Confirming an exact proposal and accepting a re-proposal use
+  fresh request IDs with the original base and selections; uncertain transport
+  retries keep identical payloads and IDs with selections locked. New iOS sends
+  require on every ordinary roster create. Cancel after a proposal unlocks and
+  preserves the form, selection changes discard the proposal, and Open existing
+  uses the returned authoritative session identity. ACP never silently omits
+  confirmation or falls back on unsupported HRC or peer capability. Old ACP's
+  strict allowed-field parser refuses the new mobile option before HRC creation.
+  On a re-proposal occupied identifies the blocking confirmed candidate even
+  when the base is free. isLive reports nonterminal runtime presence, not the
+  inverse of FREE; occupied identity is nullable only if the blocking reserved
+  slot has no continuity.
+  The dialog title derives from the occupied task. Open existing resolves the
+  exact sessionRef, hostSessionId and generation through the mobile index and
+  reports unavailable if changed.
+  Force lifecycle and authoritative-home idempotency ownership are unchanged.
 authority:
   repo: agent-control-plane
-  surface: POST /v1/mobile/sessions, wrkq:T-08407 and wrkq:T-08572
+  surface: POST /v1/mobile/sessions, wrkq:T-08407, wrkq:T-08572 and wrkq:T-13458
 source:
+  - wrkq:T-13458
   - wrkq:T-08407
   - wrkq:T-08572
   - packages/acp-server/src/handlers/mobile-sessions-create.ts
