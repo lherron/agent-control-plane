@@ -42,6 +42,7 @@ const ALLOWED_FIELDS = new Set([
   'model',
   'requestId',
   'force',
+  'scopeConfirmation',
 ])
 const MOBILE_RESTART_STYLE: RestartStyle = 'reuse_pty'
 
@@ -57,12 +58,14 @@ type MobileSessionErrorCode =
   | 'idempotency_key_conflict'
   | 'roster_claim_superseded'
   | 'session_scope_occupied'
+  | 'session_scope_confirmation_required'
 
 const MOBILE_SESSION_ERROR_MESSAGES: Record<MobileSessionErrorCode, string> = {
   session_roster_exhausted: 'too many open sessions',
   idempotency_key_conflict: 'requestId was reused for a different session request',
   roster_claim_superseded: 'try again',
   session_scope_occupied: 'that scope is already open',
+  session_scope_confirmation_required: 'confirm the alternate scope before creating a session',
 }
 
 function assertAllowedFields(body: Record<string, unknown>): void {
@@ -97,6 +100,48 @@ export function resolveMobileTaskId(body: Record<string, unknown>): string {
   return taskId
 }
 
+type MobileScopeConfirmation = { mode: 'require'; confirmedTaskId?: string | undefined }
+
+function parseScopeConfirmation(
+  body: Record<string, unknown>,
+  taskId: string
+): MobileScopeConfirmation | undefined {
+  if (!Object.hasOwn(body, 'scopeConfirmation')) return undefined
+  const value = body['scopeConfirmation']
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new HrcDomainError(HrcErrorCode.MALFORMED_REQUEST, 'scopeConfirmation must be an object')
+  }
+  const choice = value as Record<string, unknown>
+  if (
+    choice['mode'] !== 'require' ||
+    Object.keys(choice).some((k) => k !== 'mode' && k !== 'confirmedTaskId') ||
+    !ROSTER_MOBILE_TASK_IDS.has(taskId) ||
+    body['force'] !== undefined
+  ) {
+    throw new HrcDomainError(
+      HrcErrorCode.MALFORMED_REQUEST,
+      'scopeConfirmation requires an ordinary roster creation'
+    )
+  }
+  if (Object.hasOwn(choice, 'confirmedTaskId')) {
+    const task = choice['confirmedTaskId']
+    if (
+      typeof task !== 'string' ||
+      !task ||
+      task !== task.trim() ||
+      validateToken(task, 'taskId') !== undefined
+    ) {
+      throw new HrcDomainError(
+        HrcErrorCode.MALFORMED_REQUEST,
+        'confirmedTaskId must be a valid task token'
+      )
+    }
+    // HRC validates membership against its authoritative finite roster.
+    return { mode: 'require', confirmedTaskId: task }
+  }
+  return { mode: 'require' }
+}
+
 export type MobileSessionConflictPolicy = 'suffix' | 'reject'
 
 /**
@@ -119,12 +164,16 @@ export function buildMobileStartRequest(input: {
   sessionRef: string
   runtimeIntent: HrcRuntimeIntent
   idempotencyKey: string
+  scopeConfirmation?: MobileScopeConfirmation | undefined
 }): StartRuntimeRequest {
   if (input.conflictPolicy === 'suffix') {
     return {
       baseSessionRef: input.sessionRef,
       runtimeIntent: input.runtimeIntent,
-      conflictPolicy: 'suffix',
+      conflictPolicy: input.scopeConfirmation === undefined ? 'suffix' : 'confirm',
+      ...(input.scopeConfirmation?.confirmedTaskId !== undefined
+        ? { confirmedTaskId: input.scopeConfirmation.confirmedTaskId }
+        : {}),
       summonIntent: 'implicit',
       idempotencyKey: input.idempotencyKey,
       restartStyle: MOBILE_RESTART_STYLE,
@@ -245,6 +294,9 @@ function mobileSessionErrorResponse(input: {
       requestId: input.requestId,
       code: input.error.code,
       message: MOBILE_SESSION_ERROR_MESSAGES[input.error.code],
+      ...(input.error.code === 'session_scope_confirmation_required'
+        ? { detail: input.error.detail }
+        : {}),
     },
     409
   )
@@ -262,6 +314,7 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
   const projectId = requireTrimmedStringField(body, 'projectId')
   const requestId = requireTrimmedStringField(body, 'requestId')
   const taskId = resolveMobileTaskId(body)
+  const scopeConfirmation = parseScopeConfirmation(body, taskId)
   const force = parseMobileForce(body, taskId)
   const model = readOptionalTrimmedStringField(body, 'model')
   if (model !== undefined && force !== undefined) {
@@ -355,6 +408,7 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
     const started = await deps.hrcClient.startRuntime(
       buildMobileStartRequest({
         conflictPolicy,
+        scopeConfirmation,
         sessionRef: formatSessionRef(baseSession),
         runtimeIntent,
         idempotencyKey: deriveMobileSessionIdempotencyKey(requestId),

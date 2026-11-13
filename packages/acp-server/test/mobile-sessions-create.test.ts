@@ -1046,3 +1046,109 @@ describe('launcher agent sources (T-08572 U-8)', () => {
     ).toBeUndefined()
   })
 })
+
+describe('mobile alternate scope consent (T-13458)', () => {
+  test.each(['primary', 'minisvc', 'minilab'])(
+    'requires confirmation for %s and preserves exact approval',
+    async (taskId) => {
+      const starts: StartRuntimeRequest[] = []
+      const hrcClient = createHrcClient({ onStart: (request) => starts.push(request) })
+      await withWiredServer(
+        async ({ request }) => {
+          for (const confirmedTaskId of [undefined, `${taskId}-nova`]) {
+            const response = await request({
+              method: 'POST',
+              path: '/v1/mobile/sessions',
+              body: {
+                ...MOBILE_BODY,
+                taskId,
+                requestId: `${taskId}-${confirmedTaskId ?? 'initial'}`,
+                scopeConfirmation: {
+                  mode: 'require',
+                  ...(confirmedTaskId ? { confirmedTaskId } : {}),
+                },
+              },
+            })
+            expect(response.status).toBe(200)
+            expect(starts.at(-1)).toMatchObject({
+              conflictPolicy: 'confirm',
+              baseSessionRef: `agent:mable:project:hrc-runtime:task:${taskId}/lane:main`,
+            })
+            expect((starts.at(-1) as unknown as Record<string, unknown>)['confirmedTaskId']).toBe(
+              confirmedTaskId
+            )
+          }
+        },
+        { hrcClient, runtimeResolver }
+      )
+    }
+  )
+
+  test('preserves authoritative proposal detail without a second start', async () => {
+    const scopeConfirmation = {
+      baseTaskId: 'primary',
+      proposedTaskId: 'primary-nova',
+      occupied: {
+        scopeRef: BASE_SCOPE_REF,
+        sessionRef: BASE_SESSION_REF,
+        hostSessionId: 'hsid-existing',
+        generation: 8,
+        isLive: true,
+      },
+    }
+    const starts: StartRuntimeRequest[] = []
+    const hrcClient = createHrcClient({
+      onStart: (r) => starts.push(r),
+      error: new HrcDomainError('session_scope_confirmation_required', 'confirm alternate', {
+        scopeConfirmation,
+      }),
+    })
+    await withWiredServer(
+      async ({ request, json }) => {
+        const response = await request({
+          method: 'POST',
+          path: '/v1/mobile/sessions',
+          body: {
+            ...MOBILE_BODY,
+            scopeConfirmation: { mode: 'require' },
+          },
+        })
+        expect(response.status).toBe(409)
+        expect(await json(response)).toMatchObject({
+          ok: false,
+          requestId: REQUEST_ID,
+          code: 'session_scope_confirmation_required',
+          detail: { scopeConfirmation },
+        })
+        expect(starts).toHaveLength(1)
+      },
+      { hrcClient, runtimeResolver }
+    )
+  })
+
+  test.each([
+    { scopeConfirmation: null },
+    { scopeConfirmation: {} },
+    { scopeConfirmation: { mode: 'suffix' } },
+    { scopeConfirmation: { mode: 'require', confirmedTaskId: '' } },
+    { scopeConfirmation: { mode: 'require', confirmedTaskId: 4 } },
+    { scopeConfirmation: { mode: 'require', extra: true } },
+    { taskId: 'hrcdev', scopeConfirmation: { mode: 'require' } },
+    { force: { mode: 'new_context' }, scopeConfirmation: { mode: 'require' } },
+  ])('refuses malformed/incompatible confirmation before HRC: %j', async (extra) => {
+    const fixture = createDeclarationHrcClient({})
+    await withWiredServer(
+      async ({ request }) => {
+        const response = await request({
+          method: 'POST',
+          path: '/v1/mobile/sessions',
+          body: { ...MOBILE_BODY, ...extra },
+        })
+        expect(response.status).toBe(400)
+        expect(fixture.resolveCalls).toHaveLength(0)
+        expect(fixture.starts).toHaveLength(0)
+      },
+      { hrcClient: fixture.client, runtimeResolver }
+    )
+  })
+})

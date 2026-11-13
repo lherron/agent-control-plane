@@ -22,8 +22,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "agent-action-render": "0.5.13-dev.20261111161139",
-    "hrc-core": "0.5.13-dev.20261111161139"
+    "agent-action-render": "0.5.13-dev.20261113065125",
+    "hrc-core": "0.5.13-dev.20261113065125"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",

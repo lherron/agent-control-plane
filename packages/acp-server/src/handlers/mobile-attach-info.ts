@@ -171,9 +171,9 @@ export const handleMobileAttachInfo: RouteHandler = async ({ deps, params, peer 
     })
   }
 
-  // hrc-core still types the descriptor as tmux-only; rusthrc also serves hrcpty.
+  // Only the local terminal variants carry a binding fence.
   const transport: string = descriptor.transport
-  if (transport === 'hrcpty') {
+  if (descriptor.transport === 'hrcpty') {
     const hrcpty = parseHrcptyAttachArgv(descriptor.argv)
     if (hrcpty === undefined) {
       return notAttachable({
@@ -193,7 +193,7 @@ export const handleMobileAttachInfo: RouteHandler = async ({ deps, params, peer 
   }
 
   const parsed = parseTmuxAttachArgv(descriptor.argv)
-  if (transport !== 'tmux' || parsed === undefined) {
+  if (descriptor.transport !== 'tmux' || parsed === undefined) {
     return notAttachable({
       hostSessionId,
       runtimeId: runtime.runtimeId,
