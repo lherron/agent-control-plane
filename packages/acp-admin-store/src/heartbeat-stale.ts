@@ -1,6 +1,6 @@
 import type { AgentHeartbeat } from 'acp-core'
+import { STALE_HEARTBEAT_THRESHOLD_MS } from './heartbeats-store.js'
 import type { AdminStore } from './open-store.js'
-import { STALE_HEARTBEAT_THRESHOLD_MS } from './open-store.js'
 
 type ProjectIdRow = {
   project_id: string

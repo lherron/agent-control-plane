@@ -230,3 +230,23 @@ describe('agent profile store contract', () => {
     }
   })
 })
+
+test('legacy invalid profile columns are omitted without losing valid fields', () => {
+  const store = createInMemoryAdminStore()
+  try {
+    store.agents.create({
+      agentId: 'legacy',
+      status: 'active',
+      actor: ACTOR,
+      now: '2026-11-14T08:00:00Z',
+    })
+    store.sqlite
+      .prepare(`UPDATE agents SET profile_display_color = ?, profile_monogram = ?,
+      profile_vibe = ?, profile_specialties = ?, profile_tagline = ? WHERE agent_id = ?`)
+      .run('blue', 'TOO LONG', '{invalid', '[" valid "]', 'kept', 'legacy')
+    expect(store.agents.get('legacy')?.profile).toEqual({ tagline: 'kept', specialties: ['valid'] })
+    expect(store.agents.list()[0]?.profile).toEqual({ tagline: 'kept', specialties: ['valid'] })
+  } finally {
+    store.close()
+  }
+})

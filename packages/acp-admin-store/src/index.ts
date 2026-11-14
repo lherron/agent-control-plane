@@ -1,21 +1,25 @@
 export {
-  adminStoreMigrations,
   createInMemoryAdminStore,
-  listAppliedAdminStoreMigrations,
   openSqliteAdminStore,
-  runAdminStoreMigrations,
-  STALE_HEARTBEAT_THRESHOLD_MS,
   type AdminStore,
-  type AdminStoreMigration,
-  type AgentsStore,
-  type HeartbeatsStore,
-  type InterfaceIdentitiesStore,
-  type MembershipsStore,
   type OpenSqliteAdminStoreOptions,
-  type ProjectsStore,
-  type SystemEventsStore,
-  type UpsertHeartbeatInput,
 } from './open-store.js'
+export {
+  adminStoreMigrations,
+  listAppliedAdminStoreMigrations,
+  runAdminStoreMigrations,
+  type AdminStoreMigration,
+} from './migrations.js'
+export type { AgentsStore } from './agents-store.js'
+export type { ProjectsStore } from './projects-store.js'
+export type { MembershipsStore } from './memberships-store.js'
+export type { InterfaceIdentitiesStore } from './interface-identities-store.js'
+export type { SystemEventsStore } from './system-events-store.js'
+export {
+  STALE_HEARTBEAT_THRESHOLD_MS,
+  type HeartbeatsStore,
+  type UpsertHeartbeatInput,
+} from './heartbeats-store.js'
 export {
   checkStaleHeartbeats,
   STALE_HEARTBEAT_EVENT_KIND,
