@@ -6,6 +6,8 @@
  * whole point of §3. There is no per-handler auth code.
  */
 
+import { writeLogLine } from 'acp-core'
+
 import { isLoopbackPeer } from '../routing/peer.js'
 
 import type { RequestPeer } from '../routing/peer.js'
@@ -97,10 +99,28 @@ export function authorizeMobileRequest(input: MobileAuthorizeInput): MobileAuthD
   }
 
   const token = parseBearerToken(input.authorization)
-  if (token === undefined) {
-    return 'unauthorized'
+  if (token !== undefined && input.store.verifyToken(token)) {
+    return 'allow'
   }
-  return input.store.verifyToken(token) ? 'allow' : 'unauthorized'
+  // Why, for the operator: a device that never paired sends nothing; a device paired elsewhere or revoked
+  // sends a token this store does not hold. The class is logged, never the header's value (spec §2).
+  const header = input.authorization
+  writeLogLine({
+    level: 'warn',
+    component: 'mobile-auth',
+    event: 'mobile.unauthorized',
+    data: {
+      path: input.pathname,
+      remote: input.peer?.address,
+      credential:
+        header === null || header === undefined || header.trim() === ''
+          ? 'absent'
+          : token === undefined
+            ? 'malformed'
+            : 'invalid',
+    },
+  })
+  return 'unauthorized'
 }
 
 /**

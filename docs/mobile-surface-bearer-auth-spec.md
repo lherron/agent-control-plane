@@ -46,6 +46,10 @@ The pairing endpoint returns `token` only on successful code redemption:
 
 One middleware ahead of **every mobile route table — the path classifier matches the `/v*/mobile/` prefix, not an enumerated version list** (HTTP, covering `/v1` and `/v2` today and any future version by construction) plus the same check in the Bun WS upgrade path in `acp-listener.ts` before `server.upgrade()` (which likewise classifies by prefix — the `/v2/mobile/dashboard` upgrade is inside the gate). A single function owns the decision (`authorizeMobileRequest({ pathname, peer, authorization, store }) → allow | unauthorized`) for the shared HTTP/WS bearer decision. Pair-code redemption and the stricter loopback-only operator/attach routes retain handler checks.
 
+### Refusal log
+
+Every refused request writes one `mobile.unauthorized` line (component `mobile-auth`, level warn) with `path`, `remote` and `credential`: `absent` (no Authorization header: the device never paired, or the app stored no token), `malformed` (a header that is not `Bearer <token>`) or `invalid` (a token this store does not hold: paired with another gateway, or revoked). The header's value is never logged. The 401 body stays identical for all three.
+
 ## 4. Operating enforcement
 
 The state file's `enforce` flag defaults to **false**. While disabled, the bearer
