@@ -2,12 +2,12 @@
 
 ## Sub-features
 
-ACP hosts the always-on C2 controller (`@praesidium/c2-core` 0.3.5, pinned exactly) and the phone's transport for seat questions (c2 `docs/card-contract.md` rev 5, the timeline feed; wire law §12 "Mobile wire", still version 2). A seat's open questions are rows in its own HRC record `{subject: seat, ns: hrc, kind: asks, id: open}` (hrc-runtime seat-asks r1.3). The controller reads those rows and does the following:
+ACP hosts the always-on C2 controller (`@praesidium/c2-core` 0.5.0, pinned exactly) and the phone's transport for seat questions (c2 `docs/card-contract.md` rev 5, the timeline feed; wire law §12 "Mobile wire", still version 2). A seat's open questions are rows in its own HRC record `{subject: seat, ns: hrc, kind: asks, id: open}` (hrc-runtime seat-asks r1.3). The controller reads those rows and does the following:
 - runs the turn-end backstop (one `[c2]` line to a seat that ended a lit turn with no open row, on a `c2.ping`);
 - wakes Vesta to review rows;
 - sends the rotated line, which a fresh handoff for that same seat (in wrkq or HRC) suppresses (T-12715);
 - writes the seat-scoped `c2.item` feed copies, as their only writer (rev 5, T-12642);
-- delivers answers under per-row claims with receipts. An `answer` or `compose` to a seat that has a row but no live runtime first starts it with HRC's keyed summon (key = `requestId`), then sends (§6b, T-12645);
+- delivers answers under per-row claims with receipts. An `answer` or `compose` to a seat that has a row but no live runtime is the steer alone, with c2's previous-session note in front; HRC starts the seat on that steer and ACP makes no start call (rev 5.5 §6b). A W- thread seat is the exception: ACP opens it through its thread first, and a refused open is `not_submitted` with the thread's reason;
 - recovers and prunes.
 
 The transport is:
@@ -74,7 +74,7 @@ A positive scratch snapshot or action needs the real launcher and a homed fixtur
 ## Gotchas
 
 **Real seats**
-- Never answer real rows. A POST to production 18470 delivers literal input to a real seat, stamps `sent` on its HRC record and records ledger acts. If that seat has no live runtime, the answer first starts it (§6b), which is a real provider birth.
+- Never answer real rows. A POST to production 18470 steers a real seat, stamps `sent` on its HRC record and records ledger acts. If that seat has no live runtime, the steer starts it (§6b), which is a real provider birth. For a deliberate probe use a disposable `tabularasa` W- thread seat, never a mable seat, and delete its asks record, ping, items and receipts afterwards.
 - Since rev 4, the controller also sends lines to seats on its own:
   - the backstop line to a seat in scope that ends a lit turn without an open row;
   - the review wake and the rotated line to Vesta.
