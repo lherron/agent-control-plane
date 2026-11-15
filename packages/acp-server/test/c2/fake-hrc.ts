@@ -150,14 +150,13 @@ export type FakeHrc = {
   literalInput: { mode: LiteralInputMode; refuse: Set<string> }
   steer: { mode: SteerMode }
   /**
-   * §2.13 keyed start, as the real routes answered on 2026-11-05 (T-12645 live/summon/real-*.json): declaration
-   * resolve, then exact claim-and-start (replayed by `idempotencyKey`), then `POST /v1/sessions/resolve` for the head.
-   * `refuse`: the route answers this HRC error. `hang`: the start is accepted and never answered.
+   * Card contract rev 5.5 §6b: a steer to a seat with no runtime starts it on its current generation (T-13491
+   * artifacts win2-steer.json). `offlineRefuse`: that steer answers this HRC error instead.
    */
-  start: {
-    declarationRefuse?: { status: number; code: string } | undefined
-    startRefuse?: { status: number; code: string } | undefined
-    hang?: boolean | undefined
+  steerBorn: {
+    offlineRefuse?:
+      | { status: number; code: string; detail?: Record<string, unknown> | undefined }
+      | undefined
   }
   /**
    * Seats whose session routes answer an HRC error, as a federated seat whose
@@ -529,60 +528,8 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     return Response.json({ annotation: structuredClone(row), created })
   }
 
-  const start: FakeHrc['start'] = {}
-  const started = new Map<string, { runtimeId: string; hostSessionId: string }>()
-  function declarationsRoute(call: FakeCall): Response {
-    if (start.declarationRefuse) {
-      return hrcError(start.declarationRefuse.status, start.declarationRefuse.code, {
-        source: 'agent-profile',
-      })
-    }
-    const body = call.body as { scopeRef?: string; runMode?: string; preferredMode?: string }
-    return Response.json({
-      declaration: { warnings: [] },
-      intent: {
-        placement: {
-          agentRoot: '/agents/x',
-          cwd: '/x',
-          projectRoot: '/x',
-          runMode: body.runMode,
-          bundle: {},
-          dryRun: false,
-        },
-        execution: { preferredMode: body.preferredMode },
-        harness: {},
-        provision: {},
-      },
-    })
-  }
-  function startRoute(call: FakeCall): Promise<Response> | Response {
-    if (start.hang) return new Promise<Response>(() => {})
-    if (start.startRefuse) return hrcError(start.startRefuse.status, start.startRefuse.code, {})
-    const body = call.body as { sessionRef: string; idempotencyKey: string }
-    const scopeRef = body.sessionRef.replace(/\/lane:[^/]+$/, '')
-    const seat = seatMap.get(scopeRef)
-    if (seat === undefined) return hrcError(404, 'unknown_session', {})
-    let up = started.get(body.idempotencyKey)
-    const replayed = up !== undefined
-    if (up === undefined) {
-      up = {
-        runtimeId: `rt-started-${started.size + 1}`,
-        hostSessionId: `hsid-started-${started.size + 1}`,
-      }
-      started.set(body.idempotencyKey, up)
-      seat.hostSessionId = up.hostSessionId
-      seat.runtimeId = up.runtimeId
-      seat.generation += 1
-      seat.runtimeLive = true
-    }
-    return Response.json({
-      ...up,
-      transport: 'headless',
-      status: 'ready',
-      supportsInFlightInput: true,
-      claim: { scopeRef, sessionRef: body.sessionRef, replayed },
-    })
-  }
+  const steerBorn: FakeHrc['steerBorn'] = {}
+  let bornCounter = 0
   function sessionResolveRoute(call: FakeCall): Response {
     const sessionRef = (call.body as { sessionRef?: string }).sessionRef ?? ''
     const scopeRef = sessionRef.replace(/\/lane:[^/]+$/, '')
@@ -657,8 +604,13 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     const sessionRef = body.target ?? ''
     const scopeRef = sessionRef.replace(/\/lane:[^/]+$/, '')
     const seat = seatMap.get(scopeRef)
-    if (seat === undefined || !seat.runtimeLive) {
-      return hrcError(404, 'unknown_session', { sessionRef })
+    if (seat === undefined) return hrcError(404, 'unknown_session', { sessionRef })
+    if (!seat.runtimeLive) {
+      const refuse = steerBorn.offlineRefuse
+      if (refuse) return hrcError(refuse.status, refuse.code, refuse.detail ?? {})
+      // The steer-born start: a new runtime on the same host session and generation.
+      seat.runtimeId = `rt-born-${++bornCounter}`
+      seat.runtimeLive = true
     }
     const submissionId = `submission_fake_${++runCounter}`
     if (steer.mode === 'reject') {
@@ -894,10 +846,6 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
       if (url.pathname.startsWith('/v1/sessions/annotations')) {
         return annotationRoute(request, url, call)
       }
-      if (request.method === 'POST' && url.pathname === '/v1/declarations/resolve')
-        return declarationsRoute(call)
-      if (request.method === 'POST' && url.pathname === '/v1/runtimes/start')
-        return startRoute(call)
       if (request.method === 'POST' && url.pathname === '/v1/sessions/resolve')
         return sessionResolveRoute(call)
       if (request.method === 'POST' && url.pathname === '/v1/literal-input/by-selector') {
@@ -923,7 +871,7 @@ export function startFakeHrc(seats: FakeSeat[]): FakeHrc {
     },
     literalInput,
     steer,
-    start,
+    steerBorn,
     seatErrors,
     events: {
       enabled: true,

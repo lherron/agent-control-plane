@@ -26,7 +26,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@praesidium/c2-core": "0.4.0",
+    "@praesidium/c2-core": "0.5.0",
     "@wrkq/client": "latest",
     "acp-capability-host": "*",
     "acp-admin-store": "*",

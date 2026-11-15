@@ -34,9 +34,6 @@ export type C2HrcClient = Pick<
   | 'listSessionAnnotations'
   | 'listSessions'
   | 'putSessionAnnotation'
-  | 'resolveRuntimeIntent'
-  | 'resolveSession'
-  | 'startRuntime'
   | 'steer'
   | 'tailEvents'
   | 'watchBoundedEvents'
@@ -753,8 +750,23 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     if (/:task:W-\d+$/.test(scope) && options.openThreadSeat) {
       const state = await client.getSessionAttention({ scopeRef: scope, laneRef: 'main' })
       if (!state.runtimeLive) {
+        // A thread seat is opened here, by its thread (closed-thread and ownership guards, fresh declaration), not
+        // by the steer. A refusal the open returns started nothing, so it is definitive; an unknown outcome throws.
         const opened = await options.openThreadSeat(scope, steer.key)
-        if ('code' in opened) return opened
+        if ('code' in opened) {
+          const detail =
+            typeof opened.detail === 'object' && opened.detail !== null
+              ? (opened.detail as Record<string, unknown>)
+              : {}
+          return {
+            code: 'not_submitted',
+            detail: {
+              ...detail,
+              reason: typeof detail['reason'] === 'string' ? detail['reason'] : opened.code,
+              code: opened.code,
+            },
+          }
+        }
       }
     }
     let reply: Awaited<ReturnType<C2HrcClient['steer']>>
@@ -858,58 +870,6 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
           { principalRef: as ?? options.principal }
         )
       )
-    },
-    /**
-     * Card contract §6b: start a seat with no runtime, as HRC's kernel `seat.summon` does (declaration resolve, then
-     * exact claim-and-start keyed by requestId; HRC owns the replay). A refused declaration claimed nothing. Any other
-     * failure may follow a durable claim, so it reaches c2-core as an unknown (a throw, or a code it doesn't list).
-     */
-    async start(sessionRef: string, requestId: string): Promise<StartedSeat | Refusal> {
-      const { scopeRef } = splitSessionRef(sessionRef)
-      if (/:task:W-\d+$/.test(scopeRef) && options.openThreadSeat)
-        return options.openThreadSeat(scopeRef, requestId)
-      let intent: Awaited<ReturnType<C2HrcClient['resolveRuntimeIntent']>>['intent']
-      try {
-        const resolved = await client.resolveRuntimeIntent({
-          scopeRef,
-          runMode: 'task',
-          interactive: true,
-          preferredMode: 'headless',
-        })
-        intent = resolved.intent
-      } catch (error) {
-        if (error instanceof HrcDomainError) {
-          return { code: error.code, detail: { ...error.detail, stage: 'declaration' } }
-        }
-        throw error
-      }
-      let started: Awaited<ReturnType<C2HrcClient['startRuntime']>>
-      try {
-        started = await client.startRuntime({
-          sessionRef,
-          runtimeIntent: intent, // HRC localizes the correlation to this session at start
-          conflictPolicy: 'reject',
-          summonIntent: 'implicit',
-          idempotencyKey: requestId,
-          restartStyle: 'reuse_pty',
-        })
-      } catch (error) {
-        const refusal = refusalOf(error)
-        if (refusal !== undefined) return refusal
-        throw error
-      }
-      // The claim reply carries no generation; HRC's head names it, for the fenced send.
-      const head = await client.resolveSession({ sessionRef })
-      if (!head.found || head.hostSessionId !== started.hostSessionId) {
-        throw new Error(`HRC head for ${sessionRef} is not the started ${started.hostSessionId}`)
-      }
-      return {
-        sessionRef,
-        hostSessionId: started.hostSessionId,
-        runtimeId: started.runtimeId,
-        generation: head.generation,
-        replayed: started.claim?.replayed === true,
-      }
     },
     async send(
       target: SendTarget,

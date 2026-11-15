@@ -1,7 +1,7 @@
 /**
- * Rev 5.1 §2.13 r3 (T-12645, card contract §6b) at the ACP host: an answer to a seat with no runtime resolves its
- * declaration, makes the exact claim-and-start keyed by requestId, reads the head for the generation, and then makes
- * the ordinary fenced literal input. The phone's feed carries `seat.online`.
+ * Card contract rev 5.5 §6b (T-13491, c2-core 0.5.0) at the ACP host: an answer to a seat with no runtime is the
+ * steer alone. HRC starts the seat on that steer, c2 puts its previous-session note in front, and the host makes
+ * no start call of its own. The phone's feed carries `seat.online`.
  */
 import { describe, expect, test } from 'bun:test'
 
@@ -26,10 +26,13 @@ function reap(acp: C2Acp): void {
   seat.runtimeLive = false
   acp.fake.touch(SEAT, 'runtime.state')
 }
-// Rev 5.2 (T-13271): after the keyed start the answer steers, like any answer.
 const seatInputs = (acp: C2Acp) =>
   acp.fake.steers().filter((c) => (c.body as { target?: string }).target === SEAT_REF)
-const startCalls = (acp: C2Acp) => acp.fake.calls.filter((c) => c.path === '/v1/runtimes/start')
+/** Any start the host makes itself: the keyed start and its declaration resolve. */
+const startCalls = (acp: C2Acp) =>
+  acp.fake.calls.filter(
+    (c) => c.path === '/v1/runtimes/start' || c.path === '/v1/declarations/resolve'
+  )
 
 async function offlineEntry(acp: C2Acp) {
   // Read once while live so the record is observed, then reap and let observation see it.
@@ -48,71 +51,52 @@ async function offlineEntry(acp: C2Acp) {
 }
 
 describe('answering a seat with no runtime (§6b)', () => {
-  test('starts the seat once keyed by requestId, then steers the answer to the started seat', async () => {
+  test('sends one steer with the previous-session note and no start; the seat keeps its generation', async () => {
     await withC2Acp(async (acp) => {
       const entry = await offlineEntry(acp)
+      const before = { ...acp.fake.seats.get(SEAT) }
       const req = answerRequest(entry)
       const { body } = await acp.postJson<ActionResponse>(ACTIONS, req)
       expect(body.outcome).toBe('sent')
-      const starts = startCalls(acp)
-      expect(starts.length).toBe(1)
-      expect(starts[0]?.body).toMatchObject({
-        sessionRef: SEAT_REF,
-        conflictPolicy: 'reject',
-        summonIntent: 'implicit',
-        idempotencyKey: req.requestId,
-        restartStyle: 'reuse_pty',
-      })
-      const decl = acp.fake.calls.find((c) => c.path === '/v1/declarations/resolve')
-      expect(decl?.body).toMatchObject({
-        scopeRef: SEAT,
-        runMode: 'task',
-        interactive: true,
-        preferredMode: 'headless',
-      })
-      const seat = acp.fake.seats.get(SEAT)
-      expect(seat?.hostSessionId).toBe('hsid-started-1')
+      expect(startCalls(acp).length).toBe(0)
       const inputs = seatInputs(acp)
       expect(inputs.length).toBe(1)
-      expect(inputs[0]?.body).toEqual({
-        target: SEAT_REF,
-        body: req.text,
-        origin: { principalRef: 'agent:lance' },
-        idempotencyKey: req.requestId,
-      })
+      const sent = inputs[0]?.body as { body: string; idempotencyKey: string; origin: unknown }
+      expect(sent.idempotencyKey).toBe(req.requestId)
+      expect(sent.origin).toEqual({ principalRef: 'agent:lance' })
+      expect(sent.body.startsWith('[c2] You had no running session')).toBe(true)
+      expect(sent.body.endsWith(req.text ?? '')).toBe(true)
+      const seat = acp.fake.seats.get(SEAT)
+      expect(seat?.runtimeLive).toBe(true)
+      expect(seat?.hostSessionId).toBe(before.hostSessionId)
+      expect(seat?.generation).toBe(before.generation)
       const again = await acp.postJson<ActionResponse>(ACTIONS, req)
       expect(again.body.replayed).toBe(true)
-      expect(startCalls(acp).length).toBe(1)
       expect(seatInputs(acp).length).toBe(1)
     })
   })
 
-  test('a refused declaration or claim is start_failed, nothing sent', async () => {
-    for (const set of [
-      (a: C2Acp) => {
-        a.fake.start.declarationRefuse = { status: 422, code: 'declaration_invalid' }
-      },
-      (a: C2Acp) => {
-        a.fake.start.startRefuse = { status: 409, code: 'session_scope_occupied' }
-      },
+  test('a steer refused before HRC starts anything is start_failed', async () => {
+    for (const refuse of [
+      { status: 422, code: 'cwd_missing' },
+      { status: 503, code: 'runtime_unavailable', detail: { reason: 'aspd_unavailable' } },
     ]) {
       await withC2Acp(async (acp) => {
         const entry = await offlineEntry(acp)
-        set(acp)
+        acp.fake.steerBorn.offlineRefuse = refuse
         const { body } = await acp.postJson<ActionResponse>(ACTIONS, answerRequest(entry))
         expect(body).toMatchObject({ ok: false, outcome: 'not_submitted', reason: 'start_failed' })
-        expect(seatInputs(acp).length).toBe(0)
+        expect(acp.fake.seats.get(SEAT)?.runtimeLive).toBe(false)
       })
     }
   })
 
-  test('a failed launch is unknown: nothing sent, and the question stays claimed', async () => {
+  test('any other refusal is unknown, and the question stays claimed', async () => {
     await withC2Acp(async (acp) => {
       const entry = await offlineEntry(acp)
-      acp.fake.start.startRefuse = { status: 500, code: 'runtime_start_failed' }
+      acp.fake.steerBorn.offlineRefuse = { status: 500, code: 'internal_error' }
       const { body } = await acp.postJson<ActionResponse>(ACTIONS, answerRequest(entry))
       expect(body.outcome).toBe('unknown_outcome')
-      expect(seatInputs(acp).length).toBe(0)
       await settle(250)
       const claim = acp.fake.annotations.find(
         (row) => row.scopeRef === SEAT && row.kind === 'receipt' && row.id === 'answer:ship'
@@ -123,12 +107,14 @@ describe('answering a seat with no runtime (§6b)', () => {
     })
   })
 
-  test('an online seat never starts', async () => {
+  test('an online seat gets the answer with no note', async () => {
     await withC2Acp(async (acp) => {
       const { entry } = await snapshotEntry(acp)
-      const { body } = await acp.postJson<ActionResponse>(ACTIONS, answerRequest(entry))
+      const req = answerRequest(entry)
+      const { body } = await acp.postJson<ActionResponse>(ACTIONS, req)
       expect(body.outcome).toBe('sent')
       expect(startCalls(acp).length).toBe(0)
+      expect((seatInputs(acp)[0]?.body as { body: string }).body).toBe(req.text)
     })
   })
 })
