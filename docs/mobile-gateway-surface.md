@@ -30,6 +30,10 @@ Routes:
 |---|---|---|
 | `GET /v1/mobile/health` | http | Health/capability probe. |
 | `GET /v1/mobile/pairing`, `POST /v1/mobile/pair` | http | Device pairing. |
+| `GET /v1/mobile/jobhunt/triage` | http | Forward to Jobhunt `GET /api/hunt/mobile/triage`. |
+| `GET /v1/mobile/jobhunt/leads/:id` | http | Forward to Jobhunt `GET /api/hunt/mobile/leads/:id`. |
+| `POST /v1/mobile/jobhunt/leads/:id/decision` | http | Forward to Jobhunt `POST /api/hunt/mobile/leads/:id/decision`. |
+| `POST /v1/mobile/jobhunt/leads/:id/ask` | http | Forward to Jobhunt `POST /api/hunt/leads/:id/ask`. |
 | `GET /v1/mobile/dashboard` | websocket | Session dashboard snapshot + live updates (`dashboard_snapshot` envelope) — this is what gateway-discord itself polls to detect steerable active runs. |
 | `GET /v1/mobile/history` | http | Progressive history / timeline paging. |
 | `GET /v1/mobile/dm/targets` | http | DM target discovery. |
@@ -48,6 +52,25 @@ Routes:
 | `GET /v1/mobile/auth/devices` | http | Loopback-only. Paired devices + enforcement posture. |
 | `POST /v1/mobile/auth/devices/revoke` | http | Loopback-only. Revoke one device's bearer token. |
 | `POST /v1/mobile/auth/enforce` | http | Loopback-only. Arm/disarm bearer enforcement. |
+
+Jobhunt routes use the **strict** mobile auth class: a loopback socket peer or a
+valid paired bearer is required even when global enforcement is off. The
+forwarder (`handlers/mobile-jobhunt.ts`) supplies `X-Principal: user:lance` and
+copies no phone headers. `ACP_JOBHUNT_URL` defaults to
+`http://127.0.0.1:18455`; a non-loopback host disables forwarding with 503
+`gateway_jobhunt_unavailable` and a logged reason. Lead IDs match
+`^[A-Za-z0-9_.:-]{1,128}$`; POSTs accept only JSON objects up to 64 KiB.
+Queries, body bytes, upstream status and JSON response bytes pass through
+unchanged, with `Cache-Control: no-store`. There is one attempt, no redirect
+following, and a complete-response deadline of 10 s for GET, 30 s for POST.
+Refused connections return 503 `gateway_jobhunt_unavailable` (POST:
+`details.submitted: false`). Other transport failures return 504
+`gateway_jobhunt_timeout` for GET or `gateway_jobhunt_uncertain` for POST
+(`details.submitted: "unknown"`). Non-JSON upstream responses return 502
+`gateway_jobhunt_bad_response` for GET or `gateway_jobhunt_uncertain` for POST
+(with `details.submitted: "unknown"` and `details.status`). The phone must read
+the lead again after an uncertain write. These errors use
+`{error: {code, message, details}}`. Jobhunt owns lead semantics and fences.
 
 `POST /v1/mobile/sessions` accepts `agentId`, `projectId`, optional `taskId`,
 optional `viewerWindow`, optional `model`, optional `force`, and `requestId`. The server derives an HRC idempotency

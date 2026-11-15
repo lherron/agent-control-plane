@@ -37,6 +37,7 @@ import {
   handleRevokeMobileAuthDevice,
   handleSetMobileAuthEnforce,
 } from '../handlers/mobile-auth-admin.js'
+import { handleJobhuntTriage } from '../handlers/mobile-jobhunt.js'
 import { handleCreateMobileSession } from '../handlers/mobile-sessions-create.js'
 import {
   handleMobileDashboard,
@@ -94,6 +95,7 @@ function maybeWrapMutatingRoute(
 
 export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRouteHandlers {
   return {
+    [exactRouteKey('GET', '/v1/mobile/jobhunt/triage')]: handleJobhuntTriage,
     [exactRouteKey('GET', '/admin/agents')]: handleCatalogAgentInspection,
     [exactRouteKey('POST', '/v1/interface/bindings')]: maybeWrapMutatingRoute(
       'POST',

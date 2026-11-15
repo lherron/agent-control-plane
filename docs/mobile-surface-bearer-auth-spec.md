@@ -17,7 +17,7 @@ read with `acp mobile auth status`, not implied by this document.
 
 Peer locality (loopback vs non-loopback) is evaluated per request against the socket peer address (the `RouteContext.peer` plumbing built in T-07335; fail-closed on absent peer, no `X-Forwarded-For` trust).
 
-There are **three credential classes** on this surface — none (exempt routes), the single-use pairing code (the pair route only), and the bearer token (everything else). With enforcement enabled, the table below is the credential gate; **§2 and §3 describe the same rules and add mechanism, never different rules** — where any other section names a narrower path set than this table, this table wins.
+There are **four route classes** on this surface: `exempt` (no credential), `pair` (single-use pairing code), `bearer` (paired token when enforcement is enabled), and `strict` (paired token regardless of enforcement). Loopback peers need no bearer. With enforcement enabled, the table below is the credential gate; **§2 and §3 describe the same rules and add mechanism, never different rules** — where any other section names a narrower path set than this table, this table wins.
 
 **Scope: every `/v*/mobile/*` path, present and future.** The surface is not only `/v1` — `/v2/mobile/sessions` and the `/v2/mobile/dashboard` WS (federation dashboard) exist today and carry the same session data; gating only `/v1` would leave the hole open. The identical table applies to all mobile-prefixed versions; a future version's routes land in the bearer tier by default, and only the exempt rows below (which have no `/v2` counterparts today) are ever open:
 
@@ -25,6 +25,7 @@ There are **three credential classes** on this surface — none (exempt routes),
 | --- | --- | --- |
 | `GET /v1/mobile/health`, `GET /v1/mobile/pairing` (descriptor) | open | open — needed pre-pairing, leak nothing secret |
 | `POST /v1/mobile/pair` | open (today's no-op ack; code redemption is also honored from loopback — a valid code mints a token regardless of peer) | **valid pairing code is the credential** — `{ pairingCode }` redeems for a bearer token; missing/invalid/expired code → 401. Bearer is never required here: this is the issuance path, and a device pairing has no bearer yet by definition. |
+| Every path under `/v1/mobile/jobhunt/` (`strict`, including unregistered paths) | no bearer required | valid paired bearer required **even when enforcement is off**; missing or invalid → the same 401 below. |
 | Every other `/v*/mobile/*` route (all versions — `/v1` and `/v2` today, future versions by default) | no bearer required — preserves local scripting, HRCMac, and attach-info semantics unchanged | `Authorization: Bearer <token>` required, HTTP and WS upgrade alike. Missing or invalid → `401 {"ok":false,"code":"unauthorized"}`, identical body for both cases. |
 
 WS upgrades (dashboard, timeline, messages/watch, diagnostics) use the same bearer tier. Remote clients must include the bearer on the upgrade request when enforcement is enabled.
@@ -48,10 +49,13 @@ One middleware ahead of **every mobile route table — the path classifier match
 ## 4. Operating enforcement
 
 The state file's `enforce` flag defaults to **false**. While disabled, the bearer
-gate allows requests and a no-code pair request acknowledges from any peer;
+gate allows `bearer` requests and a no-code pair request acknowledges from any peer;
 attach-info and operator auth routes retain their own loopback checks. A supplied
 invalid pairing code still returns 401. Valid code redemption works in either
-posture. The §1 table describes the enabled posture.
+posture. `strict` Jobhunt paths skip the disabled-enforcement early allow and
+always apply the loopback-or-valid-bearer rule. ACP asserts `user:lance` upstream,
+so this boundary cannot depend on the global enforcement setting. The rest of
+the §1 table describes the enabled posture.
 
 The server is the state file's only writer. The CLI uses loopback-only admin
 routes; do not edit the file as an alternate activation path:

@@ -1,3 +1,8 @@
+import {
+  type JobhuntConfig,
+  type JobhuntOptions,
+  resolveJobhuntConfig,
+} from './handlers/mobile-jobhunt.js'
 import type { StoreCommitBus } from './store-commit-bus.js'
 import type { CommitWaker } from './wrkq-commit-waker.js'
 
@@ -359,6 +364,8 @@ export interface AcpServerDeps {
   wrkf?: AcpWrkfWorkflowPort | undefined
   pbcIdempotencyStore?: WrkfRouteIdempotencyStore | undefined
   pbcCaptureStore?: WrkfParticipantCaptureStore | undefined
+  /** Fixed Jobhunt hop configuration; production defaults resolve once per server. */
+  jobhunt?: JobhuntOptions | undefined
   /**
    * Mobile-surface bearer auth state (device roster + `enforce`). Injected by
    * `cli.ts` so the HTTP router and the WS upgrade path share one instance;
@@ -393,6 +400,7 @@ export interface ResolvedAcpServerDeps extends AcpServerDeps {
   wrkf: AcpWrkfWorkflowPort | undefined
   pbcIdempotencyStore: WrkfRouteIdempotencyStore
   pbcCaptureStore: WrkfParticipantCaptureStore
+  jobhuntConfig: JobhuntConfig
   mobileAuthStore: MobileAuthStore
 }
 
@@ -472,6 +480,7 @@ export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps
       deps.pbcCaptureStore ??
       durableWrkfStores?.captureStore ??
       new InMemoryWrkfParticipantCaptureStore(),
+    jobhuntConfig: resolveJobhuntConfig(deps.jobhunt),
     mobileAuthStore: deps.mobileAuthStore ?? resolveMobileAuthStore(),
   }
 }

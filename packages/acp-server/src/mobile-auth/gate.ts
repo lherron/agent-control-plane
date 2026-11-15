@@ -18,8 +18,9 @@ import type { MobileAuthStore } from './store.js'
  * `pair`   — the pairing code is the credential; the handler owns that check,
  *            because bearer is never demanded on the issuance path.
  * `bearer` — everything else on the surface.
+ * `strict` — Jobhunt: bearer rules always apply, even with enforcement off.
  */
-export type MobileRouteClass = 'exempt' | 'pair' | 'bearer'
+export type MobileRouteClass = 'exempt' | 'pair' | 'bearer' | 'strict'
 
 const EXEMPT_PATHS = new Set(['/v1/mobile/health', '/v1/mobile/pairing'])
 const PAIR_PATH = '/v1/mobile/pair'
@@ -40,6 +41,9 @@ const MOBILE_PATH_PATTERN = /^\/v\d+\/mobile\/.+$/
 export function classifyMobileRoute(pathname: string): MobileRouteClass | undefined {
   if (!MOBILE_PATH_PATTERN.test(pathname)) {
     return undefined
+  }
+  if (pathname.startsWith('/v1/mobile/jobhunt/')) {
+    return 'strict'
   }
   if (EXEMPT_PATHS.has(pathname)) {
     return 'exempt'
@@ -75,10 +79,10 @@ export function authorizeMobileRequest(input: MobileAuthorizeInput): MobileAuthD
   }
 
   // Dark ship (spec §4 step 1): `enforce: false` is zero behavior change across
-  // the whole table, including the pair route's tailnet denial. Redemption is
+  // the non-strict classes, including the pair route's tailnet denial. Redemption is
   // unconditional — a valid code mints a token whether or not enforcement is on —
   // so the flag gates only refusals, never issuance.
-  if (!input.store.isEnforcing()) {
+  if (routeClass !== 'strict' && !input.store.isEnforcing()) {
     return 'allow'
   }
 

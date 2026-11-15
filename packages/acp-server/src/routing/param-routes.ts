@@ -32,6 +32,11 @@ import { handleGetJobRun, handleListJobRuns } from '../handlers/job-runs.js'
 import { handleCancelLedgerInput } from '../handlers/ledger-input-cancel.js'
 import { handleGetMediaAttachment } from '../handlers/media-attachments.js'
 import { handleMobileAttachInfo } from '../handlers/mobile-attach-info.js'
+import {
+  handleJobhuntAsk,
+  handleJobhuntDecision,
+  handleJobhuntLead,
+} from '../handlers/mobile-jobhunt.js'
 import { handleMobileRestart } from '../handlers/mobile-sessions-restart.js'
 import { handleMobileInput, handleMobileInterrupt } from '../handlers/mobile.js'
 import { handleCancelRun } from '../handlers/runs-cancel.js'
@@ -138,6 +143,9 @@ export function buildParamRoutes(): ParamRoute[] {
   }
 
   return [
+    createParamRoute('GET', '/v1/mobile/jobhunt/leads/:id', handleJobhuntLead),
+    createParamRoute('POST', '/v1/mobile/jobhunt/leads/:id/decision', handleJobhuntDecision),
+    createParamRoute('POST', '/v1/mobile/jobhunt/leads/:id/ask', handleJobhuntAsk),
     createParamRoute('POST', '/admin/agents/:agentId/inspect', handleInspectAgentSelection),
     createParamRoute(
       'GET',
