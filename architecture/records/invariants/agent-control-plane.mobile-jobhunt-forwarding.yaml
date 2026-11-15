@@ -1,0 +1,45 @@
+id: agent-control-plane.mobile-jobhunt-forwarding
+kind: invariant
+status: active
+owner_project: agent-control-plane
+scope: ACP mobile Jobhunt triage forwarding and caller attribution
+predicate: >
+  Every path under /v1/mobile/jobhunt/ is strict in ACP's shared mobile
+  authorization function: only a socket-loopback peer or a valid paired-device
+  bearer token passes, independently of the mobile store's enforce flag.
+  Other mobile route classes retain their existing enforcement behavior.
+  ACP forwards only GET triage, GET leads/:id, POST leads/:id/decision and
+  POST leads/:id/ask through fixed routes to the same-host loopback Jobhunt
+  service. ACP constructs the upstream headers itself and states the caller
+  as X-Principal user:lance; no phone header supplies that identity or selects
+  an upstream destination. Jobhunt owns lead schemas, fences, decisions and
+  response bodies. ACP validates only the declared identifier and JSON-object
+  size/shape, preserves upstream status and JSON body, and never retries.
+  ACP's own hop-failure bodies use gateway-prefixed errors; a POST timeout,
+  post-send disconnect or non-JSON response is uncertain, never proof of
+  non-submission. Only a connection refusal before sending proves submitted
+  false. Jobhunt owns the three new mobile adapter routes and their
+  socket-loopback-only admission; the existing ask route retains its existing
+  upstream posture.
+authority: Daedalus approval of T-13506 specification r2, replying to EN-53650, 2026-11-14
+source:
+  - wrkq:T-13506
+  - wrkq:T-13505
+  - packages/acp-server/src/mobile-auth/gate.ts
+  - packages/acp-server/src/routing/peer.ts
+  - packages/acp-server/src/create-acp-server.ts
+  - packages/acp-server/src/acp-listener.ts
+required_tests:
+  - T-13506 r2 acceptance checks 1-5 against installed ACP and the live Jobhunt adapter on disposable leads
+  - T-13506 r2 fake-upstream checks 2-5, including strict token refusal with enforcement off and on and unchanged other mobile routes
+last_verified: >
+  2026-11-14 preimplementation specification r2 reviewed against the shared
+  HTTP and WebSocket authorization call sites, gate implementation and
+  Jobhunt owner confirmation EN-53643. F1 from EN-53645 resolves in the
+  design. Implementation and installed acceptance remain unverified.
+reopen_when:
+  - Jobhunt route admission, principal attribution or upstream ownership changes
+  - Fixed upstream route selection or same-host loopback restriction changes
+  - Domain validation, response transformation, retry or uncertain-write semantics move into ACP
+supersedes: []
+superseded_by: null
