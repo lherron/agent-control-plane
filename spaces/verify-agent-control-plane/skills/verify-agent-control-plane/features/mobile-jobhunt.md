@@ -24,7 +24,7 @@ Call the routes on ACP's listener. The upstream base is `ACP_JOBHUNT_URL` (defau
 
 Source behaviour: `bun test packages/acp-server/test/jobhunt` runs the real ACP router against a fake Jobhunt over HTTP, in both enforcement states.
 
-Installed, read-only: `~/praesidium/var/wrkq-artifacts/T-13506/live-acceptance.sh [lead-id]`. It checks 401 for a tokenless request on ACP's tailnet address, 404 outside the four paths, and that triage and one lead come back byte-identical to Jobhunt's direct answer. It makes no decision and sends no ask. A decision or an ask is a real write as Lance: drive those only on a disposable lead, with Jobhunt's owner.
+Installed, read-only: `~/praesidium/var/wrkq-artifacts/T-13506/live-acceptance.sh [lead-id]`. It checks 401 for a tokenless request on ACP's tailnet address, 404 outside the four paths, and that triage and one lead come back byte-identical to Jobhunt's direct answer. It makes no decision and sends no ask. A decision or an ask is a real write as Lance: drive those only on a disposable lead, with Jobhunt's owner. `~/praesidium/var/wrkq-artifacts/T-13506/live-write-acceptance.py <pass-lead> <maybe-lead>` does that for a stale refusal, a Pass, its identical repeat and a spoofed caller header; it needs two undecided disposable leads and never sends pursue or ask.
 
 ## Gotchas
 
