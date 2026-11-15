@@ -48,7 +48,7 @@ type HeadlessHrcFixture = {
 
 export const FLOW_JOB_SCOPE_REF = 'agent:larry:project:demo-project:task:T-01319:role:implementer'
 
-class RecordingInputAttemptStore extends InMemoryInputAttemptStore {
+export class RecordingInputAttemptStore extends InMemoryInputAttemptStore {
   readonly calls: Array<Parameters<InMemoryInputAttemptStore['createAttempt']>[0]> = []
 
   override createAttempt(input: Parameters<InMemoryInputAttemptStore['createAttempt']>[0]) {
@@ -57,7 +57,7 @@ class RecordingInputAttemptStore extends InMemoryInputAttemptStore {
   }
 }
 
-function createHeadlessHrcDb(): HeadlessHrcFixture {
+export function createHeadlessHrcDb(): HeadlessHrcFixture {
   const fixtureDir = mkdtempSync(join(tmpdir(), 'acp-flow-engine-'))
   const hrcFixture = join(fixtureDir, 'hrc.sqlite')
   const db = new Database(hrcFixture)
@@ -87,7 +87,11 @@ function createHeadlessHrcDb(): HeadlessHrcFixture {
   }
 }
 
-function insertHrcRun(hrc: HeadlessHrcFixture, hrcRunId: string, outcome: FlowLaunchOutcome): void {
+export function insertHrcRun(
+  hrc: HeadlessHrcFixture,
+  hrcRunId: string,
+  outcome: FlowLaunchOutcome
+): void {
   hrc.db.run(
     'INSERT INTO runs (run_id, status, error_code, error_message) VALUES (?, ?, NULL, NULL)',
     hrcRunId,
@@ -104,7 +108,7 @@ function insertHrcRun(hrc: HeadlessHrcFixture, hrcRunId: string, outcome: FlowLa
   }
 }
 
-function createFlowLauncher(
+export function createFlowLauncher(
   hrc: HeadlessHrcFixture,
   outcomes: FlowLaunchOutcome[],
   calls: LaunchCall[] = [],
