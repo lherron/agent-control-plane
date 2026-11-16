@@ -5,7 +5,7 @@
 ACP hosts the always-on C2 controller (`@praesidium/c2-core` 0.5.0, pinned exactly) and the phone's transport for seat questions (c2 `docs/card-contract.md` rev 5, the timeline feed; wire law §12 "Mobile wire", still version 2). A seat's open questions are rows in its own HRC record `{subject: seat, ns: hrc, kind: asks, id: open}` (hrc-runtime seat-asks r1.3). The controller reads those rows and does the following:
 - runs the turn-end backstop (one `[c2]` line to a seat that ended a lit turn with no open row, on a `c2.ping`);
 - wakes Vesta to review rows;
-- sends the rotated line, which a fresh handoff for that same seat (in wrkq or HRC) suppresses (T-12715);
+- sends the rotated line, which a fresh HRC seat handoff for that same seat suppresses (T-12715). HRC is the only handoff store; ACP stopped reading wrkq handoffs in 542d138;
 - writes the seat-scoped `c2.item` feed copies, as their only writer (rev 5, T-12642);
 - delivers answers under per-row claims with receipts. An `answer` or `compose` to a seat that has a row but no live runtime is the steer alone, with c2's previous-session note in front; HRC starts the seat on that steer and ACP makes no start call (rev 5.5 §6b). A W- thread seat is the exception: ACP opens it through its thread first, and a refused open is `not_submitted` with the thread's reason;
 - recovers and prunes.
