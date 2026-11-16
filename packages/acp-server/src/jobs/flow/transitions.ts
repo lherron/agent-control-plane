@@ -61,19 +61,21 @@ export function resolveTerminalStepTransition(
     }
   }
 
-  if (step.next !== undefined) {
-    return { transition: step.next }
+  // Branches above route on any result; `next` is the success transition only.
+  // A failed step fails its phase even when it names `next` (T-13659).
+  if (!stepSucceeded(step, stepRun)) {
+    return { transition: 'fail' }
   }
 
+  return { transition: step.next ?? 'continue' }
+}
+
+function stepSucceeded(step: JobFlowStep, stepRun: JobStepRunRecord): boolean {
   if (isExecStep(step)) {
     const result = readExecStepResult(stepRun)
-    return {
-      transition:
-        result !== undefined && isSuccessfulExecStepResult(step, result) ? 'continue' : 'fail',
-    }
+    return result !== undefined && isSuccessfulExecStepResult(step, result)
   }
-
-  return { transition: stepRun.status === 'succeeded' ? 'continue' : 'fail' }
+  return stepRun.status === 'succeeded'
 }
 
 export function recordBranchTaken(input: {

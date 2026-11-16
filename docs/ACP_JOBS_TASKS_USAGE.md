@@ -45,8 +45,14 @@ Every step resolves a **transition**: a terminal token (`continue`, `succeed`,
   pass/fail:** an unmapped or "failed" exit code still follows the branch map, so
   an error code can be routed to an alarm step rather than aborting the flow.
 - `probe` → `branches.outcome.idle` / `branches.outcome.work`.
-- any step → explicit `next: "<stepId>"` if present.
-- otherwise `continue` (next step) on success, `fail` on failure.
+- a step that failed (no branch matched) → `fail`, which skips the rest of
+  the sequence and runs `onFailure`. This holds even when the step names
+  `next`.
+- a step that succeeded → explicit `next: "<stepId>" | "succeed" | "fail"` if
+  present, otherwise `continue` (next step).
+
+`next` is the success transition only. To route a failure somewhere other than
+`onFailure`, use an `exec` or `probe` step's `branches`.
 
 ### `exec` step
 
