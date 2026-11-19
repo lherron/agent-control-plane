@@ -35,8 +35,9 @@ client of hrc-runtime for everything session/runtime.
   legality/obligations/effects to **wrkf**, both reached through the shared
   `@wrkq/client` lifecycle (`client.wrkq.*` / `client.wrkf.*`). Session
   lifecycle, PTY/runtime provisioning, and the canonical event stream belong
-  to **hrc-runtime**; ACP is a client of the HRC SDK/socket and reads the
-  HRC SQLite DB read-only for run status.
+  to **hrc-runtime**; ACP is a client of the HRC SDK/socket and never opens
+  HRC's store: run, runtime and event reads go through HRC's read routes
+  (`packages/acp-server/src/hrc-route-reader.ts`).
 - The retained `acp-core` in-memory workflow kernel (presets, conformance
   tests, `wlearn` replay) is transitional and is **not** authority for live
   server task routes — see
@@ -55,7 +56,7 @@ Route tables live in `packages/acp-server/src/routing/{exact-routes,param-routes
 | `/v1/admin/*` | Agents, projects, memberships, jobs, system-events, interface-identities, contributions/reconcile, managed-resources, agent profile/system-prompt, heartbeats. |
 | `/v1/sessions*`, `/v1/runtime/resolve`, `/v1/runs/:runId*` | Session resolve/list/get/events/capture/interrupt/attach-command/reset/launch; runtime placement resolve; run show/cancel/outbound-messages/outbound-attachments. |
 | `/v1/inputs`, `/v1/interface/{messages,bindings}` | Input admission and interface message ingest / binding CRUD. |
-| `/v1/tasks/:taskId*` | Thin wrkf facades: `GET` returns `{ source: "wrkf", task, instance, next, timeline, evidence, obligations, effects, runs }`; `POST .../transitions`, `.../evidence`, `.../obligations/:id/{waive,cancel}` delegate to wrkf. |
+| `/v1/tasks/:taskId*` | Thin wrkf facades: `GET` returns `{ source: "wrkf", task, instance, pack, next, timeline, evidence, obligations, effects, runs }`; `POST .../transitions`, `.../evidence`, `.../obligations/:id/{satisfy,waive,cancel}` delegate to wrkf. |
 | `/v1/workflow-participant-runs*`, `/v1/wrkf/*` | Participant run start/complete/fail via wrkf `run.*`; `/v1/wrkf/ping` returns `{"wrkf":"available"\|"unavailable"}`. |
 | `/v1/webhooks/events`, `/v1/webhooks/wrkq` | Loopback-trusted event webhook ingest: canonical `AcpWebhookEvent` v1, plus a wrkq-v2 compatibility adapter. |
 | `/v1/gateway/deliveries*`, `/v1/gateway/:gatewayId/deliveries/stream` | Gateway delivery queue (list/ack/fail/requeue) and a cursor-based delivery drain used by gateway-discord. |
