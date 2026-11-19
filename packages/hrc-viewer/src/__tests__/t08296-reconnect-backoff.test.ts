@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import type { HrcBoundedEventStreamRecord, WatchBoundedEventsOptions } from 'hrc-sdk'
 
 import { HrcViewer, type HrcViewerClient, type ViewerGhostmux, type ViewerLog } from '../viewer.js'
 
@@ -23,13 +24,21 @@ function makeViewer(input: {
   streamMs: number
   /** Stop after this many stream_failed warnings. */
   stopAfter: number
+  records?: readonly HrcBoundedEventStreamRecord[]
 }) {
   const warnings: Array<Record<string, unknown>> = []
+  const operations: string[] = []
+  const subscriptions: WatchBoundedEventsOptions[] = []
   let clock = 0
   const controller = new AbortController()
 
   const log: ViewerLog = (_level, event, fields) => {
+    if (event === 'broker_headless_viewer.reconciled') {
+      operations.push(`reconcile:${fields?.reason}`)
+    }
+    if (event === 'broker_headless_viewer.stream_gap') operations.push('gap')
     if (event !== 'broker_headless_viewer.stream_failed') return
+    operations.push('stream_failed')
     warnings.push(fields ?? {})
     if (warnings.length >= input.stopAfter) controller.abort()
   }
@@ -43,9 +52,11 @@ function makeViewer(input: {
     },
     // Advance the clock by the stream's simulated lifetime, then close, which
     // `run()` converts into `bounded event stream closed`.
-    watchBoundedEvents() {
+    async *watchBoundedEvents(options: WatchBoundedEventsOptions) {
       clock += input.streamMs
-      return (async function* () {})()
+      subscriptions.push(options)
+      operations.push('watch')
+      yield* input.records ?? []
     },
     async listLatestEventBySession() {
       return []
@@ -72,7 +83,7 @@ function makeViewer(input: {
     readTaskTitles: async () => new Map(),
   })
 
-  return { viewer, warnings, signal: controller.signal }
+  return { viewer, warnings, signal: controller.signal, operations, subscriptions }
 }
 
 describe('T-08296 viewer reconnect backoff', () => {
@@ -104,5 +115,68 @@ describe('T-08296 viewer reconnect backoff', () => {
     await viewer.run(signal)
 
     expect(warnings.map((w) => w.delayMs)).toEqual([0, 5, 10, 20, 40, 40, 40])
+  })
+})
+
+describe('viewer bounded stream admission and recovery', () => {
+  test('repairs a gap before reconnecting from the fenced tail', async () => {
+    const { viewer, signal, operations, subscriptions } = makeViewer({
+      streamMs: 0,
+      stopAfter: 2,
+      records: [
+        {
+          type: 'ready',
+          ledgerIncarnationId: 'ledger-1',
+          acceptedAfterHrcSeq: 1,
+          replayHeadHrcSeq: 3,
+        },
+        {
+          type: 'gap',
+          ledgerIncarnationId: 'ledger-1',
+          reason: 'replay_window',
+          afterHrcSeq: 1,
+          beforeHrcSeq: 3,
+          dropped: null,
+        },
+      ],
+    })
+
+    await viewer.run(signal)
+
+    expect(operations).toEqual([
+      'reconcile:start',
+      'watch',
+      'gap',
+      'reconcile:stream_reset',
+      'stream_failed',
+      'reconcile:reconnect',
+      'watch',
+      'gap',
+      'reconcile:stream_reset',
+      'stream_failed',
+    ])
+    expect(subscriptions).toEqual(
+      Array(2).fill({ ledgerIncarnationId: 'ledger-1', afterSeq: 1, signal })
+    )
+  })
+
+  test('rejects a ready record that admits a different sequence', async () => {
+    const { viewer, signal, operations, warnings } = makeViewer({
+      streamMs: 0,
+      stopAfter: 1,
+      records: [
+        {
+          type: 'ready',
+          ledgerIncarnationId: 'ledger-1',
+          acceptedAfterHrcSeq: 2,
+          replayHeadHrcSeq: 3,
+        },
+      ],
+    })
+
+    await viewer.run(signal)
+
+    expect(operations).toEqual(['reconcile:start', 'watch', 'stream_failed'])
+    expect(warnings[0]?.error).toBe('bounded stream admitted a different start position')
   })
 })

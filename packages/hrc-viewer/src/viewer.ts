@@ -1,131 +1,39 @@
-import type { HrcClient, HrcEventTail } from 'hrc-sdk'
-
-import { defaultHeadlessPaneTitle, deriveHeadlessSessionIdentity } from './ghostmux-identity.js'
-import type {
-  GhostmuxSecondaryStatusBarSpec,
-  GhostmuxStatusBarSpec,
-} from './ghostmux-presentation.js'
-import type { HeadlessReapResult, HeadlessViewerPane, HeadlessViewerResult } from './ghostmux.js'
+import { isRecord } from './ghostmux-client.js'
+import { deriveHeadlessSessionIdentity } from './ghostmux-identity.js'
 import {
   HeadlessViewerStatusProjector,
-  type ViewerIdentity,
-  renderSecondaryStatusBar,
-  renderStatusBar,
   viewerStateForEventKind,
   viewerStateForRuntimeStatus,
-  viewerTerminalBg,
 } from './headless-viewer-status.js'
 import { type HrcptyClientProbe, createHrcptyClientProbe } from './hrcpty-clients.js'
 import { type TmuxClientProbe, createTmuxClientProbe } from './tmux-clients.js'
 import {
-  type TaskSlugResolver,
-  type TaskTitleReader,
-  defaultTaskSlugResolver,
-  defaultTaskTitleReader,
-  extractTaskIdFromIdentity,
-} from './wrkq-task-label.js'
+  type HrcViewerClient,
+  type HrcViewerOptions,
+  type HrcptyPresentation,
+  type LifecycleEvent,
+  type PresentationRuntimeRow,
+  type ViewerGhostmux,
+  type ViewerLog,
+  type ViewerWarn,
+  normalizePresentationLaneRef,
+} from './viewer-contracts.js'
+import { watchViewerEvents } from './viewer-event-stream.js'
+import { ViewerPanePresentation } from './viewer-pane-presentation.js'
+import { ViewerPaneReaper } from './viewer-pane-reaper.js'
+import { defaultTaskSlugResolver, defaultTaskTitleReader } from './wrkq-task-label.js'
 
-export type HrcViewerClient = Pick<
-  HrcClient,
-  | 'health'
-  | 'tailEvents'
-  | 'watchBoundedEvents'
-  | 'listLatestEventBySession'
-  | 'listPresentationRuntimes'
->
+export type {
+  HrcViewerClient,
+  HrcViewerOptions,
+  ViewerGhostmux,
+  ViewerLog,
+} from './viewer-contracts.js'
 
-type LifecycleEvent = HrcEventTail['events'][number]
-type HrcPresentationRuntimeRow = Awaited<
-  ReturnType<HrcViewerClient['listPresentationRuntimes']>
->['runtimes'][number]
-type OperatorSurface = { surfaceId: string; clientTty: string }
-/**
- * An hrcpty seat's presentation (T-12046): rusthrc projects it beside `tmux` on
- * the presentation row and on the `runtime.presentation` event. The viewer needs
- * only the attach pair; the event payload carries no `supervisorPid`, so the
- * row's stricter SDK type is replaced, and the value is read defensively.
- */
-type HrcptyPresentation = { socketPath: string; attachCommand: string }
-type PresentationRuntimeRow = Omit<HrcPresentationRuntimeRow, 'hrcpty'> & {
-  hrcpty?: HrcptyPresentation | undefined
-}
 /** What the viewer pane attaches to: a tmux target, or an hrcpty supervisor socket. */
 type ViewerAttach =
   | { transport: 'tmux'; socketPath: string; attachTarget: string }
   | { transport: 'hrcpty'; socketPath: string; attachCommand: string }
-
-export type ViewerGhostmux = {
-  ensureHeadlessViewer(options: {
-    scopeRef: string
-    identity?: ViewerIdentity | undefined
-    laneRef?: string | undefined
-    runtimeId: string
-    hostSessionId?: string | undefined
-    generation?: number | undefined
-    attachCommand: string
-    attachTarget?: { socketPath: string; attachTarget?: string | undefined } | undefined
-    title?: string | undefined
-    statusBar?: GhostmuxStatusBarSpec | undefined
-    terminalBg?: string | undefined
-    windowKey?: string | undefined
-    skipCreateWhen?: (() => Promise<boolean>) | undefined
-  }): Promise<HeadlessViewerResult>
-  findHeadlessViewerSurfaceByRuntimeId(runtimeId: string): Promise<string | null>
-  listHeadlessViewerPanes(): Promise<HeadlessViewerPane[]>
-  rebindHeadlessViewerPane(
-    surfaceId: string,
-    options: {
-      scopeRef: string
-      identity?: ViewerIdentity | undefined
-      laneRef?: string | undefined
-      runtimeId: string
-      hostSessionId: string
-      generation: number
-      windowKey?: string | undefined
-    }
-  ): Promise<void>
-  setHeadlessViewerTitle(surfaceId: string, title: string): Promise<void>
-  /** Generic presentation writes; these never stamp hrc_* metadata. */
-  setTerminalTitle?(surfaceId: string, title: string): Promise<void>
-  setTerminalBackground?(surfaceId: string, hex: string): Promise<void>
-  setStatusBar(surfaceId: string, spec: GhostmuxStatusBarSpec): Promise<void>
-  setSecondaryStatusBar(surfaceId: string, spec: GhostmuxSecondaryStatusBarSpec): Promise<void>
-  hideSecondaryStatusBar(surfaceId: string): Promise<void>
-  reapHeadlessAgentPane(surfaceId: string, runtimeId: string): Promise<HeadlessReapResult>
-}
-
-export type ViewerLog = (
-  level: 'INFO' | 'WARN',
-  event: string,
-  fields?: Record<string, unknown>
-) => void
-
-export type HrcViewerOptions = {
-  client: HrcViewerClient
-  ghostmux: ViewerGhostmux
-  log?: ViewerLog | undefined
-  lingerSeconds?: number | undefined
-  reconcileIntervalMs?: number | undefined
-  reconnectDelaysMs?: readonly number[] | undefined
-  /** How long a stream must survive before its end resets the backoff. */
-  streamStableAfterMs?: number | undefined
-  now?: (() => number) | undefined
-  schedule?: ((fn: () => void, ms: number) => ReturnType<typeof setTimeout>) | undefined
-  clearScheduled?: ((handle: ReturnType<typeof setTimeout>) => void) | undefined
-  /**
-   * Who is already attached to a runtime's tmux target (T-07711). Injected so
-   * the operator-attached suppression is testable without a live tmux server.
-   */
-  probeTmuxClients?: TmuxClientProbe | undefined
-  /** Attached client count for an hrcpty seat (T-12046). Injected for tests. */
-  probeHrcptyClients?: HrcptyClientProbe | undefined
-  /** Batched wrkq task-title reader for the secondary bar (T-08331). Injected for tests. */
-  readTaskTitles?: TaskTitleReader | undefined
-  /** wrkq task-slug resolver for the primary status bar. Injected for tests. */
-  resolveTaskSlug?: TaskSlugResolver | undefined
-  /** Overrides `MANAGE_NON_TASK_SESSIONS`. Injected for tests. */
-  manageNonTaskSessions?: boolean | undefined
-}
 
 /**
  * Feature flag (T-10826): when false, the viewer mints no pane for a new session
@@ -138,19 +46,8 @@ export const MANAGE_NON_TASK_SESSIONS = false
 
 const DEFAULT_LINGER_SECONDS = 300
 /**
- * How much longer the pane waits before closing itself than the reaper waits
- * before closing it (T-08115).
- *
- * The pane's own command ends `session-report --wait-timeout <linger>; exit`,
- * and `scheduleReap` fires at `terminalAt + <linger>`. Given the same number,
- * those are the SAME deadline: the pane's clock starts when `tmux attach`
- * returns, which is the terminal event the reaper is also counting from. The
- * two were separated only by process-startup jitter, so which one closed the
- * pane was a coin flip — measured on 2026-09-06, the reaper won by 0.6s for
- * rt-49e5932f and lost five other races the same hour. Losing cost the fenced
- * reap its tab-collapse bookkeeping and logged a skip for a pane that had in
- * fact gone. A margin makes the reaper authoritative and leaves the pane's own
- * exit as the backstop for when the viewer is not running at all.
+ * Give the fenced reaper time to close the pane and collapse the tab before
+ * session-report exits on its own. Both clocks start at runtime exit (T-08115).
  */
 const REAP_HANDOFF_MARGIN_SECONDS = 15
 const DEFAULT_RECONCILE_INTERVAL_MS = 15 * 60 * 1_000
@@ -160,17 +57,6 @@ const DEFAULT_RECONCILE_INTERVAL_MS = 15 * 60 * 1_000
  * next turn re-attaches it (see `handleEvent`).
  */
 const DORMANT_AFTER_MS = 12 * 60 * 60 * 1_000
-const DEFAULT_RECONNECT_DELAYS_MS = [0, 500, 1_000, 2_000, 4_000] as const
-/**
- * How long `consumeStream` must survive before its end counts as a healthy
- * stream ending rather than a failed reconnect (T-08296).
- *
- * `watchBoundedEvents` is BOUNDED: it closes on its own, and the loop turns
- * every close into a throw. The failure counter therefore has to distinguish
- * "ran for a while, then ended" from "closed immediately, again" — the latter
- * is the shape that spins. Anything under this window escalates the backoff.
- */
-const DEFAULT_STREAM_STABLE_AFTER_MS = 5_000
 const TERMINAL_EVENT_KINDS = new Set([
   'runtime.terminated',
   'runtime.dead',
@@ -188,17 +74,11 @@ export function parseViewerLingerSeconds(
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {}
+  return isRecord(value) ? value : {}
 }
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
-}
-
-function normalizePresentationLaneRef(laneRef: string | undefined): string {
-  return laneRef ?? 'main'
 }
 
 function asHrcptyPresentation(value: unknown): HrcptyPresentation | undefined {
@@ -219,9 +99,11 @@ function viewerAttachFor(row: PresentationRuntimeRow): ViewerAttach | undefined 
   return hrcpty === undefined ? undefined : { transport: 'hrcpty', ...hrcpty }
 }
 
-function attachCommandFor(row: PresentationRuntimeRow, lingerSeconds: number): string | null {
-  const attach = viewerAttachFor(row)
-  if (attach === undefined) return null
+function attachCommandFor(
+  row: PresentationRuntimeRow,
+  attach: ViewerAttach,
+  lingerSeconds: number
+): string {
   return [
     // rusthrc's hrcpty attachCommand is already the shell-quoted attach argv.
     attach.transport === 'tmux'
@@ -230,15 +112,6 @@ function attachCommandFor(row: PresentationRuntimeRow, lingerSeconds: number): s
     `hrc monitor session-report --runtime ${shellQuote(row.runtimeId)} --scope ${shellQuote(row.scopeRef)} --wait-key --wait-timeout ${lingerSeconds + REAP_HANDOFF_MARGIN_SECONDS}`,
     'exit',
   ].join('; ')
-}
-
-function titleFor(
-  row: Pick<PresentationRuntimeRow, 'scopeRef' | 'laneRef' | 'title' | 'identity'>
-): string {
-  return (
-    row.title ??
-    defaultHeadlessPaneTitle(row.scopeRef, normalizePresentationLaneRef(row.laneRef), row.identity)
-  )
 }
 
 function eventTimeMs(event: LifecycleEvent): number | undefined {
@@ -271,12 +144,10 @@ export class HrcViewer {
   private readonly log: ViewerLog
   private readonly lingerSeconds: number
   private readonly reconcileIntervalMs: number
-  private readonly reconnectDelaysMs: readonly number[]
-  private readonly streamStableAfterMs: number
+  private readonly reconnectDelaysMs: readonly number[] | undefined
+  private readonly streamStableAfterMs: number | undefined
   private readonly now: () => number
-  private readonly schedule: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
-  private readonly clearScheduled: (handle: ReturnType<typeof setTimeout>) => void
-  private readonly reapTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private readonly reaper: ViewerPaneReaper
   private readonly absentSince = new Map<string, number>()
   /** Runtimes reconcile declined to attach because they were dormant. */
   private readonly dormantRuntimeIds = new Set<string>()
@@ -290,17 +161,8 @@ export class HrcViewer {
   private readonly statusProjector: HeadlessViewerStatusProjector
   private readonly probeTmuxClients: TmuxClientProbe
   private readonly probeHrcptyClients: HrcptyClientProbe
-  private readonly readTaskTitles: TaskTitleReader
-  private readonly resolveTaskSlug: TaskSlugResolver
+  private readonly panePresentation: ViewerPanePresentation
   private readonly manageNonTaskSessions: boolean
-  /**
-   * Last-known wrkq title per task id (T-08331). Refreshed in one batched read
-   * per reconcile and NEVER evicted on a read failure — a deleted task, a wrkq
-   * missing from PATH or a hung CLI must degrade to the title already on the
-   * bar, never blank every pane at once.
-   */
-  private readonly taskTitles = new Map<string, string>()
-
   constructor(options: HrcViewerOptions) {
     this.client = options.client
     this.ghostmux = options.ghostmux
@@ -308,22 +170,34 @@ export class HrcViewer {
     this.lingerSeconds =
       options.lingerSeconds ?? parseViewerLingerSeconds(process.env['HRC_VIEWER_LINGER_SECONDS'])
     this.reconcileIntervalMs = options.reconcileIntervalMs ?? DEFAULT_RECONCILE_INTERVAL_MS
-    this.reconnectDelaysMs = options.reconnectDelaysMs ?? DEFAULT_RECONNECT_DELAYS_MS
-    this.streamStableAfterMs = options.streamStableAfterMs ?? DEFAULT_STREAM_STABLE_AFTER_MS
+    this.reconnectDelaysMs = options.reconnectDelaysMs
+    this.streamStableAfterMs = options.streamStableAfterMs
     this.now = options.now ?? Date.now
-    this.schedule = options.schedule ?? ((fn, ms) => setTimeout(fn, ms))
-    this.clearScheduled = options.clearScheduled ?? ((handle) => clearTimeout(handle))
+    this.reaper = new ViewerPaneReaper(
+      this.ghostmux,
+      this.lingerSeconds,
+      () => this.now(),
+      this.log,
+      this.warn,
+      options
+    )
     this.probeTmuxClients = options.probeTmuxClients ?? createTmuxClientProbe()
     this.probeHrcptyClients = options.probeHrcptyClients ?? createHrcptyClientProbe()
-    this.readTaskTitles = options.readTaskTitles ?? defaultTaskTitleReader()
-    this.resolveTaskSlug = options.resolveTaskSlug ?? defaultTaskSlugResolver()
+    const resolveTaskSlug = options.resolveTaskSlug ?? defaultTaskSlugResolver()
+    this.panePresentation = new ViewerPanePresentation(
+      this.ghostmux,
+      (socketPath, attachTarget) => this.probeTmuxClients(socketPath, attachTarget),
+      resolveTaskSlug,
+      options.readTaskTitles ?? defaultTaskTitleReader(),
+      this.warn
+    )
     this.manageNonTaskSessions = options.manageNonTaskSessions ?? MANAGE_NON_TASK_SESSIONS
     this.statusProjector = new HeadlessViewerStatusProjector({
       resolveSurfaceId: (runtimeId) =>
         this.ghostmux.findHeadlessViewerSurfaceByRuntimeId(runtimeId),
       resolveSurfaceIds: (runtimeId) => this.resolveStatusSurfaceIds(runtimeId),
       applyStatusBar: (surfaceId, spec) => this.ghostmux.setStatusBar(surfaceId, spec),
-      resolveSlug: this.resolveTaskSlug,
+      resolveSlug: resolveTaskSlug,
       resolveSession: (runtimeId) => this.currentPresentationRuntime(runtimeId),
       onError: (error) => this.warn('broker_headless_viewer.status_failed', error),
     })
@@ -338,54 +212,27 @@ export class HrcViewer {
     const reconcileTimer = setInterval(() => void this.reconcile('timer'), this.reconcileIntervalMs)
     if (typeof reconcileTimer === 'object' && 'unref' in reconcileTimer) reconcileTimer.unref()
 
-    let failures = 0
-    let everStarted = false
     try {
-      while (!this.isStopped(signal)) {
-        let streamStartedAt: number | undefined
-        try {
-          await this.client.health()
-          const tail = await this.client.tailEvents({ limit: 1 })
-          await this.reconcile(everStarted ? 'reconnect' : 'start')
-          everStarted = true
-          streamStartedAt = this.now()
-          await this.consumeStream(tail, signal)
-          if (!this.isStopped(signal)) {
-            throw new Error('bounded event stream closed')
-          }
-        } catch (error) {
-          if (this.isStopped(signal)) break
-          // Reset the backoff only for a stream that actually ran. Resetting
-          // BEFORE consumeStream (the shape this replaces) meant a stream that
-          // closed immediately re-entered the catch with failures === 0, took
-          // reconnectDelaysMs[0] === 0, and reconnected with no delay at all —
-          // each iteration paying a full reconcile. The escalation could never
-          // engage for the one case it exists to damp.
-          const streamMs = streamStartedAt === undefined ? undefined : this.now() - streamStartedAt
-          if (streamMs !== undefined && streamMs >= this.streamStableAfterMs) {
-            failures = 0
-          }
-          const index = Math.min(failures, this.reconnectDelaysMs.length - 1)
-          const delayMs = this.reconnectDelaysMs[index] ?? 4_000
-          // Carry the backoff state on the warning: a reconnect storm is only
-          // legible in the log if each line says how long the stream lasted and
-          // how long the viewer is about to wait.
-          this.warn('broker_headless_viewer.stream_failed', error, {
-            failures,
-            delayMs,
-            ...(streamMs !== undefined ? { streamMs } : {}),
-          })
-          failures += 1
-          await this.delay(delayMs, signal)
-        }
-      }
+      await watchViewerEvents(
+        {
+          client: this.client,
+          reconnectDelaysMs: this.reconnectDelaysMs,
+          streamStableAfterMs: this.streamStableAfterMs,
+          now: () => this.now(),
+          isStopped: () => this.isStopped(signal),
+          reconcile: (reason) => this.reconcile(reason),
+          handleEvent: (event) => this.handleEvent(event),
+          log: this.log,
+          warn: this.warn,
+        },
+        signal
+      )
     } finally {
       this.stopped = true
       clearInterval(reconcileTimer)
       signal?.removeEventListener('abort', stop)
       this.statusProjector.dispose()
-      for (const timer of this.reapTimers.values()) this.clearScheduled(timer)
-      this.reapTimers.clear()
+      this.reaper.clear()
     }
   }
 
@@ -451,64 +298,9 @@ export class HrcViewer {
         // The task title describes a LIVE seat. A pane lingers for minutes after
         // its runtime ends and may be recycled for another occupant, so drop the
         // title at the terminal event rather than leaving it up until the reap.
-        await this.clearSecondaryBar(surfaceId)
+        await this.panePresentation.clearSecondaryBar(surfaceId)
         const occurredAt = eventTimeMs(event) ?? this.now()
-        this.scheduleReap(surfaceId, event.runtimeId, event.scopeRef, occurredAt)
-      }
-    }
-  }
-
-  private async consumeStream(tail: HrcEventTail, signal?: AbortSignal): Promise<void> {
-    const expectedIncarnation = tail.ledgerIncarnationId
-    let afterSeq = tail.headHrcSeq
-    for await (const record of this.client.watchBoundedEvents({
-      ledgerIncarnationId: expectedIncarnation,
-      afterSeq,
-      ...(signal !== undefined ? { signal } : {}),
-    })) {
-      if (record.type === 'ledger_replaced') {
-        this.log('WARN', 'broker_headless_viewer.ledger_replaced', {
-          expectedLedgerIncarnationId: record.expectedLedgerIncarnationId,
-          currentLedgerIncarnationId: record.currentLedgerIncarnationId,
-        })
-        await this.reconcile('stream_reset')
-        return
-      }
-      if (record.type === 'home_unreachable') {
-        this.log('WARN', 'broker_headless_viewer.home_unreachable', {
-          homeNodeId: record.homeNodeId,
-          reason: record.reason,
-        })
-        await this.reconcile('stream_reset')
-        return
-      }
-      if (record.ledgerIncarnationId !== expectedIncarnation) {
-        throw new Error('bounded stream incarnation changed without ledger_replaced')
-      }
-      if (record.type === 'ready') {
-        if (record.acceptedAfterHrcSeq !== afterSeq) {
-          throw new Error('bounded stream admitted a different start position')
-        }
-        continue
-      }
-      if (record.type === 'gap') {
-        this.log('WARN', 'broker_headless_viewer.stream_gap', {
-          reason: record.reason,
-          afterHrcSeq: record.afterHrcSeq,
-          beforeHrcSeq: record.beforeHrcSeq,
-          dropped: record.dropped,
-        })
-        await this.reconcile('stream_reset')
-        return
-      }
-      afterSeq = record.event.hrcSeq
-      try {
-        await this.handleEvent(record.event)
-      } catch (error) {
-        this.warn('broker_headless_viewer.event_failed', error, {
-          eventKind: record.event.eventKind,
-          hrcSeq: record.event.hrcSeq,
-        })
+        this.reaper.schedule(surfaceId, event.runtimeId, event.scopeRef, occurredAt)
       }
     }
   }
@@ -600,18 +392,16 @@ export class HrcViewer {
       this.snapshotRevision += 1
       this.presentationRows.clear()
       this.missingRuntimeIds.clear()
-      for (const row of rows) this.presentationRows.set(row.runtimeId, row)
-      this.latestEvents.clear()
-      for (const event of latest) {
-        if (event.runtimeId !== undefined) this.latestEvents.set(event.runtimeId, event)
-      }
       const rowsByRuntime = new Map(rows.map((row) => [row.runtimeId, row]))
-      const rowsByPaneKey = new Map(rows.map((row) => [paneKeyFor(row), row]))
+      for (const [runtimeId, row] of rowsByRuntime) this.presentationRows.set(runtimeId, row)
       const eventsByRuntime = latestByRuntime(latest)
+      this.latestEvents.clear()
+      for (const [runtimeId, event] of eventsByRuntime) this.latestEvents.set(runtimeId, event)
+      const rowsByPaneKey = new Map(rows.map((row) => [paneKeyFor(row), row]))
       const adoptedSurfaceIds = new Set<string>()
       // One batched read for the whole fleet, BEFORE any pane is stamped, so
       // every pane in this pass is titled from the same fresh answer.
-      await this.refreshTaskTitles(rows.map((row) => row.identity))
+      await this.panePresentation.refreshTaskTitles(rows.map((row) => row.identity))
 
       for (const pane of panes) {
         const direct = pane.runtimeId === undefined ? undefined : rowsByRuntime.get(pane.runtimeId)
@@ -628,17 +418,13 @@ export class HrcViewer {
             // Adoption must replace the attach process as well as runtime metadata.
             await this.ensurePane(row, eventsByRuntime.get(row.runtimeId), false)
           }
-          await this.paintPresentationSurfaces(
-            pane.surfaceId,
-            row,
-            eventsByRuntime.get(row.runtimeId)
-          )
+          await this.panePresentation.paint(pane.surfaceId, row, eventsByRuntime.get(row.runtimeId))
           continue
         }
 
         // No presentation row: this pane is terminal or orphaned and is headed
         // for the reaper. Same reason as the terminal-event path above.
-        await this.clearSecondaryBar(pane.surfaceId)
+        await this.panePresentation.clearSecondaryBar(pane.surfaceId)
         if (pane.runtimeId === undefined) continue
         const latestEvent = eventsByRuntime.get(pane.runtimeId)
         const terminalAt =
@@ -646,7 +432,7 @@ export class HrcViewer {
             ? (eventTimeMs(latestEvent) ?? this.now())
             : (this.absentSince.get(pane.runtimeId) ?? this.now())
         this.absentSince.set(pane.runtimeId, terminalAt)
-        this.scheduleReap(
+        this.reaper.schedule(
           pane.surfaceId,
           pane.runtimeId,
           pane.scopeRef ?? latestEvent?.scopeRef ?? 'unknown',
@@ -667,7 +453,7 @@ export class HrcViewer {
           row.presentation.operatorAttachable !== true ||
           viewerAttachFor(row) === undefined
         ) {
-          await this.paintPresentationSurfaces(undefined, row, eventsByRuntime.get(row.runtimeId))
+          await this.panePresentation.paint(undefined, row, eventsByRuntime.get(row.runtimeId))
           continue
         }
         const latestEvent = eventsByRuntime.get(row.runtimeId)
@@ -714,12 +500,9 @@ export class HrcViewer {
     paint = true
   ): Promise<void> {
     const attach = viewerAttachFor(row)
-    const attachCommand = attachCommandFor(row, this.lingerSeconds)
-    if (attachCommand === null || attach === undefined) return
-    // T-07711: captured by the veto below so the skip can NAME the terminals it
-    // deferred to. A reclassified case has to leave a positive line — proving
-    // the fix by the absence of a `created` line proves nothing. An hrcpty
-    // supervisor reports a count, not ttys (T-12046).
+    if (attach === undefined) return
+    const attachCommand = attachCommandFor(row, attach, this.lingerSeconds)
+    // Record the tmux TTYs or hrcpty client count that vetoed pane creation.
     let operatorClients: readonly string[] | number = []
     // T-10826: classified the way ghostmux groups the pane, so the gate and the
     // tab it would have landed in can never disagree about what a task is.
@@ -743,10 +526,8 @@ export class HrcViewer {
           ? { socketPath: attach.socketPath, attachTarget: attach.attachTarget }
           : { socketPath: attach.socketPath },
       windowKey: row.presentation?.viewerWindow,
-      // Only reached when no pane of ours exists for this identity, so every
-      // attached client is somebody ELSE's terminal — an operator watching this
-      // runtime via `hrc run`/`hrc attach`. Fails open: the probe answers `[]`
-      // for every error, dead socket and timeout, and the create proceeds.
+      // Ghostmux calls this only for a new pane. Existing clients belong to
+      // operators and the default probes allow creation when detection fails.
       skipCreateWhen: async () => {
         if (nonTaskVetoed) return true
         if (attach.transport === 'hrcpty') {
@@ -774,12 +555,12 @@ export class HrcViewer {
         })
       }
       const current = await this.currentPresentationRuntime(row.runtimeId)
-      await this.paintPresentationSurfaces(undefined, current ?? row, latestEvent)
+      await this.panePresentation.paint(undefined, current ?? row, latestEvent)
       return
     }
     if (paint && (result.status === 'created' || result.status === 'reused')) {
       const current = await this.currentPresentationRuntime(row.runtimeId)
-      await this.paintPresentationSurfaces(result.surfaceId, current ?? row, latestEvent)
+      await this.panePresentation.paint(result.surfaceId, current ?? row, latestEvent)
     }
     this.log(
       result.status === 'failed' ? 'WARN' : 'INFO',
@@ -828,7 +609,7 @@ export class HrcViewer {
     const latest = this.latestEvents.get(row.runtimeId)
     if (latest !== undefined && TERMINAL_EVENT_KINDS.has(latest.eventKind)) return
     const surfaceId = await this.ghostmux.findHeadlessViewerSurfaceByRuntimeId(row.runtimeId)
-    await this.paintPresentationSurfaces(surfaceId, row, latest)
+    await this.panePresentation.paint(surfaceId, row, latest)
   }
 
   private async handleMetadataEvent(event: LifecycleEvent): Promise<void> {
@@ -855,25 +636,21 @@ export class HrcViewer {
     }
     // Metadata is continuity state, not a request to present a seat. A later
     // runtime.presentation loads the current store metadata in its own repair.
-    if (rows.length === 0) return
+    const parents = key.split('.').slice(0, -1)
+    const leaf = key.slice(key.lastIndexOf('.') + 1)
     for (const row of rows) {
       const metadata = structuredClone(row.metadata ?? {})
       let target: Record<string, unknown> = metadata
-      const parts = key.split('.')
-      for (const part of parts.slice(0, -1)) {
+      for (const part of parents) {
         const child = { ...asRecord(target[part]) }
         target[part] = child
         target = child
       }
-      const leaf = parts[parts.length - 1]
-      if (leaf === undefined) continue
       if (resolved === null) delete target[leaf]
       else target[leaf] = asRecord(resolved)['value']
       row.metadata = metadata
-      if (key === 'title') {
-        if (typeof metadata.title === 'string') row.title = metadata.title
-        else row.title = undefined
-      }
+      if (key === 'title')
+        row.title = typeof metadata.title === 'string' ? metadata.title : undefined
       await this.repaintRuntime(row)
     }
   }
@@ -905,50 +682,6 @@ export class HrcViewer {
     await this.repaintRuntime(row)
   }
 
-  /**
-   * Only an HRC-reported surface whose own controlling TTY is a current client
-   * on this runtime's attach target may receive an operator presentation write.
-   */
-  private async qualifiedOperatorSurfaceIds(row: PresentationRuntimeRow): Promise<string[]> {
-    // An hrcpty supervisor reports how many clients are attached, not their
-    // ttys, so no operator surface can be qualified for an hrcpty seat: only
-    // the viewer's own pane is painted (T-12046).
-    if (row.tmux === undefined || row.operatorSurfaces === undefined) return []
-    const candidates = row.operatorSurfaces.filter(
-      (surface): surface is OperatorSurface =>
-        typeof surface.surfaceId === 'string' &&
-        surface.surfaceId.length > 0 &&
-        typeof surface.clientTty === 'string' &&
-        surface.clientTty.length > 0
-    )
-    if (candidates.length === 0) return []
-    try {
-      const liveClientTtys = new Set(
-        await this.probeTmuxClients(row.tmux.socketPath, row.tmux.attachTarget)
-      )
-      return candidates
-        .filter((surface) => liveClientTtys.has(surface.clientTty))
-        .map((surface) => surface.surfaceId)
-    } catch (error) {
-      this.warn('broker_headless_viewer.operator_surface_probe_failed', error, {
-        runtimeId: row.runtimeId,
-      })
-      return []
-    }
-  }
-
-  private async presentationSurfaceIds(
-    paneSurfaceId: string | null | undefined,
-    row: PresentationRuntimeRow
-  ): Promise<string[]> {
-    return [
-      ...new Set([
-        ...(paneSurfaceId === null || paneSurfaceId === undefined ? [] : [paneSurfaceId]),
-        ...(await this.qualifiedOperatorSurfaceIds(row)),
-      ]),
-    ]
-  }
-
   /** Retained binding plus a fresh exact-TTY probe fences lifecycle writes. */
   private async resolveStatusSurfaceIds(runtimeId: string): Promise<readonly string[]> {
     let paneSurfaceId: string | null = null
@@ -963,195 +696,13 @@ export class HrcViewer {
       ? paneSurfaceId === null
         ? []
         : [paneSurfaceId]
-      : await this.presentationSurfaceIds(paneSurfaceId, row)
+      : await this.panePresentation.presentationSurfaceIds(paneSurfaceId, row)
   }
 
-  private async applyTitles(
-    surfaceIds: readonly string[],
-    paneSurfaceId: string | null | undefined,
-    title: string
-  ): Promise<void> {
-    for (const surfaceId of surfaceIds) {
-      if (surfaceId === paneSurfaceId) {
-        await this.ghostmux.setHeadlessViewerTitle(surfaceId, title)
-      } else {
-        await this.ghostmux.setTerminalTitle?.(surfaceId, title)
-      }
-    }
-  }
-
-  /** Paint only permitted fields over the deduplicated pane/operator target set. */
-  private async paintPresentationSurfaces(
-    paneSurfaceId: string | null | undefined,
-    row: PresentationRuntimeRow,
-    event: LifecycleEvent | undefined
-  ): Promise<void> {
-    const surfaceIds = await this.presentationSurfaceIds(paneSurfaceId, row)
-    if (surfaceIds.length === 0) return
-    await this.applyTitles(surfaceIds, paneSurfaceId, titleFor(row))
-    for (const surfaceId of surfaceIds) {
-      await this.ghostmux.setTerminalBackground?.(
-        surfaceId,
-        viewerTerminalBg(row.identity, row.metadata)
-      )
-    }
-    const state =
-      (event ? viewerStateForEventKind(event.eventKind) : null) ??
-      viewerStateForRuntimeStatus(row.status)
-    if (state !== null) {
-      const slug = await this.resolveTaskSlug(row.identity?.taskId)
-      const spec = renderStatusBar(
-        row.identity,
-        state,
-        slug,
-        normalizePresentationLaneRef(row.laneRef),
-        row.metadata
-      )
-      for (const surfaceId of surfaceIds) await this.ghostmux.setStatusBar(surfaceId, spec)
-    }
-    const taskId = extractTaskIdFromIdentity(row.identity)
-    if (taskId !== null && !this.taskTitles.has(taskId))
-      await this.refreshTaskTitles([row.identity])
-    for (const surfaceId of surfaceIds) await this.applySecondaryBar(surfaceId, row.identity)
-  }
-
-  /**
-   * Refresh last-known titles for every task carried by these scopes, in ONE
-   * batched `wrkq cat`. Never throws and never evicts: an id the read could not
-   * resolve keeps whatever title it already had, so a single deleted task can
-   * not blank the fleet.
-   */
-  private async refreshTaskTitles(
-    identities: readonly (ViewerIdentity | undefined)[]
-  ): Promise<void> {
-    const taskIds = new Set<string>()
-    for (const identity of identities) {
-      const taskId = extractTaskIdFromIdentity(identity)
-      if (taskId !== null) taskIds.add(taskId)
-    }
-    if (taskIds.size === 0) return
-    try {
-      const titles = await this.readTaskTitles([...taskIds])
-      for (const [taskId, title] of titles) this.taskTitles.set(taskId, title)
-    } catch (error) {
-      this.warn('broker_headless_viewer.task_titles_failed', error)
-    }
-  }
-
-  /**
-   * Stamp (or hide) the secondary bar for one pane from the last-known titles.
-   * Cosmetic and total: it never throws, never delays lifecycle work, and never
-   * clears a bar it merely failed to read — a task-scoped pane with no known
-   * title is left exactly as it is, so a wrkq outage degrades to a stale title
-   * rather than a blank one. `:primary` and lane-only seats carry no task, so
-   * they are HIDDEN rather than skipped: a recycled pane would otherwise keep
-   * its previous occupant's title.
-   */
-  private async applySecondaryBar(
-    surfaceId: string,
-    identity: ViewerIdentity | undefined
-  ): Promise<void> {
-    try {
-      const taskId = extractTaskIdFromIdentity(identity)
-      if (taskId === null) {
-        await this.ghostmux.hideSecondaryStatusBar(surfaceId)
-        return
-      }
-      const title = this.taskTitles.get(taskId)
-      if (title === undefined) return
-      const spec = renderSecondaryStatusBar(title)
-      if (spec === null) return
-      await this.ghostmux.setSecondaryStatusBar(surfaceId, spec)
-    } catch (error) {
-      this.warn('broker_headless_viewer.secondary_status_failed', error, { surfaceId, identity })
-    }
-  }
-
-  /** Drop the title bar from a pane whose seat is gone. Never throws. */
-  private async clearSecondaryBar(surfaceId: string): Promise<void> {
-    try {
-      await this.ghostmux.hideSecondaryStatusBar(surfaceId)
-    } catch (error) {
-      this.warn('broker_headless_viewer.secondary_status_failed', error, { surfaceId })
-    }
-  }
-
-  private scheduleReap(
-    surfaceId: string,
-    runtimeId: string,
-    scopeRef: string,
-    terminalAtMs: number
-  ): void {
-    if (this.reapTimers.has(runtimeId)) return
-    const remainingMs = Math.max(0, terminalAtMs + this.lingerSeconds * 1_000 - this.now())
-    this.log('INFO', 'headless_viewer_reap.linger_scheduled', {
-      runtimeId,
-      scopeRef,
-      surfaceId,
-      lingerSeconds: Math.ceil(remainingMs / 1_000),
-    })
-    const timer = this.schedule(() => {
-      this.reapTimers.delete(runtimeId)
-      void this.reap(surfaceId, runtimeId, scopeRef)
-    }, remainingMs)
-    this.reapTimers.set(runtimeId, timer)
-    if (typeof timer === 'object' && timer !== null && 'unref' in timer) timer.unref()
-  }
-
-  private async reap(surfaceId: string, runtimeId: string, scopeRef: string): Promise<void> {
-    try {
-      const result = await this.ghostmux.reapHeadlessAgentPane(surfaceId, runtimeId)
-      this.log(
-        result.status === 'failed' ? 'WARN' : 'INFO',
-        `headless_viewer_reap.${result.status}`,
-        {
-          runtimeId,
-          scopeRef,
-          surfaceId,
-          ...(result.status === 'reaped' ? { tabCollapsed: result.tabCollapsed } : {}),
-          // T-08115: a skip must say what it observed against what it required,
-          // so the NEXT occurrence is self-diagnosing from the log alone.
-          ...(result.status === 'skipped'
-            ? {
-                reason: result.reason,
-                ...(result.observedRole !== undefined ? { observedRole: result.observedRole } : {}),
-                ...(result.requiredRole !== undefined ? { requiredRole: result.requiredRole } : {}),
-                ...(result.observedRuntimeId !== undefined
-                  ? { observedRuntimeId: result.observedRuntimeId }
-                  : {}),
-                ...(result.requiredRuntimeId !== undefined
-                  ? { requiredRuntimeId: result.requiredRuntimeId }
-                  : {}),
-                ...(result.probeError !== undefined ? { probeError: result.probeError } : {}),
-              }
-            : {}),
-          ...(result.status === 'failed' ? { error: result.error } : {}),
-        }
-      )
-    } catch (error) {
-      this.warn('headless_viewer_reap.unexpected_error', error, { runtimeId, scopeRef, surfaceId })
-    }
-  }
-
-  private warn(event: string, error: unknown, fields: Record<string, unknown> = {}): void {
+  private readonly warn: ViewerWarn = (event, error, fields = {}) => {
     this.log('WARN', event, {
       ...fields,
       error: error instanceof Error ? error.message : String(error),
-    })
-  }
-
-  private async delay(ms: number, signal?: AbortSignal): Promise<void> {
-    if (ms <= 0 || signal?.aborted === true) return
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, ms)
-      signal?.addEventListener(
-        'abort',
-        () => {
-          clearTimeout(timer)
-          resolve()
-        },
-        { once: true }
-      )
     })
   }
 

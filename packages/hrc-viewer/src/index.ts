@@ -4,7 +4,7 @@ export type {
   HrcViewerOptions,
   ViewerGhostmux,
   ViewerLog,
-} from './viewer.js'
+} from './viewer-contracts.js'
 export {
   createGhostmuxManager,
   GhostmuxManager,
