@@ -8,6 +8,7 @@ Start at [the skill](../SKILL.md). These maps enumerate source capability famili
 - [C2 mobile cards](c2-cards.md)
 - [C2 threads](c2-threads.md)
 - [Mobile Jobhunt forwarding](mobile-jobhunt.md)
+- [Mobile plugin pages](mobile-plugin-pages.md)
 - [Stores and projections](stores-projections.md)
 - [Capabilities and learning](capabilities-learning.md)
 - [Hooks, launchd, deployment and gates](operations.md)
