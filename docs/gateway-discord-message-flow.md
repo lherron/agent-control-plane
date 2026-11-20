@@ -17,8 +17,9 @@ scopes and renders agent activity and lifecycle events back into Discord.
 
 ## Inbound flow: Discord message → ACP run
 
-1. **`Events.MessageCreate`** fires in `app.ts` (`handleMessageCreate`).
-   Thread-creation system messages are skipped; bot messages are dropped
+1. **`Events.MessageCreate`** is registered in `app.ts` and handled by
+   `handleMessageCreate` in `discord-ingress.ts`. Non-guild (DM) messages and
+   thread-creation system messages are skipped; bot messages are dropped
    unless they come from the configured virtu test bot
    (`DISCORD_VIRTU_BOT_ID`, default `1165644636807778414`). The gateway's own
    bot messages are dropped too.
@@ -26,7 +27,8 @@ scopes and renders agent activity and lifecycle events back into Discord.
    `(conversationRef, threadRef)` pair (`bindings.ts`,
    `channel:<id>` / `thread:<id>`) and looked up in an in-memory
    `BindingIndex`, refreshed on a fixed interval
-   (`DEFAULT_BINDINGS_REFRESH_MS` = 30s) and on lookup miss. No binding, no
+   (`DEFAULT_BINDINGS_REFRESH_MS` = 120s, overridable with
+   `ACP_BINDINGS_REFRESH_MS`) and on lookup miss. No binding, no
    ingest — the message is silently ignored.
 3. **Keyword routing** (`keywords.ts`): a leading `nt <prompt>` in a bound
    channel starts a new Discord thread scoped to its own session lane
@@ -48,7 +50,10 @@ scopes and renders agent activity and lifecycle events back into Discord.
    `acp-server` host, with `idempotencyKey: discord:message:<messageId>`,
    the `source` (gatewayId, conversationRef, threadRef, messageRef,
    authorRef), `content`, optional `intent`, and any attachments.
-7. On success, the response's `runId` (if present) is bound to the
+7. On success, a response whose `currentState` names a collaboration-ledger
+   route keeps the placeholder as the live surface until ledger human egress
+   (below) replaces it with the correlated notice. Otherwise the response's
+   `runId` (if present) is bound to the
    placeholder, which then tracks the run via the live SSE subscription
    (step below). `admission.kind` of `accepted_in_flight` or
    `admission_pending` becomes a Discord notice; `rejected` fails the
@@ -58,7 +63,7 @@ scopes and renders agent activity and lifecycle events back into Discord.
 
 ## Outbound flow: agent activity → Discord
 
-Two parallel outbound paths exist:
+Three parallel outbound paths exist:
 
 - **Delivery queue drain** (`runDeliveryLoop`): requests
   `GET /v1/gateway/:gatewayId/deliveries/stream?since=<cursor>&waitMs=60000`,
@@ -75,9 +80,19 @@ Two parallel outbound paths exist:
   (`LIVE_PROGRESS_EDIT_THROTTLE_MS` = 1500ms, initial flush at 150ms) so the
   placeholder message updates in place as the agent works, instead of
   spamming new messages.
+- **Ledger human egress** (`runLedgerHumanEgressLoop`,
+  `ledger-human-egress.ts`): reads wrkq `envelope.created` / `envelope.failed`
+  monitor events and posts room-ledger envelopes addressed to the route's human
+  principal into the bound conversation, and mirrors ledger traffic to the
+  control-plane channel (`ACP_DISCORD_CONTROL_PLANE_CHANNEL_ID`, Consul
+  fallback) when configured. It wakes on wrkq commits (`WrkqCommitWaker`)
+  with a 25 s backstop.
 
 A reaction of `x` / `cancel` / `❌` on an active placeholder cancels the
 underlying run via `POST /v1/runs/:runId/cancel` (`cancelPlaceholderRun`).
+A ledger-routed placeholder has no ACP run; its reaction posts
+`POST /v1/interface/ledger-inputs/:envelopeId/cancel` (`cancelLedgerInput`),
+which withdraws the input envelope or interrupts the turn it reached.
 
 An agent can add a file to the response currently being composed with
 `acp run attachment add <path>` and no `--run`. The CLI targets
@@ -175,6 +190,7 @@ tests, never as the manual validation step.
 
 Standard dev gateway id: `acp-discord-smoke`. The historical provider-contribution
 smoke checklist is preserved as attachment ATT-00140 on T-01381 (AgentSpaces
-provider contribution smoke); retrieve it with `wrkq attach get ATT-00140`.
+provider contribution smoke); retrieve it with
+`prae task attachment get ATT-00140 --output-file <path>`.
 Its branch, feature flag and restart commands describe that finished test, not
 current operating instructions.
