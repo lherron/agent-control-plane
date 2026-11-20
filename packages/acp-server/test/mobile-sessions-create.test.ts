@@ -192,30 +192,6 @@ describe('POST /v1/mobile/sessions', () => {
     )
   })
 
-  test.each(['new_context', 'reconcile', 'launch_successor'])(
-    'rejects explicit model with force %s before HRC',
-    async (mode) => {
-      const fixture = createDeclarationHrcClient({})
-      const force =
-        mode === 'launch_successor'
-          ? { mode, expectedHostSessionId: 'hsid-old', expectedGeneration: 1 }
-          : { mode }
-      await withWiredServer(
-        async ({ request }) => {
-          const response = await request({
-            method: 'POST',
-            path: '/v1/mobile/sessions',
-            body: { ...MOBILE_BODY, model: 'sol', force },
-          })
-          expect(response.status).toBe(400)
-          expect(fixture.resolveCalls).toHaveLength(0)
-          expect(fixture.starts).toHaveLength(0)
-        },
-        { hrcClient: fixture.client, runtimeResolver }
-      )
-    }
-  )
-
   test('passes only the base scope to HRC and projects the claimed scope prominently', async () => {
     const starts: StartRuntimeRequest[] = []
     const hrcClient = createHrcClient({ onStart: (request) => starts.push(request) })

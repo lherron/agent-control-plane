@@ -317,13 +317,6 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
   const scopeConfirmation = parseScopeConfirmation(body, taskId)
   const force = parseMobileForce(body, taskId)
   const model = readOptionalTrimmedStringField(body, 'model')
-  if (model !== undefined && force !== undefined) {
-    throw new HrcDomainError(
-      HrcErrorCode.MALFORMED_REQUEST,
-      'model cannot be combined with force',
-      { field: 'model' }
-    )
-  }
   // T-07603: no service default. HRC derives placement from scope shape, so a
   // mobile session lands in the operator's interactive window without ACP naming
   // a window at all. An explicit client-supplied key is still forwarded and still
@@ -399,6 +392,7 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
       sessionRef: formatSessionRef(baseSession),
       runtimeIntent,
       idempotencyKey: deriveMobileSessionIdempotencyKey(requestId),
+      model,
     })
   }
 

@@ -14,6 +14,8 @@
  *  - a failed exact claim is attributed by what sits at the scope instead of
  *    by HRC's idempotency key
  *  - Launch recovery rotates the successor or starts a head that already moved
+ *  - a phone-selected model is dropped on any force branch, or a force with no
+ *    model sends HRC anything new (T-13968)
  */
 import { describe, expect, test } from 'bun:test'
 
@@ -49,7 +51,7 @@ type Script = {
   /** Heads returned by successive resolveSession calls; the last one repeats. */
   heads: Head[]
   homeNodeId?: string
-  restart?: () => unknown
+  restart?: (request: Record<string, unknown>) => unknown
   start?: (request: Record<string, unknown>) => unknown
 }
 
@@ -72,6 +74,13 @@ function hrcClient(script: Script, calls: Calls): AcpHrcClient {
         harness: { provider: 'anthropic', interactive: true, id: 'claude-code' },
         execution: { preferredMode: 'headless' },
         placement: { agentRoot: request['agentRoot'] },
+        // HRC echoes a requested model as provision and summon directive.
+        ...(request['provision'] !== undefined
+          ? {
+              provision: request['provision'],
+              summonDirectives: request['provision'],
+            }
+          : {}),
       },
       declaration: {
         release: { releaseId: 'test-release', sourceCommit: 'test-commit' },
@@ -103,12 +112,14 @@ function hrcClient(script: Script, calls: Calls): AcpHrcClient {
     },
     restartSession: async (request: Record<string, unknown>) => {
       calls.restarts.push(request)
-      if (script.restart !== undefined) return script.restart()
+      if (script.restart !== undefined) return script.restart(request)
       return {
         priorHostSessionId: PRIOR,
         hostSessionId: SUCCESSOR,
         generation: 4,
         launch: { status: 'started', runtimeId: 'rt-successor' },
+        // HRC echoes the successor intent's directive block.
+        ...(request['provision'] !== undefined ? { summonDirectives: request['provision'] } : {}),
       }
     },
     startRuntime: async (request: Record<string, unknown>) => {
@@ -596,6 +607,111 @@ describe('Launch recovery (force.mode launch_successor)', () => {
           detail: { active: { hostSessionId: 'hsid-newer', generation: 5 } },
         })
         expect(calls.starts).toHaveLength(0)
+      }
+    )
+  })
+})
+
+describe('force with the phone-selected model (T-13968)', () => {
+  const MODEL = { model: 'opus' }
+
+  test('the restart forwards the model as a restart directive', async () => {
+    await scenario(
+      { heads: [{ hostSessionId: PRIOR, generation: 3 }] },
+      stores(),
+      async (post, calls) => {
+        const result = await post({ requestId: 'req-model-restart', ...FORCE, ...MODEL })
+        expect(result.status).toBe(200)
+        expect(result.body).toMatchObject({ disposition: 'restarted', hostSessionId: SUCCESSOR })
+        expect(calls.restarts).toEqual([
+          {
+            hostSessionId: PRIOR,
+            expectedGeneration: 3,
+            force: true,
+            provision: { model: 'opus' },
+          },
+        ])
+      }
+    )
+  })
+
+  test('a successor without the requested model is reported as committed, not as success', async () => {
+    const s = stores()
+    const items = seedQueue(s)
+    await scenario(
+      {
+        heads: [{ hostSessionId: PRIOR, generation: 3 }],
+        restart: () => ({
+          priorHostSessionId: PRIOR,
+          hostSessionId: SUCCESSOR,
+          generation: 4,
+          launch: { status: 'started', runtimeId: 'rt-successor' },
+        }),
+      },
+      s,
+      async (post) => {
+        const result = await post({ requestId: 'req-model-dropped', ...FORCE, ...MODEL })
+        expect(result.status).toBe(502)
+        expect(result.body).toMatchObject({
+          code: 'model_not_preserved',
+          detail: { hostSessionId: SUCCESSOR, generation: 4, summonDirectives: null },
+        })
+      }
+    )
+    // The rotation committed, so the dropped context's input still expires.
+    expect(statuses(s, items)).toMatchObject({ prior: 'expired', successor: 'queued' })
+  })
+
+  test('a reused requestId with a different model is a conflict, not a replay', async () => {
+    await scenario(
+      { heads: [{ hostSessionId: PRIOR, generation: 3 }] },
+      stores(),
+      async (post, calls) => {
+        await post({ requestId: 'req-model-reuse', ...FORCE, ...MODEL })
+        const second = await post({ requestId: 'req-model-reuse', ...FORCE, model: 'sonnet' })
+        expect(second.status).toBe(409)
+        expect(second.body).toMatchObject({ code: 'idempotency_key_conflict' })
+        expect(calls.restarts).toHaveLength(1)
+      }
+    )
+  })
+
+  test('an absent primary starts with the model in its intent', async () => {
+    await scenario(
+      { heads: [null, { hostSessionId: SUCCESSOR, generation: 1 }] },
+      stores(),
+      async (post, calls) => {
+        const result = await post({ requestId: 'req-model-absent', ...FORCE, ...MODEL })
+        expect(result.status).toBe(200)
+        expect(result.body).toMatchObject({ disposition: 'created' })
+        expect(calls.restarts).toHaveLength(0)
+        expect(calls.starts[0]?.['runtimeIntent']).toMatchObject({
+          provision: { model: 'opus' },
+          summonDirectives: { model: 'opus' },
+        })
+      }
+    )
+  })
+
+  test('launch recovery starts the successor with the model in its intent', async () => {
+    await scenario(
+      { heads: [{ hostSessionId: SUCCESSOR, generation: 4 }] },
+      stores(),
+      async (post, calls) => {
+        const result = await post({
+          requestId: 'req-model-launch',
+          force: {
+            mode: 'launch_successor',
+            expectedHostSessionId: SUCCESSOR,
+            expectedGeneration: 4,
+          },
+          ...MODEL,
+        })
+        expect(result.status).toBe(200)
+        expect(calls.starts[0]?.['intent']).toMatchObject({
+          provision: { model: 'opus' },
+          summonDirectives: { model: 'opus' },
+        })
       }
     )
   })

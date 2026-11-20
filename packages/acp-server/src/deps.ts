@@ -259,6 +259,8 @@ export type AcpHrcClient = Pick<
     expectedGeneration: number
     /** T-10942: only the mobile "Force new session" sends it. */
     force?: boolean
+    /** T-13968: per-restart summon directives; the successor keeps them. */
+    provision?: { model?: string }
   }): Promise<{
     priorHostSessionId: string
     hostSessionId: string
@@ -266,6 +268,8 @@ export type AcpHrcClient = Pick<
     launch:
       | { status: 'started'; runtimeId: string }
       | { status: 'failed'; code?: string | undefined; message: string }
+    /** T-13968: the successor intent's directive block; absent when it has none. */
+    summonDirectives?: { model?: string; reasoning_effort?: string } | undefined
   }>
 }
 

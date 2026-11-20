@@ -60,6 +60,7 @@ type LedgerState =
 type LedgerEntry = {
   agentId: string
   projectId: string
+  model: string | undefined
   expiresAt: number
   state: LedgerState
 }
@@ -134,6 +135,13 @@ export type ForcePrimaryInput = {
   sessionRef: string
   runtimeIntent: HrcRuntimeIntent
   idempotencyKey: string
+  /**
+   * T-13968: the phone-selected model. The absent-primary start and launch
+   * recovery carry it in `runtimeIntent`; the restart forwards it as HRC's
+   * per-restart `provision` directive block, which the successor generation
+   * keeps.
+   */
+  model?: string | undefined
 }
 
 function refusal(
@@ -247,6 +255,7 @@ async function runNewContext(input: ForcePrimaryInput, hrc: AcpHrcClient): Promi
       hostSessionId: head.hostSessionId,
       expectedGeneration: head.generation,
       force: true,
+      ...(input.model !== undefined ? { provision: { model: input.model } } : {}),
     })
   } catch (error) {
     if (!isTypedHrcDecision(error)) throw new UncertainError({ branch: 'restart' }, error)
@@ -259,6 +268,23 @@ async function runNewContext(input: ForcePrimaryInput, hrc: AcpHrcClient): Promi
     priorHostSessionId: restarted.priorHostSessionId,
     receivedAt: input.receivedAt,
   })
+  // The rotation committed either way; a successor without the requested model
+  // is reported as that, naming the successor, never as a refusal or a success.
+  if (input.model !== undefined && restarted.summonDirectives?.model !== input.model) {
+    return refusal(
+      input.requestId,
+      502,
+      'model_not_preserved',
+      'HRC restarted the primary but its successor does not carry the requested model',
+      {
+        priorHostSessionId: restarted.priorHostSessionId,
+        hostSessionId: restarted.hostSessionId,
+        generation: restarted.generation,
+        launch: restarted.launch,
+        summonDirectives: restarted.summonDirectives ?? null,
+      }
+    )
+  }
   return committed(
     'restarted',
     { ...head, hostSessionId: restarted.hostSessionId, generation: restarted.generation },
@@ -396,6 +422,7 @@ async function track(
   const entry: LedgerEntry = {
     agentId: input.agentId,
     projectId: input.projectId,
+    model: input.model,
     expiresAt: Date.now() + LEDGER_TTL_MS,
     state: { kind: 'done', outcome: { status: 0, body: {} } },
   }
@@ -435,7 +462,9 @@ async function forcePrimary(input: ForcePrimaryInput, hrc: AcpHrcClient): Promis
   const entry = ledger.get(input.requestId)
   if (
     entry !== undefined &&
-    (entry.agentId !== input.agentId || entry.projectId !== input.projectId)
+    (entry.agentId !== input.agentId ||
+      entry.projectId !== input.projectId ||
+      entry.model !== input.model)
   ) {
     return refusal(
       input.requestId,
