@@ -37,6 +37,11 @@ import {
   handleJobhuntDecision,
   handleJobhuntLead,
 } from '../handlers/mobile-jobhunt.js'
+import {
+  handleMobilePluginAsset,
+  handleMobilePluginCall,
+  handleMobilePluginPage,
+} from '../handlers/mobile-plugins.js'
 import { handleMobileRestart } from '../handlers/mobile-sessions-restart.js'
 import { handleMobileInput, handleMobileInterrupt } from '../handlers/mobile.js'
 import { handleCancelRun } from '../handlers/runs-cancel.js'
@@ -104,9 +109,16 @@ export function createParamRoute(
 ): ParamRoute {
   const segments = template.split('/').filter((segment) => segment.length > 0)
   const paramNames: string[] = []
+  let rest: string | undefined
   const pattern = new RegExp(
     `^/${segments
-      .map((segment) => {
+      .map((segment, index) => {
+        // A final `*name` captures the rest of the path, slashes included, still encoded.
+        if (segment.startsWith('*') && index === segments.length - 1) {
+          rest = segment.slice(1)
+          paramNames.push(rest)
+          return '(.+)'
+        }
         if (!segment.startsWith(':')) {
           return escapeRegExp(segment)
         }
@@ -129,7 +141,8 @@ export function createParamRoute(
       }
 
       return paramNames.reduce<RouteParams>((params, name, index) => {
-        params[name] = decodeURIComponent(match[index + 1] as string)
+        const raw = match[index + 1] as string
+        params[name] = name === rest ? raw : decodeURIComponent(raw)
         return params
       }, {})
     },
@@ -146,6 +159,18 @@ export function buildParamRoutes(): ParamRoute[] {
     createParamRoute('GET', '/v1/mobile/jobhunt/leads/:id', handleJobhuntLead),
     createParamRoute('POST', '/v1/mobile/jobhunt/leads/:id/decision', handleJobhuntDecision),
     createParamRoute('POST', '/v1/mobile/jobhunt/leads/:id/ask', handleJobhuntAsk),
+    createParamRoute('GET', '/v1/mobile/plugins/:plugin/pages/:page', handleMobilePluginPage),
+    createParamRoute('POST', '/v1/mobile/plugins/:plugin/pages/:page/call', handleMobilePluginCall),
+    createParamRoute(
+      'GET',
+      '/v1/mobile/plugins/:plugin/pages/:page/asset/*ref',
+      handleMobilePluginAsset
+    ),
+    createParamRoute(
+      'HEAD',
+      '/v1/mobile/plugins/:plugin/pages/:page/asset/*ref',
+      handleMobilePluginAsset
+    ),
     createParamRoute('POST', '/admin/agents/:agentId/inspect', handleInspectAgentSelection),
     createParamRoute(
       'GET',

@@ -1,13 +1,10 @@
-import { request as httpRequest } from 'node:http'
-import { request as httpsRequest } from 'node:https'
 import { writeLogLine } from 'acp-core'
 
 import { AcpHttpError } from '../http.js'
+import { loopbackUpstreamRefusal, upstreamHop } from '../loopback-upstream.js'
 import { isRecord } from '../parsers/body.js'
-import { isLoopbackPeer } from '../routing/peer.js'
 import type { RouteContext, RouteHandler } from '../routing/route-context.js'
 
-const PRINCIPAL = 'user:lance'
 const UPSTREAM_PATHS = {
   triage: '/api/hunt/mobile/triage',
   lead: '/api/hunt/mobile/leads/',
@@ -37,12 +34,7 @@ export function resolveJobhuntConfig(options: JobhuntOptions = {}): JobhuntConfi
   let disabledReason: string | undefined
   try {
     baseUrl = new URL(options.baseUrl ?? process.env['ACP_JOBHUNT_URL'] ?? 'http://127.0.0.1:18455')
-    if (
-      !['http:', 'https:'].includes(baseUrl.protocol) ||
-      (baseUrl.hostname !== 'localhost' && !isLoopbackPeer({ address: baseUrl.hostname })) ||
-      baseUrl.username !== '' ||
-      baseUrl.password !== ''
-    ) {
+    if (loopbackUpstreamRefusal(baseUrl) !== undefined) {
       disabledReason = 'Jobhunt upstream must name a loopback HTTP host without credentials'
       baseUrl = undefined
     }
@@ -98,54 +90,6 @@ async function postBody(request: Request): Promise<Buffer> {
   return body
 }
 
-/** A single request, no redirect handling, pooling, or retry. Deadline covers the whole response. */
-function hop(
-  base: URL,
-  path: string,
-  method: string,
-  body: Buffer | undefined,
-  deadline: number
-): Promise<{ status: number; body: Buffer }> {
-  return new Promise((resolve, reject) => {
-    const fail = (error: Error) => {
-      clearTimeout(timer)
-      reject(error)
-    }
-    const send = base.protocol === 'https:' ? httpsRequest : httpRequest
-    const req = send(
-      {
-        protocol: base.protocol,
-        hostname: base.hostname.replace(/^\[|\]$/g, ''),
-        port: base.port || undefined,
-        method,
-        path,
-        agent: false,
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'X-Principal': PRINCIPAL,
-        },
-      },
-      (res) => {
-        const chunks: Buffer[] = []
-        res.on('data', (chunk: Buffer) => chunks.push(chunk))
-        res.on('error', fail)
-        res.on('end', () => {
-          clearTimeout(timer)
-          resolve({ status: res.statusCode ?? 502, body: Buffer.concat(chunks) })
-        })
-      }
-    )
-    const timer = setTimeout(() => {
-      const error = new Error('Jobhunt deadline exceeded')
-      reject(error)
-      req.destroy(error)
-    }, deadline)
-    req.on('error', fail)
-    req.end(body)
-  })
-}
-
 function handler(route: Route): RouteHandler {
   return async (context: RouteContext) => {
     const started = performance.now()
@@ -181,13 +125,14 @@ function handler(route: Route): RouteHandler {
         context.url.search
       let upstream: { status: number; body: Buffer }
       try {
-        upstream = await hop(
-          config.baseUrl,
+        upstream = await upstreamHop({
+          base: config.baseUrl,
           path,
-          context.request.method,
+          method: context.request.method,
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body,
-          post ? config.postDeadlineMs : config.getDeadlineMs
-        )
+          deadlineMs: post ? config.postDeadlineMs : config.getDeadlineMs,
+        })
       } catch (error) {
         // ECONNREFUSED means no connection was established, hence no bytes sent.
         // Every other transport failure is conservative about a possibly applied write.

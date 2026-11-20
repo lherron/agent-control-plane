@@ -50,6 +50,7 @@ import {
   sharedDashboardSessionReads,
 } from './dashboard-session-refresh.js'
 import { latestHrcSeq, listCachedLatestEventBySession } from './hrc-event-read-window.js'
+import { closePluginSubscriptions, handlePluginWebSocketFrame } from './mobile-plugin-ws.js'
 import {
   type MobileWebSocketLike,
   abortMobileWebSocket,
@@ -3196,6 +3197,7 @@ export async function openMobileWebSocket(ws: MobileWebSocket): Promise<void> {
 
 export function closeMobileWebSocket(ws: MobileWebSocket): void {
   abortMobileWebSocket(ws)
+  closePluginSubscriptions(ws)
 }
 
 export function handleMobileWebSocketMessage(ws: MobileWebSocket, message: string | Buffer): void {
@@ -3203,6 +3205,8 @@ export function handleMobileWebSocketMessage(ws: MobileWebSocket, message: strin
   const text = typeof message === 'string' ? message : message.toString('utf8')
   try {
     const parsed = JSON.parse(text) as { type?: unknown; id?: unknown }
+    // Plugin-page subscriptions multiplex on this socket (IOS_PLUGIN_PAGES.md §2).
+    if (handlePluginWebSocketFrame(ws, parsed)) return
     if (parsed.type === 'ping') {
       sendMobileJsonEnvelope(ws, {
         type: 'pong',
