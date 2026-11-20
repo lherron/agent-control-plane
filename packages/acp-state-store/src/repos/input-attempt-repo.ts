@@ -148,10 +148,10 @@ export class InputAttemptRepo {
         ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
       }
 
-      // Old DBs carry a legacy `actor_agent_id` column (see open-store.ts
-      // migrations); when present it is written through with `actor.id` to stay
-      // back-compatible. The column/placeholder/value triplet is assembled
-      // conditionally so both shapes run through one prepared statement.
+      // When migrate-legacy-schema.ts preserves the legacy `actor_agent_id`
+      // column, write `actor.id` through it for backward compatibility.
+      // Assemble the column, placeholder, and value conditionally so both
+      // shapes run through one prepared statement.
       const columns = [
         'input_attempt_id',
         'run_id',
