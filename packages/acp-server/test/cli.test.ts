@@ -438,3 +438,29 @@ describe('acp-server cli helpers', () => {
     }
   })
 })
+
+describe('launcher agent sources (T-08572 U-8)', () => {
+  test('real-launcher mode derives hrcAgentSources from env; unset keys are omitted', () => {
+    const base = { ...process.env, ACP_REAL_HRC_LAUNCHER: '1' } as NodeJS.ProcessEnv
+    base['ASP_AGENTS_ROOT'] = undefined
+    base['ASP_HOME'] = undefined
+    expect(
+      resolveLauncherDeps({ ...base, ASP_AGENTS_ROOT: '/agents', ASP_HOME: '/home' }, '/tmp', {})
+        .hrcAgentSources
+    ).toEqual({ agentsRoot: '/agents', aspHome: '/home' })
+    expect(
+      resolveLauncherDeps({ ...base, ASP_AGENTS_ROOT: '/agents' }, '/tmp', {}).hrcAgentSources
+    ).toEqual({ agentsRoot: '/agents' })
+    expect(
+      resolveLauncherDeps({ ...base, ASP_AGENTS_ROOT: '', ASP_HOME: '  ' }, '/tmp', {})
+        .hrcAgentSources
+    ).toBeUndefined()
+  })
+
+  test('echo launcher mode leaves hrcAgentSources undefined', () => {
+    expect(
+      resolveLauncherDeps({ ...process.env, ACP_DEV_ECHO_LAUNCHER: '1' }, '/tmp', {})
+        .hrcAgentSources
+    ).toBeUndefined()
+  })
+})
