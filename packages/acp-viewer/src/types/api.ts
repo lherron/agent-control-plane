@@ -66,8 +66,6 @@ export interface CompactJobRecord {
   agentId: string
   scopeRef?: string | undefined
   laneRef?: string | undefined
-  schedule?: { cron?: string | undefined } | undefined
-  cron?: string | null | undefined
   disabled?: boolean | undefined
   nextFireAt?: string | null | undefined
   lastFireAt?: string | null | undefined
@@ -79,7 +77,6 @@ export interface CompactJobSummary {
   kind: JobKind
   projectId?: string | undefined
   disabled: boolean
-  cron?: string | null | undefined
   nextFireAt?: string | null | undefined
   lastFireAt?: string | null | undefined
   flowStepCount: number
@@ -204,7 +201,7 @@ export interface JobRecord {
   agentId: string
   scopeRef: string
   laneRef: string
-  schedule: JobSchedule
+  trigger?: { kind: 'event' | 'schedule' } | undefined
   input: Record<string, unknown>
   flow?: JobFlow | undefined
   disabled: boolean
@@ -214,15 +211,6 @@ export interface JobRecord {
   actorStamp?: string | undefined
   createdAt: string
   updatedAt: string
-}
-
-export interface JobSchedule {
-  cron: string
-  windowStart?: string | undefined
-  windowEnd?: string | undefined
-  windowMinutes?: number | undefined
-  timezone?: string | undefined
-  [key: string]: unknown
 }
 
 export interface JobFlow {
@@ -280,17 +268,6 @@ export interface JobSummaryInfo {
   disabledReason?: string | undefined
   flowStepCount: number
   onFailureStepCount: number
-}
-
-export interface ScheduleSummary {
-  cron: string
-  lastFireAt?: string | undefined
-  nextFireAt?: string | undefined
-  nextFirePreview?: string[] | undefined
-  windowStart?: string | undefined
-  windowEnd?: string | undefined
-  windowMinutes?: number | undefined
-  timezone?: string | undefined
 }
 
 export interface StartupSummary {
@@ -372,7 +349,6 @@ export interface JobStepRunRecord {
 export interface JobDetailResponse {
   job: JobRecord
   summary: JobSummaryInfo
-  schedule: ScheduleSummary
   startup: StartupSummary
   flow?: NormalizedFlow | undefined
   latestRuns: JobRunRecord[]
@@ -393,27 +369,6 @@ export interface JobDetailResponse {
 
 export interface JobsListResponse {
   jobs: JobRecord[]
-}
-
-export interface SchedulerStateResponse {
-  enabled: boolean
-  tickIntervalMs: number
-  upcomingFires: UpcomingFire[]
-  stats: SchedulerStats
-}
-
-export interface UpcomingFire {
-  jobId: string
-  jobName: string
-  nextFireAt: string
-  cron: string
-}
-
-export interface SchedulerStats {
-  totalJobs: number
-  enabledJobs: number
-  disabledJobs: number
-  lastTickAt: string | null
 }
 
 export interface InterfaceBindingSummary {

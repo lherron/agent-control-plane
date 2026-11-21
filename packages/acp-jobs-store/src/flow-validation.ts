@@ -1,6 +1,5 @@
 import type { JobFlow, JobFlowStep, StepExpectation } from 'acp-core'
 
-import { isValidCron } from './cron.js'
 import { validatePhaseFlowGraph } from './flow-graph-validation.js'
 import { validateStep } from './flow-step-validation.js'
 import {
@@ -104,32 +103,14 @@ export function validateJobFlowJob(
   options: ValidateJobFlowOptions = {}
 ): JobFlowValidationResult {
   const errors: JobFlowValidationError[] = []
-  if (input.schedule !== undefined && !isValidCron(input.schedule.cron)) {
-    addError(
-      errors,
-      'invalid_cron',
-      'schedule.cron',
-      `invalid cron schedule: ${input.schedule.cron}`
-    )
-  }
-
   const flowResult = validateJobFlow(input.flow, options)
   if (!flowResult.valid) {
     errors.push(...flowResult.errors)
   }
 
-  const triggerKind = input.triggerKind ?? (input.schedule !== undefined ? 'schedule' : undefined)
-  if (triggerKind !== undefined && triggerKind !== 'schedule') {
-    for (const path of collectFreshDurationPaths(input.flow)) {
-      addError(
-        errors,
-        'invalid_fresh_duration',
-        path,
-        'freshDuration is only supported for scheduled flow jobs'
-      )
-    }
+  for (const path of collectFreshDurationPaths(input.flow)) {
+    addError(errors, 'invalid_fresh_duration', path, 'freshDuration is unsupported for ACP jobs')
   }
-
   return errors.length === 0 ? { valid: true } : { valid: false, errors }
 }
 

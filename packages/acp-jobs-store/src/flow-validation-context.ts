@@ -1,9 +1,4 @@
-import type { JobTriggerKind } from 'acp-core'
-
-import type { JobSchedule } from './store-contracts.js'
-
 export type JobFlowValidationErrorCode =
-  | 'invalid_cron'
   | 'missing_sequence'
   | 'empty_sequence'
   | 'invalid_step'
@@ -58,8 +53,6 @@ export type ValidateJobFlowOptions = {
 }
 
 export type ValidateJobFlowJobInput = {
-  schedule?: JobSchedule | undefined
-  triggerKind?: JobTriggerKind | undefined
   flow?: unknown
 }
 

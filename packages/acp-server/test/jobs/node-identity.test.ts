@@ -3,7 +3,6 @@ import { createInMemoryJobsStore } from 'acp-jobs-store'
 
 import {
   createJobNodeIdentityAuthority,
-  formatJobIdentityMissedTickDiagnostic,
   stampLegacyJobRunsAfterIdentity,
 } from '../../src/jobs/node-identity.js'
 
@@ -149,7 +148,7 @@ describe('job execution HRC identity authority (T-06804)', () => {
         projectId: 'agent-control-plane',
         agentId: 'cody',
         scopeRef: 'agent:cody:project:agent-control-plane',
-        schedule: { cron: '* * * * *' },
+        trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
         input: { content: 'legacy migration' },
       }).job
       const nonterminal = store.appendJobRun({
@@ -198,42 +197,6 @@ describe('job execution HRC identity authority (T-06804)', () => {
         })
       ).toEqual({ stamped: 0 })
       expect(store.getJobRun(nonterminal.jobRunId).jobRun?.executionNodeId).toBe('svc')
-    } finally {
-      store.close()
-    }
-  })
-
-  test('missed-tick diagnostic distinguishes catch-up from unrecoverable schedules', () => {
-    const store = createInMemoryJobsStore()
-    try {
-      for (const [slug, catchUp] of [
-        ['catch-up', 'one'],
-        ['no-catch-up', 'none'],
-      ] as const) {
-        store.createJob({
-          slug,
-          projectId: 'agent-control-plane',
-          agentId: 'cody',
-          scopeRef: 'agent:cody:project:agent-control-plane',
-          schedule: { cron: '* * * * *', catchUp },
-          input: { content: slug },
-          createdAt: '2026-07-23T00:00:00.000Z',
-        })
-      }
-
-      const diagnostic = formatJobIdentityMissedTickDiagnostic(
-        store,
-        {
-          ok: false,
-          code: 'hrc_identity_unavailable',
-          message: 'fresh HRC status read failed',
-        },
-        new Date('2026-07-23T01:00:00.000Z')
-      )
-
-      expect(diagnostic).toContain('catch-up-enabled=1')
-      expect(diagnostic).toContain('non-catch-up=1')
-      expect(diagnostic).toContain('1 non-catch-up occurrence(s) may not be recovered')
     } finally {
       store.close()
     }

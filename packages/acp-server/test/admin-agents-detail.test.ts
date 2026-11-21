@@ -63,7 +63,7 @@ describe('admin agent detail endpoint', () => {
             agentId: 'larry',
             scopeRef: 'agent:larry:project:agent-spaces:task:T-01412',
             laneRef: 'main',
-            schedule: { cron: '*/10 * * * *' },
+            trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
             input: { content: 'inspect agent' },
           })
 

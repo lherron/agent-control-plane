@@ -5,8 +5,8 @@ import { createInMemoryJobsStore } from 'acp-jobs-store'
 
 import { withWiredServer } from '../../test/fixtures/wired-server.js'
 
-describe('manual job execution owner-set admission', () => {
-  test('manual run of a job owned by another node returns 409 wrong_node and creates no run', async () => {
+describe('manual event job admission', () => {
+  test('manual run of a disabled event job returns 409 and creates no run', async () => {
     const jobsStore = createInMemoryJobsStore()
     const adminStore = createInMemoryAdminStore()
     try {
@@ -14,9 +14,9 @@ describe('manual job execution owner-set admission', () => {
         agentId: 'cody',
         projectId: 'agent-control-plane',
         scopeRef: 'agent:cody:project:agent-control-plane:task:T-06804',
-        schedule: { cron: '0 * * * *' },
-        input: { content: 'must stay on svc' },
-        executionNodes: ['svc'],
+        trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
+        input: { content: 'disabled smoke fixture' },
+        disabled: true,
       }).job
       const identity = {
         nodeId: 'max3',
@@ -34,11 +34,11 @@ describe('manual job execution owner-set admission', () => {
           expect(response.status).toBe(409)
           expect(await response.json()).toEqual({
             error: {
-              code: 'job_execution_wrong_node',
-              message: `job ${job.jobId} is not owned by node max3`,
+              code: 'job_execution_disabled',
+              message: `job ${job.jobId} is disabled`,
               details: {
                 jobId: job.jobId,
-                ownerSet: ['svc'],
+                ownerSet: null,
                 currentNode: 'max3',
               },
             },

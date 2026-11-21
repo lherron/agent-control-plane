@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { advanceJobFlow } from '../../src/jobs/flow-engine.js'
 import { createFlowJob, createJobRun, withFlowHarness } from '../fixtures/flow-engine.js'
 
-describe('advanceJobFlow scheduled fresh pre-run cleanup', () => {
+describe('advanceJobFlow agent step timeouts', () => {
   test('hung agent step timeout fails the step and returns without waiting for HRC termination', async () => {
     await withFlowHarness(async ({ deps, jobsStore }) => {
       const job = createFlowJob(jobsStore, {

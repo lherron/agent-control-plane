@@ -3,11 +3,9 @@ import { Workflow } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
   getJobAgentId,
-  getJobCron,
   getJobDisabled,
   getJobId,
   getJobKind,
-  getJobNextFireAt,
 } from '../project-utils'
 import type { ProjectDetailState } from '../types'
 
@@ -21,7 +19,7 @@ function tone(kind: string): 'accent' | 'success' | 'muted' {
   return 'muted'
 }
 
-const GRID = '14px minmax(280px,1.6fr) 140px minmax(110px,0.6fr) 70px minmax(160px,0.9fr)'
+const GRID = '14px minmax(280px,1.6fr) 140px 70px'
 
 export function ProjectJobsTab({ detail }: Props) {
   if (detail.jobs.length === 0) {
@@ -34,7 +32,7 @@ export function ProjectJobsTab({ detail }: Props) {
         style={{ gridTemplateColumns: GRID }}
         className="grid items-center gap-x-6 pb-2 border-b border-border/60"
       >
-        {[null, 'Job', 'Agent', 'Cron', 'Kind', 'Next fire'].map((label, i) => (
+        {[null, 'Job', 'Agent', 'Kind'].map((label, i) => (
           <span key={label ?? `_${i}`} className="kicker text-muted truncate">
             {label ?? ''}
           </span>
@@ -60,11 +58,7 @@ export function ProjectJobsTab({ detail }: Props) {
                 <div className="mono text-[10px] text-muted truncate">{jobId}</div>
               </Link>
               <span className="mono text-[11px] text-ink truncate">{getJobAgentId(job)}</span>
-              <span className="mono text-[11px] tabular text-ink truncate">{getJobCron(job)}</span>
               <Pill tone={tone(kind)}>{kind}</Pill>
-              <span className="mono text-[11px] tabular text-muted truncate">
-                {getJobNextFireAt(job)}
-              </span>
             </li>
           )
         })}

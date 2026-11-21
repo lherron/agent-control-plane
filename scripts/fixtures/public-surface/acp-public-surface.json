@@ -12,7 +12,6 @@
       "GET /v1/admin/jobs",
       "GET /v1/admin/jobs/:jobId",
       "GET /v1/admin/jobs/:jobId/detail",
-      "GET /v1/admin/jobs/scheduler",
       "GET /v1/admin/memberships",
       "GET /v1/admin/projects",
       "GET /v1/admin/projects/:projectId",
@@ -1132,7 +1131,7 @@
         "path": "acp message broadcast"
       },
       {
-        "description": "manage scheduled jobs",
+        "description": "manage event-triggered jobs",
         "options": [],
         "path": "acp job"
       },
@@ -1152,7 +1151,6 @@
         "options": [
           "--actor",
           "--agent",
-          "--cron",
           "--disabled",
           "--in",
           "--input",
@@ -1161,7 +1159,8 @@
           "--project",
           "--scope-ref",
           "--server",
-          "--table"
+          "--table",
+          "--trigger"
         ],
         "path": "acp job create"
       },
@@ -1191,7 +1190,6 @@
         "description": "patch one job",
         "options": [
           "--actor",
-          "--cron",
           "--disabled",
           "--enabled",
           "--in",
@@ -1199,7 +1197,8 @@
           "--job",
           "--json",
           "--server",
-          "--table"
+          "--table",
+          "--trigger"
         ],
         "path": "acp job patch"
       },
@@ -1993,7 +1992,6 @@
         "ApplyManagedJobInput",
         "ApplyManagedJobResult",
         "ClaimDueJobRunsInput",
-        "ClaimDueJobsInput",
         "ClaimedDueJob",
         "ClaimInboxEventsInput",
         "CreateJobInput",
@@ -2010,7 +2008,6 @@
         "InboxEventStatus",
         "InsertInboxEventInput",
         "InsertJobStepRunInput",
-        "JobAdmissionRefusal",
         "JobExecutionAdmissionFailureCode",
         "JobExecutionIdentity",
         "JobFlowValidationError",
@@ -2065,7 +2062,6 @@
         "formatJobFlowValidationErrors",
         "getManagedJobProvenance",
         "isHealthDiagnosticRun",
-        "isValidCron",
         "isValidFreshDuration",
         "isValidJobSlug",
         "JOB_SLUG_REGEX",
@@ -2074,7 +2070,6 @@
         "listAppliedJobsStoreMigrations",
         "listManagedJobProvenances",
         "mapJobRunStatusForFlowResponse",
-        "nextFireAfter",
         "openSqliteJobsStore",
         "parseFreshDurationMs",
         "resolveStepOutputRef",

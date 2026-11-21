@@ -21,7 +21,7 @@ describe('admin jobs — slug + description', () => {
               agentId: 'larry',
               projectId: fixture.seed.projectId,
               scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:default-slug`,
-              schedule: { cron: '*/5 * * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
               input: { content: 'x' },
             },
           })
@@ -50,7 +50,7 @@ describe('admin jobs — slug + description', () => {
               slug: 'nightly.learning-curation',
               description: 'Picks the next curation candidate and writes a summary.',
               scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:curation`,
-              schedule: { cron: '0 3 * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
               input: { content: 'x' },
               flow: VALID_FLOW,
             },
@@ -95,7 +95,7 @@ describe('admin jobs — slug + description', () => {
               projectId: fixture.seed.projectId,
               slug: 'Bad Slug!',
               scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:bad`,
-              schedule: { cron: '*/5 * * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
               input: { content: 'x' },
             },
           })
@@ -126,7 +126,7 @@ describe('admin jobs — slug + description', () => {
             projectId: fixture.seed.projectId,
             slug: 'dup-slug',
             scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:a`,
-            schedule: { cron: '*/5 * * * *' },
+            trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
             input: { content: 'x' },
           }
           const first = await fixture.request({ method: 'POST', path: '/v1/admin/jobs', body })
@@ -190,7 +190,7 @@ describe('admin jobs — slug + description', () => {
               projectId: fixture.seed.projectId,
               slug: 'initial-slug',
               scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:p`,
-              schedule: { cron: '*/5 * * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
               input: { content: 'x' },
             },
           })

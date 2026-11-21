@@ -63,7 +63,7 @@ function describeTrigger(trigger: unknown): string {
   }
   const record = trigger as Record<string, unknown>
   if (record['kind'] === 'schedule') {
-    return asString(record['cron']) ?? 'schedule'
+    return 'schedule'
   }
   if (record['kind'] === 'event') {
     const source = asString(record['source'])

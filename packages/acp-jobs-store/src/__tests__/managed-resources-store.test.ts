@@ -48,35 +48,6 @@ import {
 const NOW = '2026-06-17T22:00:00.000Z'
 const OWNER_SCOPE = 'agent:smokey:project:agent-spaces'
 
-/** Scheduled-job resource — matches expected-plan.json resource[0]. */
-const SCHEDULED_JOB: ApplyManagedJobInput = {
-  projectionId: 'agent-directory:agent:smokey:project:agent-spaces:scheduled-job:daily-triage',
-  projectionPk: 'agent-smokey.daily-triage',
-  sourceOwnerScopeRef: OWNER_SCOPE,
-  resourceName: 'daily-triage',
-  sourcePath: 'agents/smokey/schedules/daily-triage.toml',
-  sourceHash:
-    'sha256-canonical-json/v1:4bc88e59a4360da45d0b98a6d33cc547548c44c8d33a852f3ff398a3e7994342',
-  desiredProjectionHash:
-    'sha256-canonical-json/v1:f144cdf218cafb31379bf256c86b0bfad0da28d2984b9ee0e12a700a327e9d7f',
-  desiredJson: {
-    kind: 'scheduled-job',
-    slug: 'agent-smokey.daily-triage',
-    projectId: 'agent-spaces',
-    agentId: 'smokey',
-    scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
-    laneRef: 'main',
-    title: 'Daily triage',
-    disabled: false,
-    trigger: { kind: 'schedule' },
-    schedule: { cron: '0 8 * * 1-5', windowStart: '08:00', windowEnd: '18:00', windowMinutes: 30 },
-    execution: { nodes: ['max3', 'svc'] },
-    input: { content: 'Review new inbox tasks and summarize the highest-risk platform work.' },
-  },
-  resourceKind: 'scheduled-job',
-  now: NOW,
-}
-
 /** Event-hook resource — matches expected-plan.json resource[2]. */
 const EVENT_HOOK: ApplyManagedJobInput = {
   projectionId: 'agent-directory:agent:smokey:project:agent-spaces:event-hook:wrkq-needs-smoketest',
@@ -145,7 +116,7 @@ typeAssert<DriftReport>({ hasDrift: false })
 describe('same-transaction provenance (Phase D invariant)', () => {
   test('applyManagedJob creates a job row and a provenance row atomically', () => {
     const store = freshStore()
-    const result = applyManagedJob(store, SCHEDULED_JOB)
+    const result = applyManagedJob(store, EVENT_HOOK)
 
     expect(result.outcome).toBe('created')
     if (result.outcome !== 'created') return
@@ -153,19 +124,19 @@ describe('same-transaction provenance (Phase D invariant)', () => {
     // Job row must exist
     const { job } = store.getJob(result.job.jobId)
     expect(job).toBeDefined()
-    expect(job?.slug).toBe('agent-smokey.daily-triage')
+    expect(job?.slug).toBe('agent-smokey.wrkq-needs-smoketest')
     expect(job?.disabled).toBe(false)
-    expect(job?.executionNodes).toEqual(['max3', 'svc'])
+    expect(job?.executionNodes).toBeUndefined()
 
     // Provenance row must exist in the SAME store (written in the same SQLite transaction)
-    const prov = getManagedJobProvenance(store, SCHEDULED_JOB.projectionId)
+    const prov = getManagedJobProvenance(store, EVENT_HOOK.projectionId)
     expect(prov).toBeDefined()
     expect(prov?.jobId).toBe(result.job.jobId)
-    expect(prov?.projectionId).toBe(SCHEDULED_JOB.projectionId)
-    expect(prov?.projectionPk).toBe(SCHEDULED_JOB.projectionPk)
-    expect(prov?.sourceHash).toBe(SCHEDULED_JOB.sourceHash)
-    expect(prov?.desiredProjectionHash).toBe(SCHEDULED_JOB.desiredProjectionHash)
-    expect(prov?.resourceKind).toBe('scheduled-job')
+    expect(prov?.projectionId).toBe(EVENT_HOOK.projectionId)
+    expect(prov?.projectionPk).toBe(EVENT_HOOK.projectionPk)
+    expect(prov?.sourceHash).toBe(EVENT_HOOK.sourceHash)
+    expect(prov?.desiredProjectionHash).toBe(EVENT_HOOK.desiredProjectionHash)
+    expect(prov?.resourceKind).toBe('event-hook')
     expect(prov?.managedBy).toBe('agent-directory')
     expect(prov?.state).toBe('active')
   })
@@ -185,75 +156,6 @@ describe('same-transaction provenance (Phase D invariant)', () => {
     expect(prov).toBeDefined()
     expect(prov?.resourceKind).toBe('event-hook')
     expect(prov?.jobId).toBe(result.job.jobId)
-  })
-
-  test('applyManagedJob preserves scheduled-job flow definitions for fresh agent sessions', () => {
-    const store = freshStore()
-    const scheduledFlow: ApplyManagedJobInput = {
-      ...SCHEDULED_JOB,
-      desiredJson: {
-        ...SCHEDULED_JOB.desiredJson,
-        input: { content: 'legacy content should not be dispatched for flow jobs' },
-        flow: {
-          sequence: [
-            {
-              id: 'run',
-              fresh: true,
-              input: 'Run the scheduled job with fresh context.',
-            },
-          ],
-        },
-      },
-    }
-
-    const result = applyManagedJob(store, scheduledFlow)
-
-    expect(result.outcome).toBe('created')
-    if (result.outcome !== 'created') return
-
-    expect(result.job.flow).toEqual({
-      sequence: [
-        {
-          id: 'run',
-          fresh: true,
-          input: 'Run the scheduled job with fresh context.',
-        },
-      ],
-    })
-    expect(detectJobDrift(store, scheduledFlow.projectionId)).toEqual({ hasDrift: false })
-  })
-
-  test('applyManagedJob rejects an invalid scheduled flow with path/code and leaves the job store untouched', () => {
-    const store = freshStore()
-    const badBranchTarget: ApplyManagedJobInput = {
-      ...SCHEDULED_JOB,
-      desiredJson: {
-        ...SCHEDULED_JOB.desiredJson,
-        flow: {
-          sequence: [
-            {
-              id: 'build',
-              kind: 'exec',
-              exec: { argv: ['bun', 'run', 'build'] },
-              branches: { default: 'missing-step' },
-            },
-          ],
-        },
-      },
-    }
-
-    const result = applyManagedJob(store, badBranchTarget)
-
-    // T-05418: managed-resource reconcile must use the shared flow validator before
-    // touching jobs/provenance, so agent-authored schedules fail at reconcile time
-    // with the same structured path/code users see from admin admission.
-    expect(result.outcome).toBe('validation_error')
-    if (result.outcome !== 'validation_error') return
-    const surfaced = `${result.error.code} ${result.error.message}`
-    expect(surfaced).toContain('invalid_flow_next')
-    expect(surfaced).toContain('flow.sequence[0].branches.default')
-    expect(store.listJobs().jobs).toHaveLength(0)
-    expect(getManagedJobProvenance(store, badBranchTarget.projectionId)).toBeUndefined()
   })
 
   test('applyManagedJob for event-hook preserves output sinks in projection and drift', () => {
@@ -293,8 +195,17 @@ describe('same-transaction provenance (Phase D invariant)', () => {
 describe('provenance uniqueness constraints (Phase D invariant)', () => {
   test('two distinct projectionIds with distinct projectionPks are both accepted', () => {
     const store = freshStore()
-    expect(applyManagedJob(store, SCHEDULED_JOB).outcome).toBe('created')
     expect(applyManagedJob(store, EVENT_HOOK).outcome).toBe('created')
+    const otherSlug = 'agent-smokey.second-hook'
+    expect(
+      applyManagedJob(store, {
+        ...EVENT_HOOK,
+        projectionId: `${EVENT_HOOK.projectionId}:second`,
+        projectionPk: otherSlug,
+        resourceName: 'second-hook',
+        desiredJson: { ...EVENT_HOOK.desiredJson, slug: otherSlug },
+      }).outcome
+    ).toBe('created')
     expect(listManagedJobProvenances(store, { ownerScopeRef: OWNER_SCOPE })).toHaveLength(2)
   })
 })
@@ -306,70 +217,19 @@ describe('provenance uniqueness constraints (Phase D invariant)', () => {
 describe('idempotent reapply (Phase D invariant)', () => {
   test('applying the same resource twice produces noop on the second call', () => {
     const store = freshStore()
-    const first = applyManagedJob(store, SCHEDULED_JOB)
+    const first = applyManagedJob(store, EVENT_HOOK)
     expect(first.outcome).toBe('created')
     if (first.outcome !== 'created') throw new Error('expected created')
-    const replay = applyManagedJob(store, SCHEDULED_JOB)
+    const replay = applyManagedJob(store, EVENT_HOOK)
     expect(replay.outcome).toBe('noop')
     if (replay.outcome !== 'noop') throw new Error('expected noop')
     expect(replay.job.jobId).toBe(first.job.jobId)
 
     // Exactly one job row and one provenance row
     expect(
-      store.listJobs().jobs.filter((j) => j.slug === 'agent-smokey.daily-triage')
+      store.listJobs().jobs.filter((j) => j.slug === 'agent-smokey.wrkq-needs-smoketest')
     ).toHaveLength(1)
-    expect(getManagedJobProvenance(store, SCHEDULED_JOB.projectionId)).toBeDefined()
-  })
-
-  test('owner-set update, live projection, and drift preserve canonical execution.nodes', () => {
-    const store = freshStore()
-    const created = applyManagedJob(store, SCHEDULED_JOB)
-    expect(created.outcome).toBe('created')
-    if (created.outcome !== 'created') return
-
-    const changed: ApplyManagedJobInput = {
-      ...SCHEDULED_JOB,
-      sourceHash: `sha256-canonical-json/v1:${'c'.repeat(64)}`,
-      desiredProjectionHash: `sha256-canonical-json/v1:${'d'.repeat(64)}`,
-      desiredJson: {
-        ...SCHEDULED_JOB.desiredJson,
-        execution: { nodes: ['svc'] },
-      },
-    }
-    const updated = applyManagedJob(store, changed)
-    expect(updated.outcome).toBe('updated')
-    if (updated.outcome !== 'updated') return
-    expect(updated.job.executionNodes).toEqual(['svc'])
-    expect(detectJobDrift(store, changed.projectionId)).toEqual({ hasDrift: false })
-    expect(applyManagedJob(store, changed).outcome).toBe('noop')
-
-    store.updateJob(updated.job.jobId, { executionNodes: ['max3'] })
-    expect(detectJobDrift(store, changed.projectionId)).toEqual(
-      expect.objectContaining({ hasDrift: true, driftKind: 'shape' })
-    )
-  })
-
-  test.each([
-    [['svc', 'max3'], 'noncanonical ordering', /deduplicated and deterministically ordered/],
-    [['svc', 'svc'], 'duplicate members', /deduplicated and deterministically ordered/],
-    [['all', 'svc'], 'mixed wildcard', /cannot mix/],
-    [['local'], 'reserved local', /non-empty array/],
-    [[], 'empty owner set', /non-empty array/],
-  ])('rejects %s owner set before job mutation (%s)', (nodes, _label, message) => {
-    const store = freshStore()
-    const invalid: ApplyManagedJobInput = {
-      ...SCHEDULED_JOB,
-      desiredJson: {
-        ...SCHEDULED_JOB.desiredJson,
-        execution: { nodes },
-      },
-    }
-
-    const result = applyManagedJob(store, invalid)
-    expect(result.outcome).toBe('validation_error')
-    if (result.outcome !== 'validation_error') throw new Error('expected validation error')
-    expect(result.error.message).toMatch(message)
-    expect(store.listJobs().jobs).toHaveLength(0)
+    expect(getManagedJobProvenance(store, EVENT_HOOK.projectionId)).toBeDefined()
   })
 
   test('rejects execution placement for event hooks instead of silently dropping it', () => {
@@ -397,18 +257,18 @@ describe('idempotent reapply (Phase D invariant)', () => {
 
   test('reapply with changed desiredJson produces "updated" outcome and updates provenance hash', () => {
     const store = freshStore()
-    applyManagedJob(store, SCHEDULED_JOB)
+    applyManagedJob(store, EVENT_HOOK)
 
     const changed: ApplyManagedJobInput = {
-      ...SCHEDULED_JOB,
+      ...EVENT_HOOK,
       sourceHash: `sha256-canonical-json/v1:${'a'.repeat(64)}`,
       desiredProjectionHash: `sha256-canonical-json/v1:${'b'.repeat(64)}`,
-      desiredJson: { ...SCHEDULED_JOB.desiredJson, title: 'Daily triage (revised)' },
+      desiredJson: { ...EVENT_HOOK.desiredJson, title: 'Daily triage (revised)' },
     }
     const result = applyManagedJob(store, changed)
     expect(result.outcome).toBe('updated')
 
-    const prov = getManagedJobProvenance(store, SCHEDULED_JOB.projectionId)
+    const prov = getManagedJobProvenance(store, EVENT_HOOK.projectionId)
     expect(prov?.desiredProjectionHash).toBe(changed.desiredProjectionHash)
     expect(prov?.sourceHash).toBe(changed.sourceHash)
   })
@@ -422,31 +282,31 @@ describe('collision fail-closed behavior (Phase D invariant)', () => {
   test('slug exists with no provenance → UNMANAGED_COLLISION', () => {
     const store = freshStore()
     store.createJob({
-      slug: 'agent-smokey.daily-triage',
+      slug: 'agent-smokey.wrkq-needs-smoketest',
       projectId: 'agent-spaces',
       agentId: 'smokey',
       scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
-      schedule: { cron: '0 8 * * *' },
+      trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
       input: { content: 'pre-existing unmanaged job' },
     })
 
-    const result = applyManagedJob(store, SCHEDULED_JOB)
+    const result = applyManagedJob(store, EVENT_HOOK)
     expect(result.outcome).toBe('collision')
     if (result.outcome !== 'collision') return
     expect(result.error.code).toBe('UNMANAGED_COLLISION')
-    expect(getManagedJobProvenance(store, SCHEDULED_JOB.projectionId)).toBeUndefined()
+    expect(getManagedJobProvenance(store, EVENT_HOOK.projectionId)).toBeUndefined()
   })
 
   test('slug owned by a different projectionId → FOREIGN_MANAGED_COLLISION', () => {
     const store = freshStore()
     const foreign: ApplyManagedJobInput = {
-      ...SCHEDULED_JOB,
-      projectionId: 'agent-directory:agent:foreign:project:other:scheduled-job:daily-triage',
+      ...EVENT_HOOK,
+      projectionId: 'agent-directory:agent:foreign:project:other:event-hook:wrkq-needs-smoketest',
       sourceOwnerScopeRef: 'agent:foreign:project:other',
     }
     expect(applyManagedJob(store, foreign).outcome).toBe('created')
 
-    const result = applyManagedJob(store, SCHEDULED_JOB)
+    const result = applyManagedJob(store, EVENT_HOOK)
     expect(result.outcome).toBe('collision')
     if (result.outcome !== 'collision') return
     expect(result.error.code).toBe('FOREIGN_MANAGED_COLLISION')
@@ -455,17 +315,17 @@ describe('collision fail-closed behavior (Phase D invariant)', () => {
   test('collision does not mutate the pre-existing job row', () => {
     const store = freshStore()
     store.createJob({
-      slug: 'agent-smokey.daily-triage',
+      slug: 'agent-smokey.wrkq-needs-smoketest',
       projectId: 'agent-spaces',
       agentId: 'smokey',
       scopeRef: 'agent:smokey:project:agent-spaces:task:primary',
-      schedule: { cron: '0 8 * * *' },
+      trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
       input: { content: 'guarded pre-existing content' },
     })
-    applyManagedJob(store, SCHEDULED_JOB)
+    applyManagedJob(store, EVENT_HOOK)
 
     const { jobs } = store.listJobs()
-    const job = jobs.find((j) => j.slug === 'agent-smokey.daily-triage')
+    const job = jobs.find((j) => j.slug === 'agent-smokey.wrkq-needs-smoketest')
     expect(job?.input.content).toBe('guarded pre-existing content')
   })
 })
@@ -477,12 +337,12 @@ describe('collision fail-closed behavior (Phase D invariant)', () => {
 describe('stale adoption failure (Phase D invariant)', () => {
   test('projectionId matches existing provenance but projectionPk mismatches → stale_adoption_rejected', () => {
     const store = freshStore()
-    applyManagedJob(store, SCHEDULED_JOB)
+    applyManagedJob(store, EVENT_HOOK)
 
     const staleAttempt: ApplyManagedJobInput = {
-      ...SCHEDULED_JOB,
-      projectionPk: 'agent-smokey.daily-triage-renamed',
-      desiredJson: { ...SCHEDULED_JOB.desiredJson, slug: 'agent-smokey.daily-triage-renamed' },
+      ...EVENT_HOOK,
+      projectionPk: 'agent-smokey.wrkq-needs-smoketest-renamed',
+      desiredJson: { ...EVENT_HOOK.desiredJson, slug: 'agent-smokey.wrkq-needs-smoketest-renamed' },
     }
     const result = applyManagedJob(store, staleAttempt)
     expect(result.outcome).toBe('stale_adoption_rejected')
@@ -498,8 +358,8 @@ describe('stale adoption failure (Phase D invariant)', () => {
 describe('drift detection (Phase D invariant)', () => {
   test('detectJobDrift returns no drift for a freshly applied resource', () => {
     const store = freshStore()
-    applyManagedJob(store, SCHEDULED_JOB)
-    const drift = detectJobDrift(store, SCHEDULED_JOB.projectionId)
+    applyManagedJob(store, EVENT_HOOK)
+    const drift = detectJobDrift(store, EVENT_HOOK.projectionId)
     expect(drift.hasDrift).toBe(false)
   })
 
@@ -512,13 +372,13 @@ describe('drift detection (Phase D invariant)', () => {
 
   test('detectJobDrift reports drift after out-of-band mutation', () => {
     const store = freshStore()
-    const created = applyManagedJob(store, SCHEDULED_JOB)
+    const created = applyManagedJob(store, EVENT_HOOK)
     if (created.outcome !== 'created') throw new Error('expected created')
 
     // Operator disables the job directly (outside managed-resources)
     store.updateJob(created.job.jobId, { disabled: true })
 
-    const drift = detectJobDrift(store, SCHEDULED_JOB.projectionId)
+    const drift = detectJobDrift(store, EVENT_HOOK.projectionId)
     expect(drift.hasDrift).toBe(true)
     expect(drift.driftKind).toBe('shape')
   })
@@ -537,10 +397,10 @@ describe('drift detection (Phase D invariant)', () => {
 describe('disable-only missing-source behavior (Phase D invariant)', () => {
   test('disableManagedJob sets disabled=true but does NOT archive the job', () => {
     const store = freshStore()
-    const created = applyManagedJob(store, SCHEDULED_JOB)
+    const created = applyManagedJob(store, EVENT_HOOK)
     if (created.outcome !== 'created') throw new Error('expected created')
 
-    const { job: disabled } = disableManagedJob(store, SCHEDULED_JOB.projectionId, 'source_missing')
+    const { job: disabled } = disableManagedJob(store, EVENT_HOOK.projectionId, 'source_missing')
     expect(disabled.disabled).toBe(true)
 
     // Job still exists — not archived — history preserved
@@ -551,10 +411,10 @@ describe('disable-only missing-source behavior (Phase D invariant)', () => {
 
   test('disableManagedJob marks provenance.state = disabled', () => {
     const store = freshStore()
-    applyManagedJob(store, SCHEDULED_JOB)
-    disableManagedJob(store, SCHEDULED_JOB.projectionId, 'source_missing')
+    applyManagedJob(store, EVENT_HOOK)
+    disableManagedJob(store, EVENT_HOOK.projectionId, 'source_missing')
 
-    const prov = getManagedJobProvenance(store, SCHEDULED_JOB.projectionId)
+    const prov = getManagedJobProvenance(store, EVENT_HOOK.projectionId)
     expect(prov?.state).toBe('disabled')
   })
 

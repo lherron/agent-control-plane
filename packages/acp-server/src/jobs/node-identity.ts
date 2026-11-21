@@ -208,31 +208,3 @@ export function createJobNodeIdentityAuthority(
 ): JobNodeIdentityAuthority {
   return new JobNodeIdentityAuthority(client)
 }
-
-export function formatJobIdentityMissedTickDiagnostic(
-  store: JobsStore | undefined,
-  verification: Exclude<JobIdentityVerification, { ok: true }>,
-  now: Date
-): string {
-  const nowIso = now.toISOString()
-  const dueJobs =
-    store
-      ?.listJobs()
-      .jobs.filter(
-        (job) =>
-          job.trigger.kind === 'schedule' &&
-          !job.disabled &&
-          job.archivedAt === undefined &&
-          job.nextFireAt !== undefined &&
-          job.nextFireAt <= nowIso
-      ) ?? []
-  const catchUpEnabled = dueJobs.filter((job) => job.schedule?.catchUp === 'one').length
-  const nonCatchUp = dueJobs.length - catchUpEnabled
-  const unowned = dueJobs.filter((job) => job.executionNodes === undefined).map((job) => job.slug)
-  return (
-    `acp-server jobs scheduler tick skipped: ${verification.code}: ${verification.message}; ` +
-    `due schedules catch-up-enabled=${catchUpEnabled}, non-catch-up=${nonCatchUp}, ` +
-    `no-execution-owner=${unowned.length} [${unowned.join(', ')}]; ` +
-    `${nonCatchUp} non-catch-up occurrence(s) may not be recovered`
-  )
-}

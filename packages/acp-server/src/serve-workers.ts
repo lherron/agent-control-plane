@@ -1,9 +1,5 @@
 import { writeLogLine } from 'acp-core'
-import {
-  type JobAdmissionRefusal,
-  assertJobExecutionAdmission,
-  createJobsScheduler,
-} from 'acp-jobs-store'
+import { createJobsScheduler } from 'acp-jobs-store'
 import type { AcpStateStore } from 'acp-state-store'
 import { normalizeSessionRef } from 'agent-scope'
 import type { WrkqStoreAdapter } from 'wrkq-lib'
@@ -21,10 +17,8 @@ import {
   DEFAULT_CAUSATION_DEPTH_LIMIT,
   createEventJobEvaluator,
 } from './jobs/event-job-evaluator.js'
-import { createUnassignedScheduleReporter } from './jobs/execution-status.js'
 import { advanceJobFlow } from './jobs/flow-engine.js'
 import { createJobLifecycleEmitter } from './jobs/lifecycle-events.js'
-import { formatJobIdentityMissedTickDiagnostic } from './jobs/node-identity.js'
 import { createJobOutputReconciler } from './jobs/output-reconciler.js'
 import { getRunFinalAssistantText } from './jobs/run-final-output.js'
 import { createPbcWorkerRunner } from './pbc/worker-runner.js'
@@ -209,15 +203,6 @@ export function startServeWorkers(input: {
           evaluateEventJob: createEventJobEvaluator({
             causationDepthLimit: eventCausationDepthLimit,
           }),
-          onAdmissionRefused: createUnassignedScheduleReporter({
-            log: (line) =>
-              writeLogLine({
-                level: 'warn',
-                component: 'jobs',
-                event: 'jobs.schedule.admission_refused',
-                data: { message: line },
-              }),
-          }),
         })
       : undefined
   const jobLifecycleEmitter =
@@ -281,11 +266,7 @@ export function startServeWorkers(input: {
                     ? { ...diagnostics.baseline, verifiedAt: diagnostics.lastVerifiedAt }
                     : undefined
                 const jobsReady =
-                  jobsStore?.hasSchedulerWork(
-                    new Date().toISOString(),
-                    baseline,
-                    reportReadinessExclusion
-                  ) === true
+                  jobsStore?.hasSchedulerWork(new Date().toISOString(), baseline) === true
                 const verification =
                   jobsReady && (jobsScheduler !== undefined || jobOutputReconciler !== undefined)
                     ? await jobNodeIdentityAuthority?.verifyFresh('scheduler_tick')
@@ -295,18 +276,12 @@ export function startServeWorkers(input: {
                     level: 'error',
                     component: 'jobs',
                     event: 'jobs.identity_missed_tick',
-                    data: {
-                      message: formatJobIdentityMissedTickDiagnostic(
-                        jobsStore,
-                        verification,
-                        new Date()
-                      ),
-                    },
+                    data: { code: verification.code, message: verification.message },
                   })
                   return
                 }
                 if (jobsScheduler !== undefined && verification?.ok === true) {
-                  // tick() returns every job-run it touched this tick (scheduled
+                  // tick() returns every job-run it touched this tick (event
                   // dispatch, dispatch_failed, flow advance, flow_advance_failed,
                   // inflight flow re-advance). Project lifecycle telemetry from the
                   // committed results — idempotent, so re-seen inflight runs no-op.
@@ -348,32 +323,12 @@ export function startServeWorkers(input: {
               diagnostics?.baseline !== undefined && diagnostics.lastVerifiedAt !== undefined
                 ? { ...diagnostics.baseline, verifiedAt: diagnostics.lastVerifiedAt }
                 : undefined
-            const scheduleDeadlines =
-              jobsStore?.listJobs().jobs.flatMap((job) => {
-                if (job.archivedAt !== undefined || job.disabled || job.trigger.kind !== 'schedule')
-                  return []
-                if (identity !== undefined) {
-                  try {
-                    assertJobExecutionAdmission(job, identity)
-                  } catch {
-                    return []
-                  }
-                }
-                return [
-                  job.nextFireAt === undefined
-                    ? now + DEFAULT_JOBS_SCHEDULER_INTERVAL_MS
-                    : Date.parse(job.nextFireAt) > now
-                      ? Date.parse(job.nextFireAt)
-                      : now + DEFAULT_JOBS_SCHEDULER_INTERVAL_MS,
-                ]
-              }) ?? []
             schedulerNextDelayMs =
               jobsStore === undefined
                 ? 60_000
                 : jobsDelayMs(jobsStore.sqlite, {
                     now,
                     cadenceMs: DEFAULT_JOBS_SCHEDULER_INTERVAL_MS,
-                    scheduleDeadlines,
                     nodeId: identity?.nodeId,
                   })
             for (const job of [
@@ -395,13 +350,4 @@ export function startServeWorkers(input: {
   schedulerLoop?.start()
 
   return { wakeDispatcher, interfaceRunDispatcher, inputQueueDispatcher, schedulerLoop }
-}
-
-export const reportReadinessExclusion = ({ job, code }: JobAdmissionRefusal): void => {
-  writeLogLine({
-    level: 'warn',
-    component: 'jobs',
-    event: 'jobs.schedule.readiness_excluded',
-    data: { jobId: job.jobId, slug: job.slug, code, executionNodes: job.executionNodes ?? null },
-  })
 }

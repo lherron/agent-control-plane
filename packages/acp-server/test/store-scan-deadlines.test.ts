@@ -23,14 +23,17 @@ test('queue future retry and lease expiry shorten the backstop without a commit'
   db.close()
 })
 
-test('job next due is its deadline; externally driven work retains cadence', () => {
+test('pending event and active run work retain the scan cadence', () => {
   const db = new Database(':memory:')
   db.exec(
     'CREATE TABLE job_runs(status TEXT, execution_node_id TEXT, lease_expires_at TEXT); CREATE TABLE event_inbox(status TEXT, lease_expires_at TEXT); CREATE TABLE job_output_sink_attempts(status TEXT, next_attempt_at TEXT)'
   )
   const now = Date.now()
-  const input = { now, cadenceMs: 5000, scheduleDeadlines: [now + 30000], nodeId: 'max3' }
-  expect(jobsDelayMs(db, input)).toBe(30000)
+  const input = { now, cadenceMs: 5000, nodeId: 'max3' }
+  expect(jobsDelayMs(db, input)).toBe(60000)
+  db.prepare('INSERT INTO event_inbox VALUES (?, ?)').run('pending', null)
+  expect(jobsDelayMs(db, input)).toBe(5000)
+  db.exec('DELETE FROM event_inbox')
   db.prepare('INSERT INTO job_runs VALUES (?, ?, ?)').run('dispatched', 'max3', null)
   expect(jobsDelayMs(db, input)).toBe(5000)
   db.close()

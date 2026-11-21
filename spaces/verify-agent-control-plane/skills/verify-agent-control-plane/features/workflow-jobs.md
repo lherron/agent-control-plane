@@ -9,9 +9,9 @@ Source anchors (repo-relative): packages/acp-core/src/index.ts; packages/acp-ser
 - Surface: `cli:acp action []`
 - Surface: `cli:acp action triage [--actor --force --json --server]`
 - Surface: `cli:acp job []`
-- Surface: `cli:acp job create [--actor --agent --cron --disabled --in --input --json --lane-ref --project --scope-ref --server --table]`
+- Surface: `cli:acp job create [--actor --agent --disabled --in --input --json --lane-ref --project --scope-ref --server --table --trigger]`
 - Surface: `cli:acp job list [--actor --json --project --server --table]`
-- Surface: `cli:acp job patch [--actor --cron --disabled --enabled --in --input --job --json --server --table]`
+- Surface: `cli:acp job patch [--actor --disabled --enabled --in --input --job --json --server --table --trigger]`
 - Surface: `cli:acp job run [--actor --job --json --poll-interval --server --table --timeout --wait]`
 - Surface: `cli:acp job show [--actor --job --json --server --table]`
 - Surface: `cli:acp job validate [--actor --in --json --server --table]`
@@ -35,7 +35,6 @@ Source anchors (repo-relative): packages/acp-core/src/index.ts; packages/acp-ser
 - Surface: `route:GET /v1/admin/jobs @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:GET /v1/admin/jobs/:jobId @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:GET /v1/admin/jobs/:jobId/detail @ packages/acp-server/src/routing/param-routes.ts`
-- Surface: `route:GET /v1/admin/jobs/scheduler @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:GET /v1/job-runs/:jobRunId @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:GET /v1/jobs/:jobId/runs @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:GET /v1/pbc/jobs/:jobId @ packages/acp-server/src/routing/param-routes.ts`

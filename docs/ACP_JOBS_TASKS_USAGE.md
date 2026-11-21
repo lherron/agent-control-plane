@@ -1,23 +1,23 @@
-# ACP Scheduled Jobs & Flows — Usage Guide
+# ACP Event Jobs & Flows — Usage Guide
 
-How to author, register, and validate scheduled/automated work on the ACP job
-engine. This is the mechanism behind cron automations like cody's
-`wrkq-refactor` and mneme's `xdevs-watch`.
+ACP runs event-triggered jobs and keeps their definitions, run history, and
+flow state in the jobs store. The Praesidium kernel schedule module runs
+recurring schedules.
 
-- **Engine:** `packages/acp-jobs-store` (scheduler, cron, flow validation, native
-  step executor) + `packages/acp-server/src/jobs` (flow engine, exec step).
-- **Scheduler cadence:** the acp-server ticks the scheduler every **5s**
-  (`DEFAULT_JOBS_SCHEDULER_INTERVAL_MS`), gated by `ACP_SCHEDULER_ENABLED=1`.
-  Cron granularity is per-minute.
+- **Engine:** `packages/acp-jobs-store` (event inbox, run recovery and flow
+  validation) and `packages/acp-server/src/jobs` (flow execution).
+- **Worker:** `ACP_SCHEDULER_ENABLED=1` enables event processing and run
+  recovery. Store commits wake the worker. Pending work uses a 5-second scan
+  cadence.
 
 ---
 
 ## 1. Anatomy of a job
 
-A job is a **trigger** (schedule/cron or event) plus a **flow** (an ordered
-`sequence` of steps, with an optional `onFailure` sequence). Each tick that is
-due mints a *job run*; the flow engine advances it step by step, persisting each
-step's result to `job_step_runs`.
+An event job pairs an event trigger with a single agent input or a **flow**
+(an ordered `sequence` of steps with an optional `onFailure` sequence).
+Matching webhook events mint job runs. The flow engine advances each run
+step by step and persists the results to `job_step_runs`.
 
 ### Step kinds (`flow.sequence[].kind`)
 
@@ -127,76 +127,19 @@ succeeded-source-only.
 
 ## 2. Two ways to create a job
 
-### A. Agent-authored schedule (preferred for recurring automations)
+### A. Agent-authored event hook
 
-Drop a TOML file in the agent's config and compile+apply it. This is how cody's
-refactor and mneme's watcher are defined.
-
-```
-var/agents/<agent>/schedules/<name>.toml
-```
-
-```toml
-schema = 1
-name = "my-watcher"
-title = "..."
-enabled = true
-
-[execution]
-node = ["svc", "max3"] # scalar, owner set, or "all"
-
-[trigger]
-cron = "*/15 * * * *"
-
-[target]
-project = "<project>"
-agent = "<agent>"
-lane = "main"
-task = "<task>"
-
-[input]
-content = "..."          # job-level input (available as {{input.content}})
-
-[[flow.sequence]]
-id = "gate"
-kind = "exec"
-exec = { argv = [...], cwd = "...", successExitCodes = [0, 10] }
-branches = { exitCode = { "0" = "succeed", "10" = "work" }, default = "alarm" }
-
-[[flow.sequence]]
-id = "work"
-fresh = true
-input = "..."            # the agent turn
-```
-
-Compile → apply:
+Author the hook in `var/agents/<agent>/event-hooks/<name>.toml`, then compile
+and apply it.
 
 ```bash
-asp resources plan <agent> --project <project> > /tmp/plan.json   # compiles schedules/ + channels/ + event-hooks/
-acp admin managed-resource apply --in /tmp/plan.json              # applies to the live jobs/interface stores
-# use `reconcile` instead of `apply` to also disable stale (removed-source) resources
+asp resources plan <agent> --project <project> --include event-hooks/<name>.toml > /tmp/plan.json
+acp admin managed-resource apply --in /tmp/plan.json
 ```
 
-The compiler validates the flow; a bad flow fails here with a specific error
-code. Editing the TOML and re-applying updates the live job (idempotent by
-source hash).
-
-Execution ownership is independent of HRC scope placement. A profile-level
-default can be set in the agent profile:
-
-```toml
-[jobs]
-default_node = "svc"
-```
-
-An individual schedule overrides it with `[execution].node`. A concrete
-multi-node set deliberately runs one local copy on each listed node; `"all"`
-runs one copy on every node where the catalog is applied. This is static
-fan-out, not failover: a healthy peer does not make up an occurrence missed by
-a down owner. In federated mode an unassigned schedule stays visible but never
-executes. `ACP_SCHEDULER_ENABLED` controls local scheduler capability and
-`ACP_JOB_FLOW_EXEC_ENABLED` controls native exec permission; neither grants
-ownership.
+Use `reconcile` to also disable hooks and interface bindings whose source was
+removed. A plan can still contain schedules. ACP returns
+`schedule_module_owned` for each schedule and applies the other resources.
 
 ### B. Direct job file (one-offs / non-agent jobs)
 
@@ -214,7 +157,7 @@ acp job create   --in job.json
   (`interface_bindings`) and are compiled from `var/agents/<agent>/channels/*.toml`.
 - **wrkq task:** a `wrkq-task` step (`container`, `title`, `description`).
 - **Agent turn:** `agent-dispatch` (explicit scopeRef) or a legacy `agent` step
-  (dispatches to the schedule's `[target]`).
+  (dispatches to the job's configured scope).
 - **Email:** run `gog send ...` from inside an `exec` step or an agent turn.
 
 **Cold targets.** A job's agent turn may target a scope that has no session yet,
@@ -254,15 +197,15 @@ card when the window ends.
 
 ```bash
 acp job list                         # all jobs
-acp job show   --job <jobId>         # one job + schedule
+acp job show   --job <jobId>         # one job and its run health
 acp job run    --job <jobId> --wait  # trigger a run NOW, wait for terminal status (each call = one run)
-acp job patch  --job <jobId> --enabled | --disabled | --cron "..."
+acp job patch  --job <jobId> --in job-patch.json
 acp admin managed-resource status --in /tmp/plan.json   # drift vs desired
 ```
 
 `acp job run --wait --json` returns the full run with per-step `status`,
 `result` (exec stdout/stderr, exitCode), and `branchTaken` — the fastest way to
-validate a flow without waiting for cron. Delivery of a `pulpit-message` can be
+validate a flow on demand. Delivery of a `pulpit-message` can be
 confirmed in the interface store:
 
 ```bash
@@ -270,38 +213,3 @@ sqlite3 ~/praesidium/var/db/acp-interface.db \
   "SELECT delivery_request_id, status, created_at FROM delivery_requests \
    WHERE binding_id='<binding>' ORDER BY created_at DESC LIMIT 3;"
 ```
-
-### Relocating a schedule owner
-
-Relocation is a manual break-before-make operation. There is no reassignment
-API, placement epoch, automatic run adoption, or zero-downtime/exactly-once
-guarantee when this sequence is skipped.
-
-1. Disable the schedule in source and apply the disabled catalog to every
-   affected ACP node.
-2. On every node, run `acp admin managed-resource status --in <plan> --json`
-   and verify `disabled: true`, identical `desiredProjectionHash` and
-   `execution.ownerSet`, and no catalog drift.
-3. On each departing owner, wait until `execution.localInflightCount` is zero.
-   Disabled blocks new admission but deliberately allows stamped inflight runs
-   to finish.
-4. While still disabled, change `[execution].node`, compile a fresh plan, apply
-   it everywhere, and verify matching hashes and owner sets on all nodes.
-5. Re-enable the schedule in source, compile again, apply everywhere, and
-   verify that only owner-set members report `execution.eligible: true`.
-
-Never overlap the old and new enabled owner sets during relocation. Skipping
-the disabled drain can duplicate or lose an occurrence.
-
----
-
-## 5. Worked examples in this collective
-
-- **cody / `wrkq-refactor`** — `var/agents/cody/schedules/wrkq-refactor.toml`.
-  `probe` gate (`wrkq-refactor-eligible.v1`) → `idle: succeed` / `work: <agent
-  step>`. The canonical "only dispatch an agent when there's work" pattern.
-- **mneme / `xdevs-watch`** — `var/agents/mneme/schedules/xdevs-watch.toml`.
-  `exec` gate (`~/tools/xdevs-watch`) → `exitCode 0:` a quiet no-op tick (a
-  second `exec` posts it only when `XDEVS_POST_NOOP_TICKS_TO_DISCORD` is on) /
-  `10:` pulpit the new post, then a fresh agent analyze / `default:` debug
-  pulpit. The "custom detector + conditional analysis" pattern.

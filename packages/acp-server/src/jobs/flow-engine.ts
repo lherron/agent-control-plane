@@ -54,14 +54,7 @@ export async function advanceJobFlow(input: AdvanceJobFlowInput): Promise<JobRun
     throw new Error(`job flow is required for ${input.job.jobId}`)
   }
 
-  const validation = validateJobFlowJob(
-    {
-      triggerKind: input.job.trigger.kind,
-      schedule: input.job.trigger.kind === 'schedule' ? input.job.schedule : undefined,
-      flow,
-    },
-    { allowInputFile: false }
-  )
+  const validation = validateJobFlowJob({ flow }, { allowInputFile: false })
   if (!validation.valid) {
     throw new Error(
       `invalid job flow for ${input.job.jobId}: ${formatJobFlowValidationErrors(validation.errors)}`

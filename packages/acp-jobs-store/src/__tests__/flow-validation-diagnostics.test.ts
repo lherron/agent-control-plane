@@ -135,16 +135,13 @@ test('malformed reference objects produce reference errors without extra missing
   })
 })
 
-test('keeps cron, step, graph and trigger-context diagnostics in order and formats them verbatim', () => {
+test('keeps step, graph and trigger-context diagnostics in order and formats them verbatim', () => {
   const result = validateJobFlowJob({
-    schedule: { cron: 'invalid' },
-    triggerKind: 'event',
     flow: { sequence: [{ id: 'work', input: 'x', freshDuration: 'bad', next: 'missing' }] },
   })
   expect(result).toEqual({
     valid: false,
     errors: [
-      { code: 'invalid_cron', path: 'schedule.cron', message: 'invalid cron schedule: invalid' },
       {
         code: 'invalid_fresh_duration',
         path: 'flow.sequence[0].freshDuration',
@@ -163,13 +160,13 @@ test('keeps cron, step, graph and trigger-context diagnostics in order and forma
       {
         code: 'invalid_fresh_duration',
         path: 'flow.sequence[0].freshDuration',
-        message: 'freshDuration is only supported for scheduled flow jobs',
+        message: 'freshDuration is unsupported for ACP jobs',
       },
     ],
   })
   if (!result.valid) {
     expect(formatJobFlowValidationErrors(result.errors)).toBe(
-      'invalid_cron at schedule.cron: invalid cron schedule: invalid; invalid_fresh_duration at flow.sequence[0].freshDuration: freshDuration requires fresh=true; invalid_fresh_duration at flow.sequence[0].freshDuration: freshDuration must be a positive fixed ISO 8601 duration using D, H, M, or S; invalid_flow_next at flow.sequence[0].next: flow target must be continue, succeed, fail, or a step id in the same phase; invalid_fresh_duration at flow.sequence[0].freshDuration: freshDuration is only supported for scheduled flow jobs'
+      'invalid_fresh_duration at flow.sequence[0].freshDuration: freshDuration requires fresh=true; invalid_fresh_duration at flow.sequence[0].freshDuration: freshDuration must be a positive fixed ISO 8601 duration using D, H, M, or S; invalid_flow_next at flow.sequence[0].next: flow target must be continue, succeed, fail, or a step id in the same phase; invalid_fresh_duration at flow.sequence[0].freshDuration: freshDuration is unsupported for ACP jobs'
     )
   }
   expect(formatJobFlowValidationErrors([])).toBe('')

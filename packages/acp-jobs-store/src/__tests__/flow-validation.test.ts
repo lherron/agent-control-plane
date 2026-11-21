@@ -240,22 +240,13 @@ describe('JobFlow validation', () => {
     )
   })
 
-  test('rejects freshDuration on non-scheduled job validation when trigger context is known', () => {
+  test('rejects freshDuration when validating ACP jobs', () => {
     const flow = {
       sequence: [{ id: 'fresh', input: 'Start.', fresh: true, freshDuration: 'PT24H' }],
     }
 
-    expect(
-      validateJobFlowJob({
-        triggerKind: 'schedule',
-        schedule: { cron: '*/20 * * * *' },
-        flow,
-      })
-    ).toEqual({ valid: true })
-
     expectCodes(
       validateJobFlowJob({
-        triggerKind: 'event',
         flow,
       }),
       ['invalid_fresh_duration']
@@ -299,10 +290,9 @@ describe('JobFlow validation', () => {
     )
   })
 
-  test('rejects unsupported outcomes, invalid cron, and invalid timeout strings', () => {
+  test('rejects unsupported outcomes, invalid timeout strings', () => {
     expectCodes(
       validateJobFlowJob({
-        schedule: { cron: 'not a cron' },
         flow: {
           sequence: [
             {
@@ -314,7 +304,7 @@ describe('JobFlow validation', () => {
           ],
         },
       }),
-      ['invalid_cron', 'invalid_timeout', 'unsupported_expect_outcome']
+      ['invalid_timeout', 'unsupported_expect_outcome']
     )
   })
 

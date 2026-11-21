@@ -55,11 +55,10 @@ export function jobsDelayMs(
   input: {
     now: number
     cadenceMs: number
-    scheduleDeadlines: number[]
     nodeId?: string | undefined
   }
 ): number {
-  const deadlines = [...input.scheduleDeadlines]
+  const deadlines: number[] = []
   const rows = db
     .prepare(
       "SELECT status, execution_node_id, lease_expires_at FROM job_runs WHERE status IN ('pending', 'claimed', 'dispatched')"

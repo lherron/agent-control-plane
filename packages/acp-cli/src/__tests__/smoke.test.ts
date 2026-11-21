@@ -618,7 +618,7 @@ describe('acp CLI smoke fixtures', () => {
     })
   })
 
-  test('job create --cron/--input flags POST /v1/admin/jobs with parsed schedule and input JSON', async () => {
+  test('job create --trigger/--input flags POST /v1/admin/jobs with parsed event trigger and input JSON', async () => {
     const fetchQueue = createFetchQueue([
       {
         body: {
@@ -631,7 +631,7 @@ describe('acp CLI smoke fixtures', () => {
             projectId: 'agent-spaces',
             agentId: 'larry',
             scopeRef: 'agent:larry:project:agent-spaces',
-            schedule: { cron: '0 * * * *' },
+            trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
             input: { content: 'status' },
           })
         },
@@ -648,8 +648,8 @@ describe('acp CLI smoke fixtures', () => {
         'larry',
         '--scope-ref',
         'agent:larry:project:agent-spaces',
-        '--cron',
-        '0 * * * *',
+        '--trigger',
+        '{"kind":"event","source":"wrkq","match":{"event":"created"}}',
         '--input',
         '{"content":"status"}',
         '--json',

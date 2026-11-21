@@ -1,4 +1,4 @@
-import { type JobRecord, type JobRunRecord, type JobsStore, nextFireAfter } from 'acp-jobs-store'
+import type { JobRecord, JobRunRecord, JobsStore } from 'acp-jobs-store'
 
 import type { JobFlow, JobFlowStep } from 'acp-core'
 
@@ -101,7 +101,6 @@ export function buildScheduleSummary(job: JobRecord):
       cron: string
       lastFireAt?: string | undefined
       nextFireAt?: string | undefined
-      nextFirePreview?: string[] | undefined
       windowStart?: string | undefined
       windowEnd?: string | undefined
       windowMinutes?: number | undefined
@@ -113,19 +112,10 @@ export function buildScheduleSummary(job: JobRecord):
   if (schedule === undefined) {
     return undefined
   }
-  const preview: string[] = []
-  let cursor =
-    job.nextFireAt ?? nextFireAfter(schedule.cron, new Date().toISOString(), schedule.timezone)
-  for (let index = 0; index < 5 && cursor !== null; index += 1) {
-    preview.push(cursor)
-    cursor = nextFireAfter(schedule.cron, cursor, schedule.timezone)
-  }
-
   return {
     cron: schedule.cron,
     ...(job.lastFireAt !== undefined ? { lastFireAt: job.lastFireAt } : {}),
     ...(job.nextFireAt !== undefined ? { nextFireAt: job.nextFireAt } : {}),
-    ...(preview.length > 0 ? { nextFirePreview: preview } : {}),
     ...(schedule.windowStart !== undefined ? { windowStart: schedule.windowStart } : {}),
     ...(schedule.windowEnd !== undefined ? { windowEnd: schedule.windowEnd } : {}),
     ...(typeof schedule.windowMinutes === 'number'

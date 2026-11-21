@@ -7,6 +7,7 @@ import {
   createInMemoryJobsStore,
   tickJobsScheduler,
 } from '../index.js'
+import { mintFlowEvent, queueFlowEvent } from './flow-event-fixture.js'
 
 type Deferred<T> = {
   promise: Promise<T>
@@ -24,14 +25,14 @@ function deferred<T = void>(): Deferred<T> {
   return { promise, resolve, reject }
 }
 
-function createDueFlowJob(store: JobsStore, slug: string) {
+function createEventFlowJob(store: JobsStore, slug: string) {
   return store.createJob({
     slug,
     agentId: 'larry',
     projectId: 'demo',
     scopeRef: `agent:larry:project:demo:task:T-05420:${slug}`,
     laneRef: 'main',
-    schedule: { cron: '*/5 * * * *' },
+    trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
     input: { content: 'unused flow input' },
     flow: {
       sequence: [{ id: 'exec', input: 'run a slow step', expect: { outcome: 'succeeded' } }],
@@ -51,7 +52,7 @@ function createInflightFlowRun(
     projectId: 'demo',
     scopeRef: `agent:larry:project:demo:task:T-05420:${input.slug}`,
     laneRef: 'main',
-    schedule: { cron: '0 4 * * 1' },
+    trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
     input: { content: 'unused flow input' },
     flow: {
       sequence: [{ id: 'exec', input: 'continue flow', expect: { outcome: 'succeeded' } }],
@@ -86,20 +87,22 @@ function succeedRun(store: JobsStore, entry: ClaimedDueJob, now: string): JobRun
 }
 
 describe('flow scheduler advance concurrency (T-05420 red)', () => {
-  test('a slow due flow advance does not head-of-line block an unrelated due flow job', async () => {
+  test('a slow event flow advance does not head-of-line block an unrelated event flow job', async () => {
     const store = createInMemoryJobsStore()
 
     try {
-      createDueFlowJob(store, 'slow-due-flow')
-      createDueFlowJob(store, 'unrelated-due-flow')
+      createEventFlowJob(store, 'slow-due-flow')
+      createEventFlowJob(store, 'unrelated-due-flow')
 
       const slowEntered = deferred()
       const releaseSlow = deferred()
       const entered: string[] = []
       let slowJobRunId: string | undefined
 
+      queueFlowEvent(store)
       const tick = tickJobsScheduler({
         store,
+        evaluateEventJob: mintFlowEvent,
         now: '2026-04-28T00:05:00.000Z',
         // T-05420 red: this hook models a long inline exec/advance. The
         // unrelated due flow must be started before this promise resolves.

@@ -2,12 +2,9 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import path from 'node:path'
 import type { ExecFlowStep, ExecStepResult } from 'acp-core'
 
-import { createInMemoryJobsStore } from 'acp-jobs-store'
-
 import type { JobExecPolicy } from '../../src/jobs/exec-policy.js'
 import { resolveJobExecPolicy } from '../../src/jobs/exec-policy.js'
 import { runExecStep } from '../../src/jobs/exec-step.js'
-import { withWiredServer } from '../fixtures/wired-server.js'
 
 const jsRuntime = process.execPath
 const defaultCwd = process.cwd()
@@ -64,36 +61,6 @@ describe('exec policy default', () => {
       }
     }
     Object.assign(process.env, originalEnv)
-  })
-
-  test('GET /v1/admin/jobs/scheduler reports exec steps disabled unless ACP_JOB_FLOW_EXEC_ENABLED=1', async () => {
-    const jobsStore = createInMemoryJobsStore()
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          const readExecEnabled = async (): Promise<unknown> => {
-            const response = await fixture.request({
-              method: 'GET',
-              path: '/v1/admin/jobs/scheduler',
-            })
-            expect(response.status).toBe(200)
-            return (await fixture.json<{ execEnabled: unknown }>(response)).execEnabled
-          }
-
-          process.env['ACP_JOB_FLOW_EXEC_ENABLED'] = undefined
-          expect(await readExecEnabled()).toBe(false)
-
-          process.env['ACP_JOB_FLOW_EXEC_ENABLED'] = 'true'
-          expect(await readExecEnabled()).toBe(false)
-
-          process.env['ACP_JOB_FLOW_EXEC_ENABLED'] = '1'
-          expect(await readExecEnabled()).toBe(true)
-        },
-        { jobsStore }
-      )
-    } finally {
-      jobsStore.close()
-    }
   })
 })
 

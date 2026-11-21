@@ -8,7 +8,6 @@ import {
   execStep,
   withFlowHarness,
 } from '../fixtures/flow-engine.js'
-import { hrcClientForFreshStep } from '../fixtures/flow-fresh-history.js'
 
 describe('advanceJobFlow exec resume/replay', () => {
   // T-05416: retry state is represented by a newer step-run attempt row. The
@@ -66,88 +65,6 @@ describe('advanceJobFlow exec resume/replay', () => {
         inputAttemptId: expect.any(String),
         runId: expect.any(String),
       })
-    })
-  })
-
-  // T-05416: scheduled-fresh lookup must scan the active dispatched attempt for
-  // a prior job run; attempt 1 can be a stale failed retry predecessor.
-  test('scheduled fresh cleanup finds the prior dispatched attempt 2 instead of stale attempt 1 (T-05416 red)', async () => {
-    await withFlowHarness(async ({ deps, jobsStore, order }) => {
-      const job = createFlowJob(jobsStore, {
-        sequence: [
-          {
-            id: 'fresh-start',
-            input: 'start with fresh context',
-            fresh: true,
-          },
-        ],
-      })
-
-      const priorRun = deps.runStore.createRun({
-        sessionRef: { scopeRef: job.scopeRef, laneRef: job.laneRef },
-        status: 'completed',
-      })
-      deps.runStore.updateRun(priorRun.runId, {
-        status: 'completed',
-        hrcRunId: `hrc-${priorRun.runId}`,
-        hostSessionId: 'hsid-prior-attempt-2',
-        runtimeId: 'rt-prior-attempt-2',
-      })
-      const priorJobRun = createJobRun(jobsStore, job.jobId, {
-        jobRunId: 'jrun_prior_fresh_attempt_2',
-        triggeredAt: '2026-04-28T12:00:00.000Z',
-        triggeredBy: 'schedule',
-        status: 'succeeded',
-        completedAt: '2026-04-28T12:05:00.000Z',
-      })
-      jobsStore.jobStepRuns.insertMany(priorJobRun.jobRunId, 'sequence', [
-        {
-          stepId: 'fresh-start',
-          status: 'failed',
-          attempt: 1,
-          startedAt: '2026-04-28T12:00:00.000Z',
-          completedAt: '2026-04-28T12:01:00.000Z',
-        },
-        {
-          stepId: 'fresh-start',
-          status: 'succeeded',
-          attempt: 2,
-          runId: priorRun.runId,
-          startedAt: '2026-04-28T12:02:00.000Z',
-          completedAt: '2026-04-28T12:05:00.000Z',
-        },
-      ])
-
-      const currentJobRun = createJobRun(jobsStore, job.jobId, {
-        jobRunId: 'jrun_current_fresh_attempt_2',
-        triggeredAt: '2026-04-28T12:20:00.000Z',
-        triggeredBy: 'schedule',
-        status: 'claimed',
-      })
-      const terminateCalls: Array<{ runtimeId: string; options: unknown }> = []
-
-      const advanced = await advanceJobFlow({
-        deps: {
-          ...deps,
-          hrcClient: hrcClientForFreshStep({
-            order,
-            terminateCalls,
-          }),
-        } as never,
-        job,
-        jobRun: currentJobRun,
-        actor: { kind: 'system', id: 'flow-engine-test' },
-        now: '2026-04-28T12:21:00.000Z',
-      })
-
-      expect(advanced.status).toBe('succeeded')
-      expect(terminateCalls.map((call) => call.runtimeId)).toEqual(['rt-prior-attempt-2'])
-      expect(order).toEqual([
-        'terminate:rt-prior-attempt-2',
-        'resolveSession',
-        'clearContext',
-        'dispatch',
-      ])
     })
   })
 

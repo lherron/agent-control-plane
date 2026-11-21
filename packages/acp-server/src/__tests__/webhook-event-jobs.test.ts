@@ -390,7 +390,7 @@ describe('admin jobs trigger union', () => {
       agentId: 'clod',
       projectId: 'acp',
       scopeRef: 'agent:clod:project:acp:task:primary',
-      schedule: { cron: '0 * * * *' },
+      trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
       input: { content: 'x' },
       flow: GUARDED_EVENT_FLOW,
     }).job

@@ -44,7 +44,7 @@ export type ApplyManagedJobInput = {
   sourceHash: string
   desiredProjectionHash: string
   desiredJson: Record<string, unknown>
-  resourceKind: ResourceKindJob
+  resourceKind: 'event-hook'
   now: string
 }
 
@@ -183,43 +183,6 @@ function getRecord(record: Record<string, unknown>, key: string): Record<string,
   return value
 }
 
-function getManagedExecutionNodes(
-  desired: Record<string, unknown>,
-  resourceKind: ResourceKindJob
-): readonly string[] | undefined {
-  const execution = desired['execution']
-  if (execution === undefined) return undefined
-  if (resourceKind === 'event-hook') {
-    throw new Error('desiredJson.execution is unsupported for event-hook resources in v1')
-  }
-  if (!isRecord(execution) || Object.keys(execution).some((key) => key !== 'nodes')) {
-    throw new Error('desiredJson.execution must be an object containing only nodes')
-  }
-  const nodes = execution['nodes']
-  if (
-    !Array.isArray(nodes) ||
-    nodes.length === 0 ||
-    nodes.some(
-      (nodeId) =>
-        typeof nodeId !== 'string' ||
-        nodeId === 'local' ||
-        (nodeId !== 'all' && !/^[A-Za-z0-9._-]{1,64}$/.test(nodeId))
-    )
-  ) {
-    throw new Error('desiredJson.execution.nodes must be a non-empty array of valid node ids')
-  }
-  const canonical = [...new Set(nodes)].sort()
-  if (canonical.includes('all') && canonical.length !== 1) {
-    throw new Error('desiredJson.execution.nodes cannot mix "all" with concrete node ids')
-  }
-  if (stableJson(canonical) !== stableJson(nodes)) {
-    throw new Error(
-      'desiredJson.execution.nodes must be deduplicated and deterministically ordered'
-    )
-  }
-  return canonical
-}
-
 function validateManagedEventTrigger(
   trigger: Record<string, unknown>
 ): ValidationError | undefined {
@@ -306,55 +269,25 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
     ? (desired['output'] as CreateJobInput['output'])
     : undefined
   const flow = isRecord(desired['flow']) ? (desired['flow'] as CreateJobInput['flow']) : undefined
-  const executionNodes = getManagedExecutionNodes(desired, input.resourceKind)
-
-  if (input.resourceKind === 'event-hook') {
-    const validationError = validateManagedEventTrigger(triggerRecord)
-    if (validationError !== undefined) {
-      return validationError
-    }
-    const validation = validateManagedJobTrigger(triggerRecord)
-    if (!validation.valid || validation.trigger.kind !== 'event') {
-      return {
-        code: 'INVALID_EVENT_TRIGGER',
-        message: validation.valid
-          ? 'event-hook trigger.kind must be event'
-          : validation.errors.join('; '),
-      }
-    }
-    if (flow !== undefined) {
-      const flowValidation = validateJobFlowJob({
-        triggerKind: validation.trigger.kind,
-        flow,
-      })
-      if (!flowValidation.valid) {
-        return invalidFlowError(flowValidation.errors)
-      }
-    }
-    return {
-      slug,
-      projectId,
-      agentId,
-      scopeRef,
-      ...(laneRef !== undefined ? { laneRef } : {}),
-      ...(description !== undefined ? { description } : {}),
-      trigger: validation.trigger,
-      input: inputTemplate,
-      ...(output !== undefined ? { output } : {}),
-      ...(flow !== undefined ? { flow } : {}),
-      ...(executionNodes !== undefined ? { executionNodes } : {}),
-      disabled,
-      actor: { kind: 'system', id: 'managed-resources' },
-      actorStamp: 'system:managed-resources',
-      createdAt: input.now,
-    }
+  if (desired['execution'] !== undefined) {
+    throw new Error('desiredJson.execution is unsupported for event-hook resources in v1')
   }
 
-  const schedule = getRecord(desired, 'schedule')
+  const validationError = validateManagedEventTrigger(triggerRecord)
+  if (validationError !== undefined) {
+    return validationError
+  }
+  const validation = validateManagedJobTrigger(triggerRecord)
+  if (!validation.valid || validation.trigger.kind !== 'event') {
+    return {
+      code: 'INVALID_EVENT_TRIGGER',
+      message: validation.valid
+        ? 'event-hook trigger.kind must be event'
+        : validation.errors.join('; '),
+    }
+  }
   if (flow !== undefined) {
     const flowValidation = validateJobFlowJob({
-      triggerKind: 'schedule',
-      schedule: schedule as CreateJobInput['schedule'],
       flow,
     })
     if (!flowValidation.valid) {
@@ -368,11 +301,10 @@ function desiredToJobInput(input: ApplyManagedJobInput): CreateJobInput | Valida
     scopeRef,
     ...(laneRef !== undefined ? { laneRef } : {}),
     ...(description !== undefined ? { description } : {}),
-    schedule: schedule as CreateJobInput['schedule'],
+    trigger: validation.trigger,
     input: inputTemplate,
     ...(output !== undefined ? { output } : {}),
     ...(flow !== undefined ? { flow } : {}),
-    ...(executionNodes !== undefined ? { executionNodes } : {}),
     disabled,
     actor: { kind: 'system', id: 'managed-resources' },
     actorStamp: 'system:managed-resources',
@@ -385,7 +317,6 @@ function jobInputToPatch(jobInput: CreateJobInput): UpdateJobInput {
     slug: jobInput.slug,
     description: jobInput.description,
     trigger: jobInput.trigger,
-    schedule: jobInput.schedule,
     input: jobInput.input,
     output: jobInput.output,
     flow: jobInput.flow,
@@ -428,9 +359,6 @@ function liveProjectionFromJob(
   if (job.trigger.kind === 'event') {
     const desiredTrigger = isRecord(desiredJson['trigger']) ? desiredJson['trigger'] : {}
     live['trigger'] = { ...desiredTrigger, ...job.trigger }
-  } else {
-    live['trigger'] = { kind: 'schedule' }
-    live['schedule'] = job.schedule
   }
   return live
 }
@@ -601,6 +529,12 @@ export function applyManagedJob(
     }
 
     if (existing !== undefined) {
+      if (existing.resourceKind !== 'event-hook') {
+        return {
+          outcome: 'collision',
+          error: { code: 'FOREIGN_MANAGED_COLLISION', existingJobId: existing.jobId },
+        } satisfies ApplyManagedJobResult
+      }
       const existingJob = store.getJob(existing.jobId).job
       if (existingJob === undefined) {
         return {
@@ -668,7 +602,7 @@ export function listManagedJobProvenances(
 
 export function detectJobDrift(store: JobsStore, projectionId: string): DriftReport {
   const row = getProvenanceRow(store, projectionId)
-  if (row === undefined) {
+  if (row === undefined || row.resource_kind === 'scheduled-job') {
     return { hasDrift: false }
   }
 
@@ -706,6 +640,10 @@ export function disableManagedJob(
     const provenance = getManagedJobProvenance(store, projectionId)
     if (provenance === undefined) {
       throw new Error(`managed job provenance not found: ${projectionId}`)
+    }
+
+    if (provenance.resourceKind === 'scheduled-job') {
+      throw new Error('schedule jobs are owned by the schedule module')
     }
 
     const job = store.updateJob(provenance.jobId, {

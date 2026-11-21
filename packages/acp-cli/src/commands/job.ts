@@ -34,7 +34,7 @@ type ValidateResponse = { valid: boolean; errors?: unknown[] }
 /** Legacy inline flags that conflict with --in. */
 const INLINE_FLAGS = [
   '--input',
-  '--cron',
+  '--trigger',
   '--project',
   '--agent',
   '--scope-ref',
@@ -103,7 +103,7 @@ export async function runJobCommand(
       '--agent',
       '--scope-ref',
       '--lane-ref',
-      '--cron',
+      '--trigger',
       '--input',
       '--in',
       '--server',
@@ -157,7 +157,7 @@ export async function runJobCommand(
       ...(parsed.stringFlags['--lane-ref'] !== undefined
         ? { laneRef: requireStringFlag(parsed, '--lane-ref') }
         : {}),
-      schedule: { cron: requireStringFlag(parsed, '--cron') },
+      trigger: parseJsonObject('--trigger', requireStringFlag(parsed, '--trigger')),
       input: parseJsonObject('--input', requireStringFlag(parsed, '--input')),
       ...(hasFlag(parsed, '--disabled') ? { disabled: true } : {}),
     }
@@ -204,8 +204,8 @@ export async function runJobCommand(
     }
 
     const patch: Record<string, unknown> = {}
-    if (parsed.stringFlags['--cron'] !== undefined) {
-      patch['schedule'] = { cron: requireStringFlag(parsed, '--cron') }
+    if (parsed.stringFlags['--trigger'] !== undefined) {
+      patch['trigger'] = parseJsonObject('--trigger', requireStringFlag(parsed, '--trigger'))
     }
     if (parsed.stringFlags['--input'] !== undefined) {
       patch['input'] = parseJsonObject('--input', requireStringFlag(parsed, '--input'))

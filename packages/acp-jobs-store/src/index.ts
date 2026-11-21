@@ -10,7 +10,6 @@ export {
 export type {
   AppendJobRunInput,
   ClaimDueJobRunsInput,
-  ClaimDueJobsInput,
   ClaimedDueJob,
   ClaimInboxEventsInput,
   CreateJobInput,
@@ -23,7 +22,6 @@ export type {
   JobInputTemplate,
   JobExecutionAdmissionFailureCode,
   JobExecutionIdentity,
-  JobAdmissionRefusal,
   JobOutputConfig,
   JobOutputSink,
   JobOutputSinkAttemptRecord,
@@ -67,7 +65,6 @@ export {
   isValidFreshDuration,
   parseFreshDurationMs,
 } from './fresh-duration.js'
-export { isValidCron, nextFireAfter } from './cron.js'
 export {
   applyManagedJob,
   detectJobDrift,

@@ -1,5 +1,5 @@
 import { cn } from '@/lib/cn'
-import { Activity, Boxes, CalendarClock, Cpu, Menu, Workflow, X } from 'lucide-react'
+import { Activity, Boxes, Cpu, Menu, Workflow, X } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
@@ -15,7 +15,6 @@ const navItems: NavItem[] = [
   { to: '/projects', label: 'Projects', icon: Boxes },
   { to: '/agents', label: 'Agents', icon: Cpu },
   { to: '/jobs', label: 'Jobs', icon: Workflow },
-  { to: '/scheduler', label: 'Scheduler', icon: CalendarClock },
 ]
 
 export function LeftNav() {

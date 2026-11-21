@@ -453,7 +453,7 @@ describe('validateJobTrigger', () => {
     expect(result.valid).toBe(true)
     if (result.valid) {
       // T-05419: catchUp is a first-class schedule policy, not an untyped blob
-      // that the compiler/store silently drop before claimDueJobs can enforce it.
+      // that must survive when decoding historical job definitions.
       expect(result.trigger).toEqual(
         expect.objectContaining({
           catchUp: 'none',

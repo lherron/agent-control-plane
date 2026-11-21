@@ -1,5 +1,4 @@
 import type {
-  ClaimDueJobsInput,
   ClaimedDueJob,
   EventJobSkipReason,
   InboxEventRecord,
@@ -58,13 +57,11 @@ export type TickJobsSchedulerInput = {
   maxJobRunDurationMs?: number | undefined
   flowAdvanceConcurrency?: number | undefined
   executionIdentity?: JobExecutionIdentity | undefined
-  onAdmissionRefused?: ClaimDueJobsInput['onAdmissionRefused']
 }
 
 export type ScheduledRun = JobRunRecord
 
 const DEFAULT_EVENT_LEASE_MS = 30_000
-const DEFAULT_FLOW_LEASE_MS = 30 * 60_000
 const DEFAULT_MAX_JOB_RUN_DURATION_MS = 24 * 60 * 60_000
 const JOB_CHANGE_ORPHAN_GRACE_MS = 60_000
 /** Default page size for the event-inbox drain claim. */
@@ -299,22 +296,6 @@ function drainEventInbox(input: {
 
 export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<ScheduledRun[]> {
   const now = toIsoString(input.now)
-  const leaseOwner = input.leaseOwner ?? 'acp-scheduler'
-  const flowLeaseExpiresAt = new Date(Date.parse(now) + DEFAULT_FLOW_LEASE_MS).toISOString()
-  const claimed = input.store.claimDueJobs({
-    now,
-    ...(input.claimLimit !== undefined ? { limit: input.claimLimit } : {}),
-    leaseOwner,
-    leaseExpiresAt: flowLeaseExpiresAt,
-    ...(input.executionIdentity !== undefined
-      ? { executionIdentity: input.executionIdentity }
-      : {}),
-    ...(input.onAdmissionRefused !== undefined
-      ? { onAdmissionRefused: input.onAdmissionRefused }
-      : {}),
-  } satisfies ClaimDueJobsInput)
-
-  // Event-claim sibling branch: drain webhook events and mint event JobRuns.
   const mintedEventRuns =
     input.evaluateEventJob !== undefined
       ? drainEventInbox({
@@ -330,8 +311,7 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
         })
       : []
 
-  const allClaimed = [...claimed, ...mintedEventRuns]
-  const scheduledRuns = allClaimed.map((entry) => entry.jobRun)
+  const eventRuns = mintedEventRuns.map((entry) => entry.jobRun)
   const reapedRuns = terminalizeInflightJobRuns({
     store: input.store,
     now,
@@ -342,13 +322,13 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
       : {}),
   })
   if (input.dispatchThroughInputs === undefined && input.advanceFlowJobRun === undefined) {
-    return [...scheduledRuns, ...reapedRuns]
+    return [...eventRuns, ...reapedRuns]
   }
 
   const results: ScheduledRun[] = [...reapedRuns]
   const flowAdvanceEntries: ClaimedDueJob[] = []
   if (input.advanceFlowJobRun !== undefined) {
-    for (const entry of allClaimed) {
+    for (const entry of mintedEventRuns) {
       if (entry.job.flow !== undefined) {
         flowAdvanceEntries.push(entry)
       }
@@ -361,7 +341,7 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
         ? { executionNodeId: input.executionIdentity.nodeId }
         : {}),
     })
-    const claimedIds = new Set(allClaimed.map((entry) => entry.jobRun.jobRunId))
+    const claimedIds = new Set(mintedEventRuns.map((entry) => entry.jobRun.jobRunId))
     for (const entry of inflight) {
       if (!claimedIds.has(entry.jobRun.jobRunId)) {
         flowAdvanceEntries.push(entry)
@@ -383,7 +363,7 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
         })
       : Promise.resolve([])
 
-  for (const entry of allClaimed) {
+  for (const entry of mintedEventRuns) {
     if (entry.job.flow !== undefined) {
       if (input.advanceFlowJobRun === undefined) {
         results.push(entry.jobRun)
@@ -633,7 +613,6 @@ export function createJobsScheduler(input: {
   dispatchThroughInputs?: DispatchThroughInputs | undefined
   advanceFlowJobRun?: AdvanceFlowJobRun | undefined
   evaluateEventJob?: EvaluateEventJob | undefined
-  onAdmissionRefused?: TickJobsSchedulerInput['onAdmissionRefused']
 }) {
   return {
     tick(
@@ -652,9 +631,6 @@ export function createJobsScheduler(input: {
           : {}),
         ...(input.evaluateEventJob !== undefined
           ? { evaluateEventJob: input.evaluateEventJob }
-          : {}),
-        ...(input.onAdmissionRefused !== undefined
-          ? { onAdmissionRefused: input.onAdmissionRefused }
           : {}),
       })
     },

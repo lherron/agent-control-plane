@@ -269,10 +269,10 @@ acp message send | --actor --coordination-only --dispatch --from-agent --from-hu
 acp message broadcast | --actor --coordination-only --dispatch --from-agent --from-human --from-lane-ref --from-session --from-system --json --project --server --table --text --to-agent --to-human --to-lane-ref --to-session --to-system --wake
 acp job | -
 acp job validate | --actor --in --json --server --table
-acp job create | --actor --agent --cron --disabled --in --input --json --lane-ref --project --scope-ref --server --table
+acp job create | --actor --agent --disabled --in --input --json --lane-ref --project --scope-ref --server --table --trigger
 acp job list | --actor --json --project --server --table
 acp job show | --actor --job --json --server --table
-acp job patch | --actor --cron --disabled --enabled --in --input --job --json --server --table
+acp job patch | --actor --disabled --enabled --in --input --job --json --server --table --trigger
 acp job run | --actor --job --json --poll-interval --server --table --timeout --wait
 acp job-run | -
 acp job-run list | --actor --job --json --project --server --table

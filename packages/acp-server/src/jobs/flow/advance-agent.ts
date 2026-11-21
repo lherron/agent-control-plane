@@ -15,14 +15,11 @@ import {
 import { getRunFinalAssistantText } from '../run-final-output.js'
 import { failTimedOutAgentStep, hasAgentStepTimedOut } from './agent-step-timeout.js'
 import { errorCode, errorMessage, errorStatus } from './error-fields.js'
-import { cleanupPreviousScheduledFreshStepRuntime } from './scheduled-fresh-cleanup.js'
-import { resolveFreshStepDispatchPlan, stampScheduledFreshMetadata } from './scheduled-fresh.js'
 import type { AgentRunnableStep } from './step-kinds.js'
 import {
   type StepAdvanceInput,
   type StepAdvanceResult,
   requireJobsStore,
-  settleStep,
   updateStepAttempt,
 } from './step-runs.js'
 
@@ -36,33 +33,9 @@ export async function advanceAgentStep(
 
   if (stepRun.runId === undefined) {
     const dispatchStartedAt = stepRun.startedAt ?? input.now
-    const failPreRunCleanup = (message: string) =>
-      settleStep(input, stepRun.attempt, {
-        status: 'failed',
-        inputAttemptId: null,
-        runId: null,
-        startedAt: dispatchStartedAt,
-        error: { code: 'pre_run_cleanup_failed', message },
-        completedAt: input.now,
-      })
-
-    const freshPlan = resolveFreshStepDispatchPlan({ ...input, dispatchStartedAt })
-    if (!freshPlan.ok) {
-      return failPreRunCleanup(freshPlan.message)
-    }
-
-    const cleanup = await cleanupPreviousScheduledFreshStepRuntime(input, freshPlan)
-    if (!cleanup.ok) {
-      return failPreRunCleanup(cleanup.message)
-    }
-    const degradationResult =
-      cleanup.degradation === undefined
-        ? {}
-        : { result: { ...(stepRun.result ?? {}), degradation: cleanup.degradation } }
-
     try {
       const content = requireStepInput(input.step)
-      await rotateFreshStepContext(input.deps, input.job, input.step, freshPlan.rotateContext)
+      await rotateFreshStepContext(input.deps, input.job, input.step)
       const dispatched = await dispatchStepThroughInputs(input.deps, {
         jobId: input.job.jobId,
         jobRunId: input.jobRun.jobRunId,
@@ -74,16 +47,12 @@ export async function advanceAgentStep(
         content,
         actor: input.actor,
       })
-      if (freshPlan.scheduledFresh !== undefined) {
-        stampScheduledFreshMetadata(input.deps, dispatched.runId, freshPlan.scheduledFresh)
-      }
 
       stepRun = updateStepAttempt(input, stepRun.attempt, {
         status: 'running',
         inputAttemptId: dispatched.inputAttemptId,
         runId: dispatched.runId,
         startedAt: dispatchStartedAt,
-        ...degradationResult,
       })
     } catch (error) {
       if (!isTransientFlowAdvanceError(error)) {
@@ -129,10 +98,9 @@ function requireStepInput(step: AgentRunnableStep): string {
 async function rotateFreshStepContext(
   deps: ResolvedAcpServerDeps,
   job: JobRecord,
-  step: JobFlowStep,
-  rotateContext: boolean
+  step: JobFlowStep
 ): Promise<void> {
-  if (!rotateContext || step.fresh !== true || deps.hrcClient === undefined) {
+  if (step.fresh !== true || deps.hrcClient === undefined) {
     return
   }
 

@@ -77,7 +77,7 @@ function createRefactorEligibilityJobRun(jobsStore: JobsStore, flow: JobFlow) {
     projectId: 'agent-control-plane',
     scopeRef: 'agent:cody:project:agent-control-plane:task:wrkq-refactor',
     laneRef: 'main',
-    schedule: { cron: '0 */2 * * *' },
+    trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
     input: { content: 'legacy input must not dispatch for flow jobs' },
     flow,
     disabled: false,

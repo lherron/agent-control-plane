@@ -188,7 +188,7 @@ export function createFlowJob(store: JobsStore, flow: JobFlow) {
     projectId: 'demo-project',
     scopeRef: FLOW_JOB_SCOPE_REF,
     laneRef: 'main',
-    schedule: { cron: '*/5 * * * *' },
+    trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
     input: { content: 'legacy input must not dispatch for flow jobs' },
     flow,
     disabled: false,

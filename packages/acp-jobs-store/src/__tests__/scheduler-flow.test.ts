@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { type ClaimedDueJob, createInMemoryJobsStore, tickJobsScheduler } from '../index.js'
+import { mintFlowEvent, queueFlowEvent } from './flow-event-fixture.js'
 
 function createFlowJob(store: ReturnType<typeof createInMemoryJobsStore>) {
   return store.createJob({
@@ -8,7 +9,7 @@ function createFlowJob(store: ReturnType<typeof createInMemoryJobsStore>) {
     projectId: 'demo-project',
     scopeRef: 'agent:larry:project:demo-project:task:T-01311:role:implementer',
     laneRef: 'main',
-    schedule: { cron: '*/5 * * * *' },
+    trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
     input: { content: 'legacy content must not dispatch for flow jobs' },
     flow: {
       sequence: [
@@ -45,16 +46,18 @@ function ensureSequenceStepRows(
 }
 
 describe('flow scheduler branch', () => {
-  test('routes a due flow job through advanceFlowJobRun instead of legacy dispatch', async () => {
+  test('routes an event flow job through advanceFlowJobRun instead of legacy dispatch', async () => {
     const store = createInMemoryJobsStore()
 
     try {
       const job = createFlowJob(store)
+      queueFlowEvent(store)
       const advancedEntries: ClaimedDueJob[] = []
       let legacyDispatches = 0
 
       const runs = await tickJobsScheduler({
         store,
+        evaluateEventJob: mintFlowEvent,
         now: '2026-04-27T23:05:00.000Z',
         dispatchThroughInputs: async () => {
           legacyDispatches += 1
@@ -102,10 +105,12 @@ describe('flow scheduler branch', () => {
 
     try {
       const job = createFlowJob(store)
+      queueFlowEvent(store)
       const attempts: string[] = []
 
       await tickJobsScheduler({
         store,
+        evaluateEventJob: mintFlowEvent,
         now: '2026-04-27T23:05:00.000Z',
         advanceFlowJobRun: async (entry) => {
           attempts.push(entry.jobRun.jobRunId)
@@ -123,6 +128,7 @@ describe('flow scheduler branch', () => {
 
       const recovered = await tickJobsScheduler({
         store,
+        evaluateEventJob: mintFlowEvent,
         now: '2026-04-27T23:06:00.000Z',
         advanceFlowJobRun: async (entry) => {
           attempts.push(entry.jobRun.jobRunId)
@@ -153,9 +159,11 @@ describe('flow scheduler branch', () => {
 
     try {
       const job = createFlowJob(store)
+      queueFlowEvent(store)
 
       const runs = await tickJobsScheduler({
         store,
+        evaluateEventJob: mintFlowEvent,
         now: '2026-04-27T23:05:00.000Z',
         advanceFlowJobRun: async () => {
           throw new Error('invalid job flow for job_static_bad_flow')
@@ -182,6 +190,7 @@ describe('flow scheduler branch', () => {
 
     try {
       const job = createFlowJob(store)
+      queueFlowEvent(store)
       let thrown = 0
 
       for (const now of [
@@ -192,6 +201,7 @@ describe('flow scheduler branch', () => {
       ]) {
         await tickJobsScheduler({
           store,
+          evaluateEventJob: mintFlowEvent,
           now,
           advanceFlowJobRun: async () => {
             thrown += 1
@@ -221,12 +231,14 @@ describe('flow scheduler branch', () => {
     'orphaned_by_job_change',
     'stale_claimed_non_flow',
     'agent_step_timeout',
-  ])('terminal advance error %s fails the due run without retry', async (code) => {
+  ])('terminal advance error %s fails the event run without retry', async (code) => {
     const store = createInMemoryJobsStore()
     try {
       const job = createFlowJob(store)
+      queueFlowEvent(store)
       const runs = await tickJobsScheduler({
         store,
+        evaluateEventJob: mintFlowEvent,
         now: '2026-04-27T23:05:00.000Z',
         advanceFlowJobRun: async () => {
           throw Object.assign(new Error('timeout'), { code })
@@ -252,6 +264,7 @@ describe('flow scheduler branch', () => {
 
     try {
       const job = createFlowJob(store)
+      queueFlowEvent(store)
       for (const errorCode of [
         'job_run_max_duration_exceeded',
         'orphaned_by_job_change',
@@ -276,6 +289,7 @@ describe('flow scheduler branch', () => {
       const advanced: string[] = []
       await tickJobsScheduler({
         store,
+        evaluateEventJob: mintFlowEvent,
         now: '2026-04-27T23:10:00.000Z',
         advanceFlowJobRun: async (entry) => {
           advanced.push(entry.jobRun.jobRunId)

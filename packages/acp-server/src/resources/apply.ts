@@ -1,7 +1,3 @@
-import { readFileSync } from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-
 import {
   type InterfaceBinding,
   type InterfaceStore,
@@ -21,61 +17,7 @@ import {
   openSqliteJobsStore,
 } from 'acp-jobs-store'
 
-import { unassignedFederatedScheduleMessage } from '../jobs/execution-status.js'
 import { validateJobOutputConfig } from '../jobs/job-output-config.js'
-
-// ---------------------------------------------------------------------------
-// Schedule-module cutover guard (temporary; deleted with the schedule half of
-// this projection when the last cron job has moved).
-//
-// A schedule file is read by two schedulers during cutover: this projection and
-// the praesidium-kernel `schedule` module. The module arms a job only when its
-// key is enabled in the module's cutover list. A job armed there must stay
-// disabled here, whatever the file's own `enabled` says, or both would fire it.
-// ---------------------------------------------------------------------------
-
-const SCHEDULE_CUTOVER_LIST = path.join(os.homedir(), 'praesidium/var/state/schedule/cutover.json')
-
-/** Keys (`<agent>/<name>`) the schedule module holds armed. Missing or unreadable file: none. */
-function readScheduleCutoverKeys(): ReadonlySet<string> {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(SCHEDULE_CUTOVER_LIST, 'utf8'))
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      return new Set()
-    }
-    return new Set(
-      Object.entries(parsed as Record<string, unknown>)
-        .filter(
-          ([, entry]) =>
-            typeof entry === 'object' &&
-            entry !== null &&
-            (entry as Record<string, unknown>)['enabled'] === true
-        )
-        .map(([key]) => key)
-    )
-  } catch {
-    return new Set()
-  }
-}
-
-/** `agent-clod.disk-sample` is the module's `clod/disk-sample`. */
-function scheduleCutoverKey(slug: string): string | undefined {
-  const match = /^agent-([^.]+)\.(.+)$/.exec(slug)
-  return match === null ? undefined : `${match[1]}/${match[2]}`
-}
-
-function withScheduleCutover(
-  resource: Pick<ManagedResourceProjection, 'resourceKind' | 'projectionPk' | 'desiredJson'>,
-  cutoverKeys: ReadonlySet<string>
-): ManagedResourceProjection['desiredJson'] {
-  if (resource.resourceKind !== 'scheduled-job') {
-    return resource.desiredJson
-  }
-  const desired = resource.desiredJson
-  const slug = typeof desired['slug'] === 'string' ? desired['slug'] : resource.projectionPk
-  const key = scheduleCutoverKey(slug)
-  return key !== undefined && cutoverKeys.has(key) ? { ...desired, disabled: true } : desired
-}
 
 // ---------------------------------------------------------------------------
 // Types (API contract frozen by Phase C RED tests)
@@ -116,6 +58,7 @@ export type ResourceOutcome = {
     | 'created'
     | 'updated'
     | 'noop'
+    | 'schedule_module_owned'
     | 'collision'
     | 'stale_adoption_rejected'
     | 'validation_error'
@@ -151,7 +94,7 @@ export type PlanValidationResult =
 /**
  * Source-deletion policy for managed-resource reconciliation (T-05244).
  *
- * Default behavior is `disable` (disable-only): a stale scheduled job, event hook,
+ * Default behavior is `disable` (disable-only): a stale event hook
  * or interface binding is disabled in place and its runtime/history rows
  * (jobs, provenance, event inbox/match/run history, bindings, delivery requests)
  * are preserved. No delete/purge happens by omission.
@@ -214,7 +157,6 @@ export type ApplyManagedResourcesWithStoresInput = {
   jobsStore: JobsStore
   interfaceStore: InterfaceStore
   now: string
-  executionMode?: 'single-node' | 'federated' | undefined
 }
 
 export type GetManagedResourcesStatusWithStoresInput =
@@ -405,41 +347,13 @@ function validateDesiredExecution(
     return
   }
   const prefix = `resources[${index}].desiredJson.execution`
-  if (resource['resourceKind'] === 'event-hook') {
-    addError(errors, prefix, 'is unsupported for event-hook resources in v1')
-    return
-  }
-  if (resource['resourceKind'] !== 'scheduled-job') {
-    addError(errors, prefix, 'is only supported for scheduled-job resources')
-    return
-  }
-  const execution = desiredJson['execution']
-  if (!isRecord(execution)) {
-    addError(errors, prefix, 'must be an object')
-    return
-  }
-  unknownFieldErrors(errors, execution, new Set(['nodes']), prefix)
-  const nodes = execution['nodes']
-  if (
-    !Array.isArray(nodes) ||
-    nodes.length === 0 ||
-    nodes.some(
-      (nodeId) =>
-        typeof nodeId !== 'string' ||
-        nodeId === 'local' ||
-        (nodeId !== 'all' && !/^[A-Za-z0-9._-]{1,64}$/.test(nodeId))
-    )
-  ) {
-    addError(errors, `${prefix}.nodes`, 'must be a non-empty array of valid node ids')
-    return
-  }
-  const canonical = [...new Set(nodes)].sort()
-  if (canonical.includes('all') && canonical.length !== 1) {
-    addError(errors, `${prefix}.nodes`, 'cannot mix "all" with concrete node ids')
-  }
-  if (JSON.stringify(canonical) !== JSON.stringify(nodes)) {
-    addError(errors, `${prefix}.nodes`, 'must be deduplicated and deterministically ordered')
-  }
+
+  const kind = resource['resourceKind']
+  const message =
+    kind === 'event-hook'
+      ? 'is unsupported for event-hook resources in v1'
+      : 'is only supported for scheduled-job resources'
+  addError(errors, prefix, message)
 }
 
 function openCachedJobsStore(dbPath: string): JobsStore {
@@ -709,9 +623,11 @@ export function validateManagedResourcesPlan(rawPlan: unknown): PlanValidationRe
           addError(errors, `${prefix}.${field}`, 'must be pending-apply')
         }
       }
-      validateOriginPolicy(errors, resource, index)
-      validateDesiredOutput(errors, resource, index)
-      validateDesiredExecution(errors, resource, index)
+      if (resource['resourceKind'] !== 'scheduled-job') {
+        validateOriginPolicy(errors, resource, index)
+        validateDesiredOutput(errors, resource, index)
+        validateDesiredExecution(errors, resource, index)
+      }
     })
   }
 
@@ -722,7 +638,6 @@ export async function applyPlanWithStores(
   input: ApplyManagedResourcesWithStoresInput
 ): Promise<ApplyManagedResourcesResult> {
   const outcomes: ResourceOutcome[] = []
-  const scheduleCutoverKeys = readScheduleCutoverKeys()
 
   for (const resource of input.plan.resources) {
     const base = {
@@ -730,24 +645,8 @@ export async function applyPlanWithStores(
       resourceKind: resource.resourceKind,
       projectionPk: resource.projectionPk,
     }
-    const unassigned =
-      resource.resourceKind === 'scheduled-job'
-        ? unassignedFederatedScheduleMessage({
-            triggerKind: 'schedule',
-            disabled: resource.desiredJson['disabled'] === true,
-            executionNodes: isRecord(resource.desiredJson['execution'])
-              ? (resource.desiredJson['execution']['nodes'] as readonly string[] | undefined)
-              : undefined,
-            mode: input.executionMode,
-            label: resource.projectionPk,
-          })
-        : undefined
-    if (unassigned !== undefined) {
-      outcomes.push({
-        ...base,
-        outcome: 'failed',
-        error: { code: 'UNASSIGNED_FEDERATED_SCHEDULE', message: unassigned },
-      })
+    if (resource.resourceKind === 'scheduled-job') {
+      outcomes.push({ ...base, outcome: 'schedule_module_owned' })
       continue
     }
     try {
@@ -759,7 +658,7 @@ export async function applyPlanWithStores(
         sourcePath: resource.sourcePath,
         sourceHash: resource.sourceHash,
         desiredProjectionHash: resource.desiredProjectionHash,
-        desiredJson: withScheduleCutover(resource, scheduleCutoverKeys),
+        desiredJson: resource.desiredJson,
         now: input.now,
       }
       const result =
@@ -857,7 +756,8 @@ export async function statusWithStores(
 
   function planAwareFacts(
     projectionId: string,
-    state: 'active' | 'disabled'
+    state: 'active' | 'disabled',
+    scheduleModuleOwned = false
   ): Pick<ManagedResourceStatusEntry, 'isStale' | 'recommendedAction'> {
     if (!planAware || presentProjectionIds === undefined) {
       return {}
@@ -865,7 +765,9 @@ export async function statusWithStores(
     const isStale = !presentProjectionIds.has(projectionId)
     return {
       isStale,
-      recommendedAction: recommendedActionFor(isStale, state, policy),
+      recommendedAction: scheduleModuleOwned
+        ? 'none'
+        : recommendedActionFor(isStale, state, policy),
     }
   }
 
@@ -886,7 +788,11 @@ export async function statusWithStores(
       disabled: job === undefined ? provenance.state === 'disabled' : job.disabled,
       ...(job === undefined ? {} : jobOperationalFacts(job)),
       ...driftFacts(drift),
-      ...planAwareFacts(provenance.projectionId, provenance.state),
+      ...planAwareFacts(
+        provenance.projectionId,
+        provenance.state,
+        provenance.resourceKind === 'scheduled-job'
+      ),
     }
   })
   const bindingResources: ManagedResourceStatusEntry[] = listManagedBindingProvenances(
@@ -1061,7 +967,10 @@ export async function reconcilePlanWithStores(
   const outcomes: SourceDeletionOutcome[] = []
 
   for (const provenance of listManagedJobProvenances(input.jobsStore, { ownerScopeRef })) {
-    if (presentProjectionIds.has(provenance.projectionId)) {
+    if (
+      provenance.resourceKind === 'scheduled-job' ||
+      presentProjectionIds.has(provenance.projectionId)
+    ) {
       continue
     }
     outcomes.push(reconcileStaleJob(input.jobsStore, provenance, policy))

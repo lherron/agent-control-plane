@@ -10,8 +10,6 @@ import { Link } from 'react-router-dom'
 
 type StatusFilter = 'all' | 'enabled' | 'disabled'
 
-const CRON_DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
-
 function inferKind(job: JobRecord): JobKind {
   if (job.flow !== undefined) return 'flow'
   if (Array.isArray(job.input['argv']) || typeof job.input['command'] === 'string') return 'exec'
@@ -24,41 +22,6 @@ function kindTone(kind: JobKind): 'accent' | 'success' | 'muted' {
   return 'muted'
 }
 
-function describeCron(cron: string): string {
-  if (!cron) return 'manual'
-  const parts = cron.trim().split(/\s+/)
-  if (parts.length !== 5) return cron
-  const [min, hour, dom, , dow] = parts
-  if (dom === '*' && dow === '*' && hour !== '*' && min !== '*') {
-    const h = Number(hour)
-    const m = Number(min)
-    if (!Number.isNaN(h) && !Number.isNaN(m)) {
-      return `Daily ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-    }
-  }
-  if (hour === '*' && dom === '*' && dow === '*' && /^\d+$/.test(min)) {
-    return `Hourly :${min.padStart(2, '0')}`
-  }
-  if (dom === '*' && /^\d+$/.test(dow) && hour !== '*' && min !== '*') {
-    const d = CRON_DOW_LABELS[Number(dow)] ?? `dow:${dow}`
-    return `${d} ${hour.padStart(2, '0')}:${min.padStart(2, '0')}`
-  }
-  return cron
-}
-
-function timeAbs(iso: string | undefined): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(d)
-}
-
 interface Group {
   key: string
   projectId: string
@@ -66,8 +29,7 @@ interface Group {
   jobs: JobRecord[]
 }
 
-const GRID =
-  '14px minmax(280px,1.5fr) minmax(140px,0.9fr) 70px minmax(140px,0.9fr) minmax(140px,0.9fr) 14px'
+const GRID = '14px minmax(280px,1.5fr) minmax(140px,0.9fr) 70px 14px'
 
 export function JobsCatalog() {
   const [search, setSearch] = useState('')
@@ -195,7 +157,7 @@ export function JobsCatalog() {
               style={{ gridTemplateColumns: GRID }}
               className="grid items-center gap-x-6 pb-2 border-b border-border/60"
             >
-              {[null, 'Job', 'Schedule', 'Kind', 'Next fire', 'Last fire', null].map((label, i) => (
+              {[null, 'Job', 'Trigger', 'Kind', null].map((label, i) => (
                 <span key={label ?? `_${i}`} className="kicker text-muted truncate">
                   {label ?? ''}
                 </span>
@@ -234,21 +196,10 @@ export function JobsCatalog() {
                               </div>
                             )}
                           </div>
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-[12px] text-ink tabular truncate">
-                              {describeCron(job.schedule.cron)}
-                            </span>
-                            <span className="mono text-[10px] text-quiet tabular">
-                              {job.schedule.cron}
-                            </span>
-                          </div>
+                          <span className="text-[12px] text-muted truncate">
+                            {job.trigger?.kind === 'event' ? 'Event' : 'Historical schedule'}
+                          </span>
                           <Pill tone={kindTone(kind)}>{kind}</Pill>
-                          <span className="mono text-[12px] tabular text-ink truncate">
-                            {timeAbs(job.nextFireAt)}
-                          </span>
-                          <span className="mono text-[12px] tabular text-muted truncate">
-                            {timeAbs(job.lastFireAt)}
-                          </span>
                           <ArrowUpRight className="h-3.5 w-3.5 text-quiet/0 group-hover:text-accent transition-all" />
                         </Link>
                       </li>

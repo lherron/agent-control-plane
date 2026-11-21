@@ -4,7 +4,6 @@ import {
   type JobFlowValidationError,
   type JobRecord,
   type JobsStore,
-  isValidCron,
   isValidJobSlug,
   mapJobRunStatusForFlowResponse,
   validateJobFlow,
@@ -25,13 +24,9 @@ import { handleCreateInput } from './inputs.js'
 
 import { validateJobTrigger } from 'acp-core'
 
-import type { Actor, JobFlow, JobTrigger } from 'acp-core'
+import type { Actor, EventTrigger, JobFlow } from 'acp-core'
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import { resolveHrcRoutes } from '../hrc-client.js'
-import {
-  currentExecutionMode,
-  unassignedFederatedScheduleMessage,
-} from '../jobs/execution-status.js'
 import { advanceJobFlow } from '../jobs/flow-engine.js'
 import { validateJobOutputConfig } from '../jobs/job-output-config.js'
 import { createJobLifecycleEmitter } from '../jobs/lifecycle-events.js'
@@ -90,31 +85,15 @@ function requireJobId(params: Record<string, string>): string {
   return jobId.trim()
 }
 
-function parseSchedule(
-  input: Record<string, unknown>
-): Readonly<Record<string, unknown>> & { cron: string } {
-  const schedule = requireRecord(input['schedule'], 'schedule')
-  const cron = requireTrimmedStringField(schedule, 'cron')
-  if (!isValidCron(cron)) {
-    throw new Error(`invalid cron schedule: ${cron}`)
-  }
-
-  return { ...schedule, cron }
-}
-
-function parseOptionalSchedule(
-  input: Record<string, unknown>
-): (Readonly<Record<string, unknown>> & { cron: string }) | undefined {
-  const schedule = readOptionalRecordField(input, 'schedule')
-  return schedule === undefined ? undefined : parseSchedule(input)
-}
-
 function parseInputTemplate(input: Record<string, unknown>): Readonly<Record<string, unknown>> {
   return requireRecord(input['input'], 'input')
 }
 
 /** Parse + validate the optional `trigger` union from a job body. */
-function parseOptionalTrigger(body: Record<string, unknown>): JobTrigger | undefined {
+function parseOptionalTrigger(body: Record<string, unknown>): EventTrigger | undefined {
+  if (hasOwnField(body, 'schedule')) {
+    badRequest('schedule jobs are owned by the schedule module', { field: 'schedule' })
+  }
   if (!hasOwnField(body, 'trigger')) {
     return undefined
   }
@@ -123,6 +102,9 @@ function parseOptionalTrigger(body: Record<string, unknown>): JobTrigger | undef
     badRequest(`invalid trigger: ${result.errors.join('; ')}`, {
       field: 'trigger',
     })
+  }
+  if (result.trigger.kind !== 'event') {
+    badRequest('schedule jobs are owned by the schedule module', { field: 'trigger' })
   }
   return result.trigger
 }
@@ -171,20 +153,6 @@ function parseOptionalFlow(
   input: Record<string, unknown>
 ): JobFlow | InvalidJobFlowValidation | undefined {
   return hasOwnField(input, 'flow') ? validateFlowInput(input['flow']) : undefined
-}
-
-function readValidationSchedule(input: Record<string, unknown>) {
-  const schedule = input['schedule']
-  if (schedule === undefined) {
-    return undefined
-  }
-
-  if (!isRecord(schedule)) {
-    return { cron: '' }
-  }
-
-  const cron = schedule['cron']
-  return { ...schedule, cron: typeof cron === 'string' ? cron : '' }
 }
 
 function requireJob(deps: ResolvedAcpServerDeps, jobId: string): JobRecord {
@@ -260,21 +228,6 @@ export async function dispatchJobRunThroughInputs(
   }
 }
 
-function refuseUnassignedFederatedSchedule(
-  deps: ResolvedAcpServerDeps,
-  job: Parameters<typeof unassignedFederatedScheduleMessage>[0]
-): void {
-  const message = unassignedFederatedScheduleMessage({
-    ...job,
-    mode: currentExecutionMode(deps.jobNodeIdentityAuthority?.getDiagnostics()),
-  })
-  if (message !== undefined) {
-    throw new AcpHttpError(409, 'job_execution_unassigned_federated', message, {
-      field: 'executionNodes',
-    })
-  }
-}
-
 export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor }) => {
   const body = requireRecord(await parseJsonBody(request))
   const flow = parseOptionalFlow(body)
@@ -290,7 +243,9 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
   }
   const description = readOptionalTrimmedStringField(body, 'description')
   const trigger = parseOptionalTrigger(body)
-  const schedule = trigger === undefined ? parseSchedule(body) : undefined
+  if (trigger === undefined) {
+    badRequest('trigger is required', { field: 'trigger' })
+  }
   const output = parseOptionalOutput(body)
   if (output !== undefined && output !== null && flow !== undefined) {
     badRequest('job output is only supported for non-flow jobs', {
@@ -299,23 +254,12 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
   }
   if (flow !== undefined) {
     const validation = validateJobFlowJob({
-      triggerKind: trigger?.kind ?? 'schedule',
-      schedule,
       flow,
     })
     if (!validation.valid) {
       return json(validation, 400)
     }
   }
-  // Admin create cannot set executionNodes, so an enabled schedule here is
-  // always unowned; managed-resource projection is the owned path.
-  refuseUnassignedFederatedSchedule(deps, {
-    triggerKind: trigger?.kind ?? 'schedule',
-    disabled: disabled ?? false,
-    executionNodes: undefined,
-    mode: undefined,
-    label: slug ?? '(new)',
-  })
   const jobsStore = requireJobsStore(deps)
   const projectId = requireTrimmedStringField(body, 'projectId')
   const created = withJobSlugConflict(projectId, slug, () =>
@@ -326,7 +270,7 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
       ...(slug !== undefined ? { slug } : {}),
       ...(description !== undefined ? { description } : {}),
       ...(laneRef !== undefined ? { laneRef } : {}),
-      ...(trigger !== undefined ? { trigger } : { schedule }),
+      trigger,
       input: parseInputTemplate(body),
       ...(output !== undefined && output !== null ? { output } : {}),
       ...(flow !== undefined ? { flow } : {}),
@@ -340,12 +284,8 @@ export const handleCreateAdminJob: RouteHandler = async ({ request, deps, actor 
 
 export const handleValidateAdminJob: RouteHandler = async ({ request }) => {
   const body = requireRecord(await parseJsonBody(request))
-  return json(
-    validateJobFlowJob({
-      schedule: readValidationSchedule(body),
-      flow: body['flow'],
-    })
-  )
+  parseOptionalTrigger(body)
+  return json(validateJobFlowJob({ flow: body['flow'] }))
 }
 
 export const handleListAdminJobs: RouteHandler = ({ url, deps }) => {
@@ -370,7 +310,6 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
     return json(flow, 400)
   }
 
-  const schedule = parseOptionalSchedule(body)
   const trigger = parseOptionalTrigger(body)
   const input = parseOptionalInputTemplate(body)
   const output = parseOptionalOutput(body)
@@ -398,32 +337,23 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
       })
     }
   }
+  if (existing.trigger.kind === 'schedule') {
+    badRequest('schedule jobs are owned by the schedule module', { jobId })
+  }
   const effectiveFlow = flow ?? existing.flow
   if (effectiveFlow !== undefined) {
-    const effectiveTriggerKind =
-      trigger?.kind ?? (schedule !== undefined ? 'schedule' : existing.trigger.kind)
     const validation = validateJobFlowJob({
-      triggerKind: effectiveTriggerKind,
-      schedule: effectiveTriggerKind === 'schedule' ? (schedule ?? existing.schedule) : undefined,
       flow: effectiveFlow,
     })
     if (!validation.valid) {
       return json(validation, 400)
     }
   }
-  refuseUnassignedFederatedSchedule(deps, {
-    triggerKind: trigger?.kind ?? (schedule !== undefined ? 'schedule' : existing.trigger.kind),
-    disabled: disabled ?? existing.disabled,
-    executionNodes: existing.executionNodes,
-    mode: undefined,
-    label: `${existing.slug} (${existing.jobId})`,
-  })
   const updated = withJobSlugConflict(existing.projectId, slug, () =>
     requireJobsStore(deps).updateJob(jobId, {
       ...(slug !== undefined ? { slug } : {}),
       ...descriptionPatch,
       ...(trigger !== undefined ? { trigger } : {}),
-      ...(schedule !== undefined ? { schedule } : {}),
       ...(input !== undefined ? { input } : {}),
       ...(output !== undefined ? { output } : {}),
       ...(flow !== undefined ? { flow } : {}),
@@ -438,6 +368,9 @@ export const handlePatchAdminJob: RouteHandler = async ({ request, params, deps,
 export const handleRunAdminJob: RouteHandler = async ({ params, deps, actor }) => {
   const jobsStore = requireJobsStore(deps)
   const job = requireJob(deps, requireJobId(params))
+  if (job.trigger.kind === 'schedule') {
+    badRequest('schedule jobs are owned by the schedule module', { jobId: job.jobId })
+  }
   const identityAuthority = deps.jobNodeIdentityAuthority
   let executionIdentity: JobExecutionIdentity | undefined
   if (identityAuthority !== undefined) {

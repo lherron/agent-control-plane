@@ -27,7 +27,7 @@ import {
 } from './jobs/node-identity.js'
 import { resolveLauncherDeps } from './launcher-deps.js'
 import { resolveMobileAuthStore } from './mobile-auth/store.js'
-import { reportReadinessExclusion, startServeWorkers } from './serve-workers.js'
+import { startServeWorkers } from './serve-workers.js'
 import {
   type AcpServerCliOptions,
   DEFAULT_CAP_CATALOG_STATE_DIR,
@@ -134,15 +134,6 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     jobsStore !== undefined ? createJobNodeIdentityAuthority(launcherDeps.hrcClient) : undefined
   const jobIdentityStartup =
     jobNodeIdentityAuthority !== undefined ? await jobNodeIdentityAuthority.initialize() : undefined
-  if (jobIdentityStartup?.ok === true) {
-    // Publish excluded schedules once at baseline, including future schedules.
-    // hasSchedulerWork reports only new/changed exclusions on subsequent ticks.
-    jobsStore?.hasSchedulerWork(
-      new Date().toISOString(),
-      jobIdentityStartup.identity,
-      reportReadinessExclusion
-    )
-  }
   if (jobIdentityStartup !== undefined && !jobIdentityStartup.ok) {
     writeLogLine({
       level: 'error',

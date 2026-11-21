@@ -29,7 +29,7 @@ function makeJobRun(store: ReturnType<typeof createInMemoryJobsStore>) {
     projectId: 'agent-control-plane',
     scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
     laneRef: 'main',
-    schedule: { cron: '0 0 * * *' },
+    trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
     input: { content: 'health check' },
     flow: {
       sequence: [

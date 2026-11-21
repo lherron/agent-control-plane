@@ -74,10 +74,7 @@ describe('jobs store contract', () => {
             projectId: 'demo-project',
             scopeRef: 'agent:larry:project:demo-project:task:T-01175:role:implementer',
             laneRef: 'nightly',
-            schedule: {
-              cron: '*/5 * * * *',
-              windowMinutes: 15,
-            },
+            trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
             input: {
               content: 'run the jobs acceptance suite',
             },
@@ -102,9 +99,7 @@ describe('jobs store contract', () => {
         await Promise.resolve(
           jobs.update(jobId, {
             disabled: true,
-            schedule: {
-              cron: '0 * * * *',
-            },
+            trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
           })
         )
       )
@@ -112,7 +107,7 @@ describe('jobs store contract', () => {
         expect.objectContaining({
           jobId,
           disabled: true,
-          schedule: expect.objectContaining({ cron: '0 * * * *' }),
+          trigger: expect.objectContaining({ kind: 'event' }),
         })
       )
 
@@ -134,7 +129,7 @@ describe('jobs store contract', () => {
         agentId: 'larry',
         projectId: 'demo-project',
         scopeRef: 'agent:larry:project:demo-project',
-        schedule: { cron: '0 * * * *' },
+        trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
         input: { content: 'legacy prompt' },
       }).job
 
@@ -148,7 +143,7 @@ describe('jobs store contract', () => {
         agentId: 'larry',
         projectId: 'demo-project',
         scopeRef: 'agent:larry:project:demo-project',
-        schedule: { cron: '0 * * * *' },
+        trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
         input: { content: 'legacy compatibility prompt' },
         flow,
       }).job

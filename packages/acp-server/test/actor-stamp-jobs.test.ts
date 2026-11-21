@@ -70,7 +70,7 @@ async function createJob(
       projectId: fixture.seed.projectId,
       scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-01184:role:implementer`,
       laneRef: 'main',
-      schedule: { cron: '*/5 * * * *' },
+      trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
       input: { content: 'run the jobs workflow' },
       ...(input.body ?? {}),
     },

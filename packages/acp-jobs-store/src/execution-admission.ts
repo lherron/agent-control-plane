@@ -49,26 +49,11 @@ export function assertJobExecutionAdmission(job: JobRecord, identity: JobExecuti
   if (job.trigger.kind === 'event') {
     return
   }
-  const ownerSet = job.executionNodes
-  if (ownerSet === undefined) {
-    if (identity.mode === 'single-node') {
-      return
-    }
-    throw new JobExecutionAdmissionError({
-      code: 'job_execution_unassigned_federated',
-      job,
-      identity,
-      message: `job ${job.jobId} has no execution owner set in federated mode`,
-    })
-  }
-  if (ownerSet.includes('all') || ownerSet.includes(identity.nodeId)) {
-    return
-  }
   throw new JobExecutionAdmissionError({
-    code: 'job_execution_wrong_node',
+    code: 'job_execution_schedule_module_owned',
     job,
     identity,
-    message: `job ${job.jobId} is not owned by node ${identity.nodeId}`,
+    message: `job ${job.jobId} is owned by the schedule module`,
   })
 }
 

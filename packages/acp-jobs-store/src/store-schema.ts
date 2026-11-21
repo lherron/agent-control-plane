@@ -344,6 +344,15 @@ export const jobsStoreMigrations: readonly JobsStoreMigration[] = [
         ON job_runs (execution_node_id, status);
     `,
   },
+  {
+    id: '012_retire_schedule_readiness',
+    sql: `
+      DROP INDEX IF EXISTS jobs_next_fire_at_idx;
+      ALTER TABLE jobs DROP COLUMN schedule_cron;
+      ALTER TABLE jobs DROP COLUMN schedule_window_start;
+      ALTER TABLE jobs DROP COLUMN schedule_window_end;
+    `,
+  },
 ]
 
 function ensureMigrationTable(sqlite: SqliteDatabase): void {

@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Actor, BranchTaken, JobFlow, JobStepRunPhase, JobStepRunStatus } from 'acp-core'
 import { parseExecutionNodesJson } from './execution-admission.js'
-import { parseTriggerJson } from './schedule-policy.js'
 import type { SqliteDatabase } from './sqlite.js'
 import type {
   EventJobMatchRecord,
@@ -20,6 +19,7 @@ import type {
   JobStepRunRecord,
   ScheduleJobSkipReason,
 } from './store-contracts.js'
+import { parseTriggerJson } from './trigger-codec.js'
 
 export type JobRow = {
   job_id: string
@@ -31,9 +31,6 @@ export type JobRow = {
   lane_ref: string
   trigger_kind: string
   trigger_json: string
-  schedule_cron: string | null
-  schedule_window_start: string | null
-  schedule_window_end: string | null
   schedule_json: string | null
   input_json: string
   output_json: string | null

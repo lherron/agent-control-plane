@@ -244,7 +244,7 @@ describe('acp-cli integration', () => {
     const { fetchImpl } = createWiredServer()
     const dir = mkdtempSync(join(tmpdir(), 'acp-cli-job-'))
     const jobFile = join(dir, 'job.json')
-    writeFileSync(jobFile, JSON.stringify({ schedule: { cron: 'not a cron' } }))
+    writeFileSync(jobFile, JSON.stringify({ flow: { sequence: [] } }))
     try {
       const jsonResult = await runCli(['job', 'validate', '--in', jobFile, '--json'], {
         fetchImpl,
@@ -252,18 +252,18 @@ describe('acp-cli integration', () => {
       expect(jsonResult.exitCode).toBe(1)
       expect(JSON.parse(jsonResult.stdout)).toMatchObject({
         valid: false,
-        errors: expect.arrayContaining([expect.objectContaining({ code: 'invalid_cron' })]),
+        errors: expect.arrayContaining([expect.objectContaining({ code: 'empty_sequence' })]),
       })
 
       const tableResult = await runCli(['job', 'validate', '--in', jobFile], { fetchImpl })
       expect(tableResult.exitCode).toBe(1)
-      expect(tableResult.stdout).toContain('invalid_cron')
+      expect(tableResult.stdout).toContain('empty_sequence')
 
       const goodFile = join(dir, 'good.json')
       writeFileSync(
         goodFile,
         JSON.stringify({
-          schedule: { cron: '0 3 * * *' },
+          trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
           flow: { sequence: [{ id: 'step-1', input: 'noop' }] },
         })
       )
@@ -292,8 +292,8 @@ describe('acp-cli integration', () => {
         'cody',
         '--scope-ref',
         'agent:cody:project:agent-spaces',
-        '--cron',
-        '0 3 * * *',
+        '--trigger',
+        '{"kind":"event","source":"wrkq","match":{"event":"created"}}',
         '--input',
         '{"content":"noop"}',
         '--disabled',

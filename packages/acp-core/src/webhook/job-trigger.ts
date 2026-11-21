@@ -358,9 +358,7 @@ function validateEventMatch(value: unknown, errors: string[]): EventMatch | unde
 
 /**
  * Validate an untrusted trigger blob into a typed JobTrigger. Returns the parsed
- * trigger or a list of human-readable errors. Note: cron *value* validity is
- * intentionally NOT checked here (the schedule store layer owns cron validation,
- * matching the pre-existing create/patch flow); this validates shape + discriminant.
+ * trigger or a list of human-readable errors. Schedule decoding supports historical ACP jobs.
  */
 export function validateJobTrigger(value: unknown): ValidateJobTriggerResult {
   const errors: string[] = []

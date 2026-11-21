@@ -10,7 +10,7 @@ function createFlowJob(store: JobsStore, input: { disabled?: boolean | undefined
     projectId: 'demo',
     scopeRef: 'agent:larry:project:demo:task:T-05414',
     laneRef: 'main',
-    schedule: { cron: '0 4 * * 1' },
+    trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
     input: { content: 'unused flow input' },
     flow: {
       sequence: [{ id: 'agent-step', input: 'continue the flow' }],
@@ -26,7 +26,7 @@ function createNonFlowJob(store: JobsStore, input: { disabled?: boolean | undefi
     projectId: 'demo',
     scopeRef: 'agent:larry:project:demo:task:T-05414',
     laneRef: 'main',
-    schedule: { cron: '0 4 * * 1' },
+    trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
     input: { content: 'single-turn job' },
     disabled: input.disabled ?? false,
     createdAt: '2026-04-28T00:00:00.000Z',

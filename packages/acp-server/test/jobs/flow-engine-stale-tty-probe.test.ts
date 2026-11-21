@@ -26,7 +26,7 @@ async function probeOutcome(staleTransports: readonly string[]): Promise<unknown
       projectId: 'agent-control-plane',
       scopeRef: 'agent:cody:project:agent-control-plane:task:stale-tty',
       laneRef: 'main',
-      schedule: { cron: '0 * * * *' },
+      trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
       input: { content: 'unused' },
       flow,
       disabled: false,

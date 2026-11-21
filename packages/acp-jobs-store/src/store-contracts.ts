@@ -175,9 +175,8 @@ export type CreateJobInput = {
   agentId: string
   scopeRef: string
   laneRef?: string | undefined
-  /** Canonical trigger. When omitted, `schedule` is promoted to a schedule trigger. */
-  trigger?: JobTrigger | undefined
-  schedule?: JobSchedule | undefined
+  /** Event trigger for a new ACP job. */
+  trigger: Extract<JobTrigger, { kind: 'event' }>
   input: JobInputTemplate
   output?: JobOutputConfig | undefined
   flow?: JobFlow | undefined
@@ -191,8 +190,7 @@ export type CreateJobInput = {
 export type UpdateJobInput = {
   slug?: string | undefined
   description?: string | null | undefined
-  trigger?: JobTrigger | undefined
-  schedule?: JobSchedule | undefined
+  trigger?: Extract<JobTrigger, { kind: 'event' }> | undefined
   input?: JobInputTemplate | undefined
   output?: JobOutputConfig | null | undefined
   flow?: JobFlow | undefined
@@ -353,27 +351,6 @@ export type ClaimedDueJob = {
   jobRun: JobRunRecord
 }
 
-export type ClaimDueJobsInput = {
-  now: string
-  limit?: number | undefined
-  leaseOwner?: string | undefined
-  leaseExpiresAt?: string | undefined
-  actor?: Actor | undefined
-  actorStamp?: string | undefined
-  executionIdentity?: JobExecutionIdentity | undefined
-  /**
-   * Called for every due schedule this node refuses to claim. Refused jobs keep
-   * their next_fire_at, so an unowned job stays due (and silent) forever unless
-   * the caller surfaces it.
-   */
-  onAdmissionRefused?: ((refusal: JobAdmissionRefusal) => void) | undefined
-}
-
-export type JobAdmissionRefusal = Readonly<{
-  job: JobRecord
-  code: JobExecutionAdmissionFailureCode
-}>
-
 export type JobExecutionIdentity = Readonly<{
   nodeId: string
   mode: 'single-node' | 'federated'
@@ -383,8 +360,7 @@ export type JobExecutionIdentity = Readonly<{
 export type JobExecutionAdmissionFailureCode =
   | 'job_execution_disabled'
   | 'job_execution_archived'
-  | 'job_execution_unassigned_federated'
-  | 'job_execution_wrong_node'
+  | 'job_execution_schedule_module_owned'
 
 export interface OpenSqliteJobsStoreOptions {
   onCommit?: ((tables: ReadonlySet<string>) => void) | undefined
@@ -478,12 +454,7 @@ export interface JobsStore {
     executionIdentity?: JobExecutionIdentity | undefined
   ): { job: JobRecord; jobRun: JobRunRecord }
   /** Local readiness hint; does not authorize admission or mutate work. */
-  hasSchedulerWork(
-    now: string,
-    baseline?: JobExecutionIdentity | undefined,
-    onAdmissionRefused?: ((refusal: JobAdmissionRefusal) => void) | undefined
-  ): boolean
-  claimDueJobs(input: ClaimDueJobsInput): ClaimedDueJob[]
+  hasSchedulerWork(now: string, baseline?: JobExecutionIdentity | undefined): boolean
   listInflightFlowJobRuns(input?: RunRecoveryInput | undefined): ClaimedDueJob[]
   listJobRunReaperCandidates(input?: RunRecoveryInput | undefined): ClaimedDueJob[]
   stampLegacyNonterminalJobRuns(executionNodeId: string): { stamped: number }

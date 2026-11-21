@@ -42,7 +42,7 @@ describe('buildJobRunCard (T-05245)', () => {
       Project: 'agent-control-plane',
       Task: 'T-05245', // parsed from scopeRef
       Terminal: '[Focus](http://max3.tail53cc3b.ts.net:18450/focus/T-05245)',
-      Trigger: '0 9 * * *',
+      Trigger: 'schedule',
       Run: 'run-1',
     })
     expect((embed['footer'] as { text: string }).text).toBe('jobRun jr-1')

@@ -23,7 +23,7 @@ function createFlow() {
 }
 
 describe('admin job definitions', () => {
-  test('POST /v1/admin/jobs creates a durable scheduled job', async () => {
+  test('POST /v1/admin/jobs creates a durable event job', async () => {
     const jobsStore = createInMemoryJobsStore()
 
     try {
@@ -37,7 +37,7 @@ describe('admin job definitions', () => {
               projectId: fixture.seed.projectId,
               scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-01175:role:implementer`,
               laneRef: 'main',
-              schedule: { cron: '*/5 * * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
               input: { content: 'run the jobs workflow' },
               disabled: false,
             },
@@ -46,7 +46,7 @@ describe('admin job definitions', () => {
             job: {
               jobId: string
               projectId: string
-              schedule: { cron: string }
+              trigger: { kind: string; match: { event: string } }
               input: { content: string }
               disabled: boolean
             }
@@ -57,7 +57,7 @@ describe('admin job definitions', () => {
             expect.objectContaining({
               jobId: expect.stringMatching(/^job_/),
               projectId: fixture.seed.projectId,
-              schedule: expect.objectContaining({ cron: '*/5 * * * *' }),
+              trigger: expect.objectContaining({ kind: 'event' }),
               input: expect.objectContaining({ content: 'run the jobs workflow' }),
               disabled: false,
             })
@@ -86,7 +86,7 @@ describe('admin job definitions', () => {
               projectId: fixture.seed.projectId,
               scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-01175:role:implementer`,
               laneRef: 'main',
-              schedule: { cron: '*/5 * * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
               input: { content: 'run the jobs workflow' },
               flow,
             },
@@ -156,12 +156,12 @@ describe('admin job definitions', () => {
           )
           expect(jobsStore.listJobs({ projectId: fixture.seed.projectId }).jobs).toHaveLength(0)
 
-          const created = await createJob(fixture, { flow: freshDurationFlow })
+          const created = await createJob(fixture)
           const patchResponse = await fixture.request({
             method: 'PATCH',
             path: `/v1/admin/jobs/${created.job.jobId}`,
             body: {
-              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
+              flow: freshDurationFlow,
             },
           })
           const patchPayload = await fixture.json<{
@@ -173,7 +173,7 @@ describe('admin job definitions', () => {
           expect(patchPayload.errors.map((error) => error.code)).toContain('invalid_fresh_duration')
 
           const stored = jobsStore.getJob(created.job.jobId).job
-          expect(stored?.trigger.kind).toBe('schedule')
+          expect(stored?.trigger.kind).toBe('event')
         },
         { jobsStore }
       )
@@ -194,7 +194,7 @@ describe('admin job definitions', () => {
             agentId: 'larry',
             scopeRef: 'agent:larry:project:other-project',
             laneRef: 'main',
-            schedule: { cron: '*/5 * * * *' },
+            trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
             input: { content: 'job in another project' },
           })
 
@@ -217,7 +217,7 @@ describe('admin job definitions', () => {
     }
   })
 
-  test('PATCH /v1/admin/jobs/:jobId updates schedule and disabled state', async () => {
+  test('PATCH /v1/admin/jobs/:jobId updates the event trigger and disabled state', async () => {
     const jobsStore = createInMemoryJobsStore()
 
     try {
@@ -229,19 +229,23 @@ describe('admin job definitions', () => {
             method: 'PATCH',
             path: `/v1/admin/jobs/${created.job.jobId}`,
             body: {
-              schedule: { cron: '0 * * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'updated' } },
               disabled: true,
             },
           })
           const payload = await fixture.json<{
-            job: { jobId: string; schedule: { cron: string }; disabled: boolean }
+            job: {
+              jobId: string
+              trigger: { kind: string; match: { event: string } }
+              disabled: boolean
+            }
           }>(response)
 
           expect(response.status).toBe(200)
           expect(payload.job).toEqual(
             expect.objectContaining({
               jobId: created.job.jobId,
-              schedule: expect.objectContaining({ cron: '0 * * * *' }),
+              trigger: expect.objectContaining({ match: { event: 'updated' } }),
               disabled: true,
             })
           )
@@ -298,7 +302,7 @@ describe('admin job definitions', () => {
             path: '/v1/admin/jobs/validate',
             body: {
               projectId: fixture.seed.projectId,
-              schedule: { cron: '*/5 * * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
               input: { content: 'run the jobs workflow' },
               flow: createFlow(),
             },
@@ -335,10 +339,6 @@ describe('admin job definitions', () => {
             {
               body: { flow: { sequence: [{ id: 'expect', input: 'x', expect: { json: true } }] } },
               code: 'unsupported_expect_field',
-            },
-            {
-              body: { flow: createFlow(), schedule: { cron: 'not-cron' } },
-              code: 'invalid_cron',
             },
             {
               body: { flow: { sequence: [{ id: 'timeout', input: 'x', timeout: 'soon' }] } },
@@ -411,7 +411,7 @@ describe('admin job definitions', () => {
               projectId: fixture.seed.projectId,
               scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-01175:role:implementer`,
               laneRef: 'main',
-              schedule: { cron: '*/5 * * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
               input: { content: 'run the jobs workflow' },
               flow: flowWithInputFile,
             },

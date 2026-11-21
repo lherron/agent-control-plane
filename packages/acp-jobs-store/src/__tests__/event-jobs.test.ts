@@ -200,49 +200,16 @@ async function ingestAndTick(
 }
 
 describe('trigger union round-trip', () => {
-  test('schedule job keeps schedule; event job has no schedule and null schedule_cron', () => {
+  test('event job stores no schedule or next fire', () => {
     const store = createInMemoryJobsStore()
-    const schedule = store.createJob({
-      projectId: 'acp',
-      agentId: 'clod',
-      scopeRef: 'agent:clod:project:acp:task:primary',
-      schedule: { cron: '0 * * * *' },
-      input: { content: 'tick' },
-    }).job
-    expect(schedule.trigger.kind).toBe('schedule')
-    expect(schedule.schedule?.cron).toBe('0 * * * *')
-
-    const evt = store.createJob(eventJob()).job
-    expect(evt.trigger.kind).toBe('event')
-    expect(evt.schedule).toBeUndefined()
-    const row = store.sqlite
-      .prepare('SELECT schedule_cron, next_fire_at, trigger_kind FROM jobs WHERE job_id = ?')
-      .get(evt.jobId) as {
-      schedule_cron: string | null
-      next_fire_at: string | null
-      trigger_kind: string
+    try {
+      const job = store.createJob(eventJob()).job
+      expect(job.trigger.kind).toBe('event')
+      expect(job.schedule).toBeUndefined()
+      expect(job.nextFireAt).toBeUndefined()
+    } finally {
+      store.close()
     }
-    expect(row.schedule_cron).toBeNull()
-    expect(row.next_fire_at).toBeNull()
-    expect(row.trigger_kind).toBe('event')
-  })
-})
-
-describe('schedule-claim footgun (reviewer check #1)', () => {
-  test('an event job (next_fire_at NULL) is never claimed by the schedule path', () => {
-    const store = createInMemoryJobsStore()
-    store.createJob(eventJob())
-    store.createJob({
-      projectId: 'acp',
-      agentId: 'clod',
-      scopeRef: 'agent:clod:project:acp:task:primary',
-      schedule: { cron: '0 * * * *' },
-      input: { content: 'tick' },
-    })
-    // Far-future now: the schedule job is due, the event job must be ignored.
-    const claimed = store.claimDueJobs({ now: '2030-01-01T00:00:00Z' })
-    expect(claimed).toHaveLength(1)
-    expect(claimed[0]?.job.trigger.kind).toBe('schedule')
   })
 })
 
@@ -766,41 +733,5 @@ describe('mint idempotency (drain-retry safe)', () => {
     expect(second.calls).toHaveLength(0)
     const matches = store.listEventJobMatches({ sourceEventId: 'wrkq:evt_1' }).matches
     expect(matches).toHaveLength(1)
-  })
-})
-
-describe('manual + cron behavior unchanged (check #7)', () => {
-  test('claimDueJobs still claims a due schedule job and mints a schedule run', () => {
-    const store = createInMemoryJobsStore()
-    store.createJob({
-      projectId: 'acp',
-      agentId: 'clod',
-      scopeRef: 'agent:clod:project:acp:task:primary',
-      schedule: { cron: '*/5 * * * *' },
-      input: { content: 'tick' },
-    })
-    const claimed = store.claimDueJobs({ now: '2030-01-01T00:02:00Z' })
-    expect(claimed).toHaveLength(1)
-    expect(['schedule', 'catch-up']).toContain(claimed[0]?.jobRun.triggeredBy)
-  })
-
-  test('schedule dispatches do not carry WRKQ causation refs', async () => {
-    const store = createInMemoryJobsStore()
-    store.createJob({
-      projectId: 'acp',
-      agentId: 'clod',
-      scopeRef: 'agent:clod:project:acp:task:primary',
-      schedule: { cron: '*/5 * * * *' },
-      input: { content: 'tick' },
-    })
-    const recorder = makeDispatchRecorder()
-    await tickJobsScheduler({
-      store,
-      now: '2030-01-01T00:02:00Z',
-      dispatchThroughInputs: recorder.dispatchThroughInputs,
-    })
-
-    expect(recorder.calls).toHaveLength(1)
-    expect(recorder.calls[0]?.causationRef).toBeUndefined()
   })
 })

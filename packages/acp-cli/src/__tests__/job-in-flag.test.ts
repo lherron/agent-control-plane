@@ -150,7 +150,7 @@ describe('acp job --in flag', () => {
         JSON.stringify({
           projectId: 'proj-1',
           agentId: 'agent-1',
-          schedule: { cron: '0 * * * *' },
+          trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
         })
       )
 
@@ -163,7 +163,7 @@ describe('acp job --in flag', () => {
             expect(request.body).toMatchObject({
               projectId: 'proj-1',
               agentId: 'agent-1',
-              schedule: { cron: '0 * * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
             })
           },
         },
@@ -189,7 +189,7 @@ describe('acp job --in flag', () => {
       writeFileSync(
         jobFile,
         JSON.stringify({
-          schedule: { cron: '0 * * * *' },
+          trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
           flow: {
             sequence: [
               { stepId: 's1', inputFile: 'prompt.txt', agentId: 'worker', retries: 3 },
@@ -278,7 +278,7 @@ describe('acp job --in flag', () => {
           projectId: 'proj-1',
           agentId: 'agent-1',
           scopeRef: 'agent:agent-1:project:proj-1',
-          schedule: { cron: '0 * * * *' },
+          trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
           input: { content: 'from file' },
         })
       )
@@ -295,7 +295,7 @@ describe('acp job --in flag', () => {
               projectId: 'proj-1',
               agentId: 'agent-1',
               scopeRef: 'agent:agent-1:project:proj-1',
-              schedule: { cron: '0 * * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
               input: { content: 'from file' },
             })
           },
@@ -319,7 +319,7 @@ describe('acp job --in flag', () => {
           projectId: 'proj-1',
           agentId: 'agent-1',
           scopeRef: 'agent:agent-1:project:proj-1',
-          schedule: { cron: '0 * * * *' },
+          trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
           input: { content: 'test' },
         })
       )
@@ -340,7 +340,7 @@ describe('acp job --in flag', () => {
       writeFileSync(jobFile, JSON.stringify({ projectId: 'p' }))
       for (const [flag, value] of [
         ['--input', '{"x":1}'],
-        ['--cron', '0 * * * *'],
+        ['--trigger', '{"kind":"event","source":"wrkq","match":{"event":"created"}}'],
         ['--project', 'proj-1'],
         ['--agent', 'a1'],
       ] as const) {
@@ -369,7 +369,7 @@ describe('acp job --in flag', () => {
               projectId: 'agent-spaces',
               agentId: 'larry',
               scopeRef: 'agent:larry:project:agent-spaces',
-              schedule: { cron: '0 * * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
               input: { content: 'status' },
             })
           },
@@ -386,8 +386,8 @@ describe('acp job --in flag', () => {
           'larry',
           '--scope-ref',
           'agent:larry:project:agent-spaces',
-          '--cron',
-          '0 * * * *',
+          '--trigger',
+          '{"kind":"event","source":"wrkq","match":{"event":"created"}}',
           '--input',
           '{"content":"status"}',
           '--json',
@@ -406,7 +406,7 @@ describe('acp job --in flag', () => {
       writeFileSync(
         jobFile,
         JSON.stringify({
-          schedule: { cron: '*/5 * * * *' },
+          trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
           input: { content: 'patched' },
         })
       )
@@ -414,13 +414,16 @@ describe('acp job --in flag', () => {
       const fetchQueue = createFetchQueue([
         {
           body: {
-            job: { jobId: 'job-1', schedule: { cron: '*/5 * * * *' } },
+            job: {
+              jobId: 'job-1',
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
+            },
           },
           assert(request) {
             expect(request.method).toBe('PATCH')
             expect(new URL(request.url).pathname).toBe('/v1/admin/jobs/job-1')
             expect(request.body).toMatchObject({
-              schedule: { cron: '*/5 * * * *' },
+              trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
               input: { content: 'patched' },
             })
           },
@@ -471,7 +474,10 @@ describe('acp job --in flag', () => {
 
     test('mutual exclusion: --in with --input errors for patch', async () => {
       const jobFile = join(tempDir, 'patch.json')
-      writeFileSync(jobFile, JSON.stringify({ schedule: { cron: '0 * * * *' } }))
+      writeFileSync(
+        jobFile,
+        JSON.stringify({ trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } } })
+      )
 
       const fetchQueue = createFetchQueue([])
       const result = await runCli(

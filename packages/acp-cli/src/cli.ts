@@ -627,7 +627,7 @@ function addCoordinationCommands(program: Command, deps: CommandDependencies): v
       .action(runLeaf(deps, [name], runMessageCommand))
   }
 
-  const job = program.command('job').description('manage scheduled jobs')
+  const job = program.command('job').description('manage event-triggered jobs')
   tabular(job.command('validate').description('validate a job file'))
     .requiredOption('--in <file>', 'JSON job file to validate')
     .action(runLeaf(deps, ['validate'], runJobCommand))
@@ -638,7 +638,7 @@ function addCoordinationCommands(program: Command, deps: CommandDependencies): v
     .option('--agent <agentId>')
     .option('--scope-ref <scopeRef>')
     .option('--lane-ref <laneRef>')
-    .option('--cron <expr>')
+    .option('--trigger <json>', 'event trigger JSON')
     .option('--input <json>')
     .option('--disabled')
     .action(runLeaf(deps, ['create'], runJobCommand))
@@ -651,7 +651,7 @@ function addCoordinationCommands(program: Command, deps: CommandDependencies): v
   tabular(job.command('patch').description('patch one job'))
     .requiredOption('--job <jobId>')
     .option('--in <file>', 'JSON job file to import')
-    .option('--cron <expr>')
+    .option('--trigger <json>', 'event trigger JSON')
     .option('--input <json>')
     .option('--enabled')
     .option('--disabled')

@@ -58,7 +58,7 @@ async function createLegacyJob(
       projectId: fixture.seed.projectId,
       scopeRef: `agent:larry:project:${fixture.seed.projectId}:task:T-01175:role:implementer`,
       laneRef: 'main',
-      schedule: { cron: '*/5 * * * *' },
+      trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
       input: { content: 'run the jobs workflow' },
     },
   })
@@ -97,7 +97,7 @@ function createFlowJobAndRun(
     projectId,
     scopeRef: `agent:larry:project:${projectId}:task:T-01175:role:implementer`,
     laneRef: 'main',
-    schedule: { cron: '*/5 * * * *' },
+    trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
     input: { content: 'run the jobs workflow' },
     flow: createFlow(),
     actor: { kind: 'system', id: 'test' },

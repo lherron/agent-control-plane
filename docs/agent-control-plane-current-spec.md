@@ -40,7 +40,7 @@ ACP-authoritative.
 - `acp-interface-store`: interface bindings, identities, message sources, and
   delivery-related records.
 - `acp-conversation`: conversation threads and turns.
-- `acp-jobs-store`: scheduled jobs, job runs, cron/flow records.
+- `acp-jobs-store`: event job definitions, job runs, inbox and flow records.
 - `acp-server`: Bun HTTP server, route handlers, dispatchers, wrkf lifecycle,
   HRC launch bridge, and reconcilers.
 - `acp-cli`: installed `acp` operator CLI for server, admin, sessions, runs,
@@ -430,7 +430,7 @@ tables advance each topic, so unrelated heartbeat and projection writes do not
 wake the consumers. Dispatchers snapshot
 versions before scanning, then wait for a commit, their next deadline, or a
 60 s backstop. Pending/running work that completes in HRC retains its existing
-2 s reconciliation cadence. Scheduler work similarly retains its own schedule,
+2 s reconciliation cadence. The event job worker likewise uses its own cadence,
 lease, retry, and external-completion deadlines. Stores remain authoritative;
 notifications are hints and are not persisted. Startup performs a full scan.
 

@@ -1,11 +1,9 @@
 import { formatActor, formatDateTime } from '@/lib/format'
 import {
-  getSummaryJobCron,
   getSummaryJobDisabled,
   getSummaryJobFlowStepCount,
   getSummaryJobId,
   getSummaryJobKind,
-  getSummaryJobNextFireAt,
 } from '@/lib/job-summary'
 import type { ProjectJobSummary } from './types'
 
@@ -25,14 +23,6 @@ export function getJobAgentId(job: ProjectJobSummary): string {
 
 export function getJobKind(job: ProjectJobSummary): string {
   return getSummaryJobKind(job)
-}
-
-export function getJobCron(job: ProjectJobSummary): string {
-  return getSummaryJobCron(job, { includeRecordCronFallback: true })
-}
-
-export function getJobNextFireAt(job: ProjectJobSummary): string {
-  return getSummaryJobNextFireAt(job)
 }
 
 export function getJobDisabled(job: ProjectJobSummary): boolean {
