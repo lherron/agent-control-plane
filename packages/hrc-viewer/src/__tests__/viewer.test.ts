@@ -395,12 +395,6 @@ describe('HrcViewer dormant seats (idle > 12h)', () => {
   })
 })
 
-/**
- * T-08331: the secondary status bar is a TITLE bar. It answers "what task is
- * this pane?" — a fact — so it is stamped on every reconcile pass regardless of
- * what the runtime's latest event was, and it must render byte-identically to
- * what hcs writes on its own context panes until T-08332 removes that writer.
- */
 describe('HrcViewer secondary status bar (T-08331)', () => {
   const TASK_SCOPE = 'agent:cody:project:wrkq:task:T-08259'
   const TASK_PANE_KEY = 'agent:cody:project:wrkq:task:T-08259#main'
@@ -422,7 +416,7 @@ describe('HrcViewer secondary status bar (T-08331)', () => {
     })
   }
 
-  test('stamps `▸ <title>` in left with center and right empty, matching hcs byte for byte', async () => {
+  test('stamps `▸ <title>` in left with center and right empty', async () => {
     const harness = taskHarness()
     await harness.viewer.reconcile('start')
     expect(harness.secondaryCalls).toContainEqual({

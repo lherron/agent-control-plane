@@ -218,8 +218,8 @@ export class GhostmuxPlacement {
       try {
         // T-07603: only the INTERACTIVE window is adopted from what the operator
         // already has open, so it needs a find-only pass before find-or-CREATE.
-        // T-07930: chief and every other named key are managed windows, just like
-        // the default pile, and must never stamp an untagged operator window.
+        // The default window and custom keys use managed windows without
+        // stamping an untagged operator window.
         if (windowKey === INTERACTIVE_WINDOW_KEY) {
           const adopted = await this.adoptInteractiveWindow(windowKey)
           if (adopted !== undefined) return { kind: 'managed', windowId: adopted }

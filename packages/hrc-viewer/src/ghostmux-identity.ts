@@ -15,9 +15,6 @@ const HEADLESS_SESSIONS_WINDOW_TITLE = 'Headless Sessions'
  */
 export const DEFAULT_HEADLESS_WINDOW_KEY = 'default'
 
-/** Dedicated keyed window for the hcs context-switcher manager (T-07781). */
-export const CHIEF_WINDOW_KEY = 'chief'
-
 /**
  * Window key for the operator's INTERACTIVE window (T-07603) — the one that is
  * not the headless pile. Resolved by adoption (`adoptInteractiveWindow`), never
@@ -36,7 +33,6 @@ export function normalizeWindowKey(windowKey: string | undefined): string {
 
 /** Presentation-only window title derived from the key. */
 export function headlessWindowTitle(windowKey: string): string {
-  if (windowKey === CHIEF_WINDOW_KEY) return 'Chief Contexts'
   return windowKey === DEFAULT_HEADLESS_WINDOW_KEY
     ? HEADLESS_SESSIONS_WINDOW_TITLE
     : `${HEADLESS_SESSIONS_WINDOW_TITLE} · ${windowKey}`
@@ -137,29 +133,17 @@ export function deriveHeadlessTabIdentity(
 /**
  * Default window placement for a tab identity (T-07603).
  *
- * Machine-dispatched worker lanes (`task:T-XXXXX`, role-qualified seats
- * included) belong in the headless pile, except chief seats and hcs-project
- * task seats, which share the Chief Contexts window. The hcs board mints those
- * Lance-attention contexts as `<agent>@hcs:T-XXXXX` regardless of the target
- * checkout, so the scope project — not cwd — determines whether a seat is in
- * hcs. The accepted tradeoff is that machine-dispatched implementation workers
- * on hcs-project tasks land there too. Everything else the operator summoned by
- * name — `primary`, roster slugs, `minisvc`/`minilab`, hand-named lanes such as
- * `viewrca` — belongs in the window they are actually working in.
+ * Task seats and unparseable scopes belong in the headless window. Named
+ * operator seats such as `primary`, roster slots, and hand-named lanes belong
+ * in the interactive window.
  *
  * The classification is `deriveHeadlessTabIdentity`'s, unchanged: this reads the
  * tabKey it already produced rather than re-testing the scope. So window
  * placement and tab grouping can never disagree, and `isRealTaskId` keeps its
  * single definition.
- *
- * An UNPARSEABLE scope routes to the HEADLESS window. That branch returns before
- * `isRealTaskId` is ever reached, so keying off a bare taskId would send junk
- * panes into the operator's window; malformed input belongs in the background.
  */
 export function defaultWindowKeyForTab(tab: HeadlessTabIdentity): string {
   if (tab.tabKey.startsWith('unparsed:')) return DEFAULT_HEADLESS_WINDOW_KEY
-  if (tab.agentId === 'chief') return CHIEF_WINDOW_KEY
-  if (tab.projectId === 'hcs' && tab.tabKey.startsWith('task:')) return CHIEF_WINDOW_KEY
   if (tab.tabKey.startsWith('task:')) return DEFAULT_HEADLESS_WINDOW_KEY
   return INTERACTIVE_WINDOW_KEY
 }

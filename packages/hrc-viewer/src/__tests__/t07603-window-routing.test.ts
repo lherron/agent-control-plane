@@ -18,7 +18,6 @@ import { describe, expect, it } from 'bun:test'
 
 import { GhostmuxManager } from '../ghostmux'
 import {
-  CHIEF_WINDOW_KEY,
   DEFAULT_HEADLESS_WINDOW_KEY,
   INTERACTIVE_WINDOW_KEY,
   defaultWindowKeyForTab,
@@ -142,9 +141,6 @@ const PRIMARY = 'agent:clod:project:hrc-runtime:task:primary'
 
 describe('T-07603 interactive-window adoption', () => {
   it.each([
-    ['agent:cody:project:hcs:task:T-12345', undefined, CHIEF_WINDOW_KEY],
-    ['agent:chief:project:hcs:task:T-12345', undefined, CHIEF_WINDOW_KEY],
-    ['agent:chief:project:hcs:task:primary', undefined, CHIEF_WINDOW_KEY],
     ['agent:cody:project:hrc-runtime:task:T-12345', undefined, DEFAULT_HEADLESS_WINDOW_KEY],
     ['agent:cody:project:hrc-runtime:task:T-07595', undefined, DEFAULT_HEADLESS_WINDOW_KEY],
     [
@@ -152,13 +148,11 @@ describe('T-07603 interactive-window adoption', () => {
       undefined,
       DEFAULT_HEADLESS_WINDOW_KEY,
     ],
-    ['agent:mable:project:hcs:task:primary', undefined, INTERACTIVE_WINDOW_KEY],
     ...['primary', 'primary-nova', 'minisvc', 'minilab', 'viewrca'].map(
       (slot) =>
         [`agent:clod:project:hrc-runtime:task:${slot}`, undefined, INTERACTIVE_WINDOW_KEY] as const
     ),
     ['this is not a scope ref', undefined, DEFAULT_HEADLESS_WINDOW_KEY],
-    ['agent:cody:project:hcs:task:T-12345', 'console', INTERACTIVE_WINDOW_KEY],
     ['agent:cody:project:hrc-runtime:task:T-07595', 'console', INTERACTIVE_WINDOW_KEY],
     ['agent:clod:project:hrc-runtime:task:primary', 'default', DEFAULT_HEADLESS_WINDOW_KEY],
     ['agent:clod:project:hrc-runtime:task:primary', '   ', INTERACTIVE_WINDOW_KEY],
@@ -179,11 +173,7 @@ describe('T-07603 interactive-window adoption', () => {
       ).toBe(true)
       const windowCreate = fake.calls.find((args) => args[0] === 'new' && args.includes('--window'))
       const title =
-        expected === CHIEF_WINDOW_KEY
-          ? 'Chief Contexts'
-          : expected === INTERACTIVE_WINDOW_KEY
-            ? 'Headless Sessions · console'
-            : 'Headless Sessions'
+        expected === INTERACTIVE_WINDOW_KEY ? 'Headless Sessions · console' : 'Headless Sessions'
       expect(windowCreate?.[windowCreate.indexOf('--title') + 1]).toBe(title)
     }
   )
@@ -275,33 +265,6 @@ describe('T-07603 interactive-window adoption', () => {
 })
 
 describe('T-07930 non-interactive keyed-window isolation', () => {
-  it('creates a dedicated chief window without stamping the operator window', async () => {
-    const fake = makeFake()
-    const operatorWindow = fake.allocWindow()
-    const manager = new GhostmuxManager('ghostmux', fake.runner)
-
-    const result = await manager.ensureHeadlessViewer({
-      identity: fixtureIdentity('agent:chief:project:hcs:task:T-07930'),
-      scopeRef: 'agent:chief:project:hcs:task:T-07930',
-      runtimeId: 'rt-chief',
-      attachCommand: 'a',
-    })
-
-    expect(result.status).toBe('created')
-    if (result.status !== 'created') throw new Error(`expected created, got ${result.status}`)
-    expect(fake.windows.get(operatorWindow)?.metadata).toEqual({})
-    expect(fake.windows.size).toBe(2)
-
-    const chiefWindow = [...fake.windows.entries()].find(
-      ([, window]) => window.metadata['hrc_window_key'] === CHIEF_WINDOW_KEY
-    )
-    expect(chiefWindow?.[1].metadata).toMatchObject({
-      hrc_role: 'headless-sessions-window',
-      hrc_window_key: CHIEF_WINDOW_KEY,
-    })
-    expect(fake.surfaces.get(result.surfaceId)?.windowId).toBe(chiefWindow?.[0])
-  })
-
   it('creates a custom keyed window without adopting the operator window', async () => {
     const fake = makeFake()
     const operatorWindow = fake.allocWindow()

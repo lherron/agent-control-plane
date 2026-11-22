@@ -303,13 +303,8 @@ describe('HeadlessViewerStatusProjector', () => {
   })
 })
 
-/**
- * T-08331 — the secondary (title) bar. hcs's `secondaryBarFor` writes the TITLE
- * alone into `left` behind a `▸ ` marker, with center and right empty, and hides
- * the bar rather than stamping when there is nothing to say.
- */
 describe('renderSecondaryStatusBar (T-08331)', () => {
-  it('trims the title before the marker, as hcs does', () => {
+  it('trims the title and prefixes the marker', () => {
     expect(renderSecondaryStatusBar('  create procelain surface for wrkp log  ')?.left).toBe(
       '▸ create procelain surface for wrkp log'
     )

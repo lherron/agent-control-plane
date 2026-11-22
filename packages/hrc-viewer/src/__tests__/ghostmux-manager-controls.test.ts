@@ -209,12 +209,6 @@ describe('GhostmuxManager.setTerminalBackground', () => {
   })
 })
 
-/**
- * T-08331 — the SECONDARY slot. Its argv, its wire sanitizing and its capability
- * memo are all distinct from the primary bar's, and the difference is load-
- * bearing: hcs stamps this same slot on its own context panes until T-08332
- * removes that writer, so any divergence renders as a flapping bar.
- */
 describe('GhostmuxManager.setSecondaryStatusBar', () => {
   it('sets then SHOWS — a set alone renders nothing, the slot defaults to hidden', async () => {
     const calls: string[][] = []
@@ -243,9 +237,7 @@ describe('GhostmuxManager.setSecondaryStatusBar', () => {
     ])
   })
 
-  it('sanitizes exactly as hcs does: `|` becomes `/`, not a space', async () => {
-    // The PRIMARY rule maps `|` to a space. Matching hcs's `statusBarField`
-    // byte for byte is what makes the two writers overlap invisibly.
+  it('replaces field delimiters with slashes and control whitespace with spaces', async () => {
     const calls: string[][] = []
     const manager = new GhostmuxManager('ghostmux', async (args) => {
       calls.push(args)

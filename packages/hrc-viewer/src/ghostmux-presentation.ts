@@ -27,11 +27,7 @@ export type GhostmuxStatusBarSpec = {
   bg?: string | undefined
 }
 
-/**
- * The Ghostty SECONDARY status-bar slot — the title bar that renders under the
- * primary triplet (T-08331). No colours: hcs writes this slot uncoloured today
- * and the two writers must overlap byte-identically until hcs stops (T-08332).
- */
+/** The uncoloured Ghostty title bar under the primary triplet (T-08331). */
 export type GhostmuxSecondaryStatusBarSpec = {
   left: string
   center: string
@@ -44,12 +40,8 @@ function sanitizeStatusField(value: string): string {
 }
 
 /**
- * Secondary-slot field sanitizing, byte-identical to hcs's `statusBarField`
- * (`internal/ghost/client.go`): `|` becomes `/` — NOT a space, as the primary
- * rule does — and each of `\n` `\r` `\t` becomes one space, then trim. The two
- * writers stamp this slot simultaneously until T-08332 removes hcs's, so any
- * divergence here shows up as a bar flapping between two renderings at two
- * cadences.
+ * Escape the field delimiter as a slash and replace each control whitespace
+ * character with a space so the title stays on one line.
  */
 function sanitizeSecondaryStatusField(value: string): string {
   return value

@@ -19,8 +19,6 @@ import {
 
 const ok = (stdout: string): WrkqRunResult => ({ stdout, stderr: '', exitCode: 0 })
 const slugJson = (slug: unknown) => JSON.stringify([{ id: 'T-04977', slug }])
-/** A real hcs placeholder observed on a chief pane (T-08028). */
-const PLACEHOLDER = 'context-1788523795324905000'
 
 describe('extractTaskIdFromIdentity', () => {
   it('returns the task id for a canonical T-<digits> scope', () => {
@@ -145,56 +143,6 @@ describe('createTaskSlugResolver', () => {
     expect(await resolve(fixtureIdentity(scope)?.taskId)).toBeNull()
     expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('later')
     expect(calls).toBe(2)
-  })
-})
-
-describe('createTaskSlugResolver placeholder staleness (T-08028)', () => {
-  it.each([
-    'wrkc-steer-default',
-    'context-aware-routing',
-    'context-1788523795324905000-renamed',
-    'context-123',
-  ])('caches a settled non-placeholder slug: %s', async (slug) => {
-    let calls = 0
-    const resolve = createTaskSlugResolver({
-      runner: async () => {
-        calls++
-        return ok(slugJson(slug))
-      },
-    })
-    expect(await resolve('T-07987')).toBe(slug)
-    expect(await resolve('T-07987')).toBe(slug)
-    expect(calls).toBe(1)
-  })
-
-  it('pins the real slug once it lands — no further spawns', async () => {
-    let calls = 0
-    const resolve = createTaskSlugResolver({
-      runner: async () => {
-        calls++
-        return ok(slugJson(calls === 1 ? PLACEHOLDER : 'wrkc-steer-default'))
-      },
-    })
-    const scope = 'agent:chief:project:hcs:task:T-07987'
-    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe(PLACEHOLDER)
-    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('wrkc-steer-default')
-    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('wrkc-steer-default')
-    expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('wrkc-steer-default')
-    expect(calls).toBe(2)
-  })
-
-  it('spawns exactly once for a task whose slug is already settled', async () => {
-    let calls = 0
-    const resolve = createTaskSlugResolver({
-      runner: async () => {
-        calls++
-        return ok(slugJson('already-settled'))
-      },
-    })
-    const scope = 'agent:chief:project:hcs:task:T-08007'
-    for (let i = 0; i < 5; i++)
-      expect(await resolve(fixtureIdentity(scope)?.taskId)).toBe('already-settled')
-    expect(calls).toBe(1)
   })
 })
 

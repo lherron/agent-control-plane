@@ -108,24 +108,12 @@ export function renderStatusBar(
   }
 }
 
-/**
- * hcs's marker glyph, so the title bar is distinguishable at a glance from the
- * primary triplet directly above it. Byte-identical to hcs's `contextBarMarker`.
- */
+/** Visually distinguishes the title from the primary status bar. */
 const SECONDARY_BAR_MARKER = '▸ '
 
 /**
- * Build the SECONDARY (title) bar for a task-scoped pane, or null when there is
- * nothing to say — which is hcs's `show == false`, i.e. hide rather than stamp.
- *
- * The payload is the wrkq TITLE alone, in `left`, with `center` and `right`
- * empty: exactly what hcs's `secondaryBarFor` writes today. hcs keeps stamping
- * this same slot on its own context panes until T-08332 lands, and identical
- * output is what makes that overlap invisible.
- *
- * Deliberately NOT state-driven: this bar answers "what task is this pane?",
- * a fact that changes only when wrkq is retitled or the pane is rebound — never
- * at a turn boundary.
+ * Put the wrkq task title in the left field of the secondary bar. A blank
+ * title hides the bar. The title is independent of runtime state.
  */
 export function renderSecondaryStatusBar(title: string): GhostmuxSecondaryStatusBarSpec | null {
   const trimmed = title.trim()
