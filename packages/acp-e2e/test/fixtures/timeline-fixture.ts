@@ -17,6 +17,7 @@
  * by calling the code under test.
  */
 
+import type { HrcLifecycleEvent } from 'hrc-core'
 import type { HrcHistorySeed } from './timeline-stack.js'
 
 export const TIMELINE_AGENT_ID = 'tlagent'
@@ -25,6 +26,9 @@ export const TIMELINE_SCOPE_REF = `agent:${TIMELINE_AGENT_ID}:project:${TIMELINE
 export const TIMELINE_LANE_REF = 'main'
 export const TIMELINE_SESSION_REF = `${TIMELINE_SCOPE_REF}/lane:${TIMELINE_LANE_REF}`
 export const TIMELINE_MEMBER_HANDLE = `${TIMELINE_AGENT_ID}@${TIMELINE_PROJECT_ID}:codex-timeline`
+export const TIMELINE_MEMBER_PRINCIPAL = 'agent:tlagent'
+export const TIMELINE_SENDER_PRINCIPAL = 'agent:tlsender'
+export const TIMELINE_PEER_HANDLE = 'tlpeer@tlproj'
 export const TIMELINE_SENDER_HANDLE = `tlsender@${TIMELINE_PROJECT_ID}`
 export const TIMELINE_HOST_SESSION_ID = 'hs-timeline-e2e'
 export const TIMELINE_GENERATION = 7
@@ -404,6 +408,15 @@ export type OracleSource = {
 
 export function hrcAtomId(ledgerIncarnationId: string, hrcSeq: number): string {
   return `hrc:${ledgerIncarnationId}:${hrcSeq}`
+}
+
+export function projectableHrcAtomIds(
+  ledgerIncarnation: string,
+  events: readonly HrcLifecycleEvent[]
+): string[] {
+  return events
+    .filter((event) => event.eventKind === 'turn.user_prompt' || event.eventKind === 'turn.message')
+    .map((event) => hrcAtomId(ledgerIncarnation, event.hrcSeq))
 }
 
 export function wrkqAtomId(
