@@ -10,7 +10,7 @@ import { type SessionRef, normalizeSessionRef } from 'agent-scope'
 export type JobFirstBirthAuthority = (input: {
   jobRunId: string
   sessionRef: SessionRef
-}) => boolean
+}) => 'input-only' | 'other-job' | undefined
 
 const LIVE_JOB_RUN_STATUSES = new Set(['claimed', 'dispatched'])
 
@@ -20,12 +20,12 @@ export function createJobFirstBirthAuthority(
   return ({ jobRunId, sessionRef }) => {
     const jobRun = jobsStore.getJobRun(jobRunId).jobRun
     if (jobRun === undefined || !LIVE_JOB_RUN_STATUSES.has(jobRun.status)) {
-      return false
+      return undefined
     }
     const job = jobsStore.getJob(jobRun.jobId).job
     const scopeRef = jobRun.resolvedScopeRef ?? job?.scopeRef
     if (scopeRef === undefined) {
-      return false
+      return undefined
     }
     try {
       const target = normalizeSessionRef({
@@ -33,10 +33,13 @@ export function createJobFirstBirthAuthority(
         laneRef: jobRun.resolvedLaneRef ?? job?.laneRef ?? 'main',
       })
       const launched = normalizeSessionRef(sessionRef)
-      return target.scopeRef === launched.scopeRef && target.laneRef === launched.laneRef
+      if (target.scopeRef !== launched.scopeRef || target.laneRef !== launched.laneRef) {
+        return undefined
+      }
+      return job !== undefined && job.flow === undefined ? 'input-only' : 'other-job'
     } catch {
       // An unresolved template or malformed ref is never this session.
-      return false
+      return undefined
     }
   }
 }

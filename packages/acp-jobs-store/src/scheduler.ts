@@ -404,7 +404,8 @@ export async function tickJobsScheduler(input: TickJobsSchedulerInput): Promise<
       results.push(
         input.store.updateJobRun(entry.jobRun.jobRunId, {
           status: 'failed',
-          errorCode: 'dispatch_failed',
+          errorCode:
+            errorCode(error) === 'job_target_remote' ? 'job_target_remote' : 'dispatch_failed',
           errorMessage: error instanceof Error ? error.message : String(error),
           completedAt: now,
           leaseOwner: null,

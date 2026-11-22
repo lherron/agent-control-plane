@@ -167,9 +167,10 @@ that. A job run is the exception: when the jobs store confirms the run is live
 and its own target is exactly this session, ACP births the scope through HRC's
 native `ensureTarget` door (`session.born cause=summon`) and then dispatches the
 turn as for any bound-local scope. HRC's summon authority still decides
-placement, so a target placed on another node fails `dispatch_failed`. A scope
-bound to another node is always refused, and caller-supplied `/v1/inputs`
-`meta.source` never qualifies on its own.
+placement, so a target placed on another node fails `dispatch_failed`. An input-only job targeting
+a scope already bound to another node fails with `job_target_remote`. Use an
+`agent-dispatch` step for cross-node prompt delivery. Caller-supplied
+`/v1/inputs` `meta.source` never qualifies on its own.
 
 **Output sinks (non-flow jobs, e.g. event hooks).** `[[output.sinks]]` POSTs the
 run's final markdown to a loopback webhook. A failed POST retries with backoff

@@ -78,7 +78,7 @@ Run `bun test tests/conformance/acp-workflow` for source conformance. The full o
 
 ## Gotchas
 
-Source conformance includes state-machine failure cases but is not installed job dispatch proof. Never load production schedules, managed resources, hooks, or job recipients into scratch. No live scheduler substitution. `job create` takes no `--job` (usage error, exit 2): the server mints `job_<hex>`, so read it from the create response. `job validate` exits 1 when the body reports `valid: false` and still prints the errors (T-11922). A fresh scratch jobs DB contains two built-in event jobs, `acp-health-dispatch-timeout-fettle` and `hrc-first-turn-missing-notify` (observed T-12334).
+Source conformance includes state-machine failure cases but is not installed job dispatch proof. Never load production schedules, managed resources, hooks, or job recipients into scratch. No live scheduler substitution. `job create` takes no `--job` (usage error, exit 2): the server mints `job_<hex>`, so read it from the create response. `job validate` exits 1 when the body reports `valid: false` and still prints the errors (T-11922). An input-only job aimed at a seat bound to another node fails with `job_target_remote` and names the bound node. Use an `agent-dispatch` step for cross-node delivery. A fresh scratch jobs DB contains two built-in event jobs, `acp-health-dispatch-timeout-fettle` and `hrc-first-turn-missing-notify` (observed T-12334).
 
 ## Proven when
 

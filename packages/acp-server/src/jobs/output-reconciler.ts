@@ -14,6 +14,7 @@ import {
 } from 'acp-jobs-store'
 
 import type { RunStore, StoredRun } from '../domain/run-store.js'
+import { JobTargetRemoteError } from '../launcher-placement.js'
 import { isRecord } from '../parsers/body.js'
 import {
   type JobOutputDeliveryPolicy,
@@ -133,7 +134,8 @@ export function createJobOutputReconciler(input: JobOutputReconcilerInput): JobO
     if (run.status === 'failed' || run.status === 'cancelled') {
       settle({
         status: 'failed',
-        errorCode: `run_${run.status}`,
+        errorCode:
+          run.errorCode === JobTargetRemoteError.code ? run.errorCode : `run_${run.status}`,
         errorMessage: run.errorMessage ?? `ACP run ${run.runId} ended ${run.status}`,
         completedAt: nowIso,
       })

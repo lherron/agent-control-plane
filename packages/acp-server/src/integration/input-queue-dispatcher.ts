@@ -24,6 +24,7 @@ import {
 import { causationLaunchEnvFromRunMetadata } from '../jobs/causation-env.js'
 import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
+import { JobTargetRemoteError } from '../launcher-placement.js'
 import {
   hasInFlightHrcRunSince as defaultHasInFlightHrcRunSince,
   hasRecentlyCompletedHrcRunSince as defaultHasRecentlyCompletedHrcRunSince,
@@ -644,21 +645,22 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       }
 
       const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorCode = error instanceof JobTargetRemoteError ? error.code : 'launch_failed'
       deps.runStore.updateRun(item.runId, {
         status: 'failed',
-        errorCode: 'launch_failed',
+        errorCode,
         errorMessage,
       })
       deps.inputQueueStore.update(leased.queueItemId, {
         status: 'failed',
-        lastErrorCode: 'launch_failed',
+        lastErrorCode: errorCode,
         lastErrorMessage: errorMessage,
       })
       deps.inputAdmissionStore.update(item.inputAttemptId, {
         status: 'failed',
         currentState: {
           queueStatus: 'failed',
-          errorCode: 'launch_failed',
+          errorCode,
           seq: item.seq,
         },
       })

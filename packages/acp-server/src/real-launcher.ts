@@ -15,7 +15,7 @@ import {
   waitForTmuxAssistantMessage,
 } from './launcher-completion.js'
 import {
-  readVerifiedJobRunId,
+  readVerifiedJobLaunchKind,
   resolveFirstTurnTimeoutOverrideMs,
   resolveHrcDispatchOrigin,
   withAcpLaunchContextEnv,
@@ -113,7 +113,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       client,
       sessionRef,
       prompt,
-      jobRunId: readVerifiedJobRunId({
+      jobKind: readVerifiedJobLaunchKind({
         inputAttemptStore,
         inputAttemptId,
         acpRunId,

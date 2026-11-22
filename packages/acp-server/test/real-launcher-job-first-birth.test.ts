@@ -4,10 +4,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { type JobsStore, openSqliteJobsStore } from 'acp-jobs-store'
+import { type JobsStore, openSqliteJobsStore, tickJobsScheduler } from 'acp-jobs-store'
+import type { LocateAuthority } from 'hrc-core'
 
+import { resolveAcpServerDeps } from '../src/deps.js'
 import { InMemoryInputAttemptStore } from '../src/domain/input-attempt-store.js'
 import { InMemoryRunStore } from '../src/domain/run-store.js'
+import { dispatchJobRunThroughInputs } from '../src/handlers/admin-jobs.js'
 import { createJobFirstBirthAuthority } from '../src/jobs/first-birth-authority.js'
 import { createRealLauncher } from '../src/real-launcher.js'
 
@@ -54,7 +57,7 @@ function appendEventJobRun(
   }).jobRun.jobRunId
 }
 
-function unboundClient(calls: string[]) {
+function unboundClient(calls: string[], authority: LocateAuthority = { state: 'unbound' }) {
   return {
     locateScope: async (scopeRef: string) => {
       calls.push('locateScope')
@@ -62,7 +65,7 @@ function unboundClient(calls: string[]) {
         scopeRef,
         localNodeId: 'max3',
         federationConfigured: true,
-        authority: { state: 'unbound' },
+        authority,
       }
     },
     ensureTarget: async (request: Record<string, unknown>) => {
@@ -144,6 +147,83 @@ describe('job first birth of an unbound scope', () => {
         'resolveSession',
         `dispatchTurn:${JSON.stringify({ actor: 'system:acp-local', kind: 'system', causationRef: jobRunId })}`,
       ])
+    })
+  })
+
+  test('a resolved input-only event run records the remote authority refusal', async () => {
+    await withJobsStore(async (store) => {
+      const calls: string[] = []
+      const inputAttemptStore = new InMemoryInputAttemptStore()
+      const now = '2026-11-22T18:49:33.760Z'
+      const job = store.createJob({
+        projectId: 'taskboard',
+        agentId: 'scribe',
+        scopeRef: 'agent:scribe:project:taskboard:task:{{ ticket_id }}',
+        trigger: { kind: 'event', source: 'wrkq', match: { event: 'updated' } },
+        input: { content: 'Intake for {{ ticket_id }}' },
+      }).job
+      store.insertInboxEvent({
+        eventId: 'evt_remote',
+        eventSeq: 1,
+        event: 'updated',
+        source: 'wrkq',
+        payload: {},
+      })
+      const hrcDb = new Database(':memory:')
+      try {
+        await withWiredServer(
+          async (fixture) => {
+            const deps = resolveAcpServerDeps(fixture.deps)
+            await tickJobsScheduler({
+              store,
+              now,
+              evaluateEventJob: () => ({
+                decision: 'mint',
+                resolved: {
+                  scopeRef: COLD_SCOPE,
+                  laneRef: 'main',
+                  input: { content: 'Intake for T-09992' },
+                },
+                source: { kind: 'webhook' },
+              }),
+              dispatchThroughInputs: (input) => dispatchJobRunThroughInputs(deps, input),
+            })
+
+            expect(store.listJobRuns(job.jobId).jobRuns).toMatchObject([
+              {
+                status: 'failed',
+                errorCode: 'job_target_remote',
+                errorMessage: expect.stringContaining('bound to svc; use an agent-dispatch step'),
+                resolvedScopeRef: COLD_SCOPE,
+              },
+            ])
+            expect(calls).toEqual(['locateScope'])
+          },
+          {
+            inputAttemptStore,
+            runtimeResolver: async () => ({
+              ...INTENT.placement,
+              projectRoot: '/tmp/project',
+              cwd: '/tmp/project',
+              harness: INTENT.harness,
+            }),
+            launchRoleScopedRun: createRealLauncher({
+              hrc: createHrcRouteFake(hrcDb),
+              inputAttemptStore,
+              jobFirstBirthAuthority: createJobFirstBirthAuthority(store),
+              createClient: () =>
+                unboundClient(calls, {
+                  state: 'bound',
+                  source: 'registry',
+                  isLocal: false,
+                  record: { homeNodeId: 'svc', createdAt: now, updatedAt: now },
+                }) as unknown as any,
+            }),
+          }
+        )
+      } finally {
+        hrcDb.close()
+      }
     })
   })
 

@@ -31,18 +31,18 @@ export function resolveHrcDispatchOrigin(input: {
 }
 
 /**
- * The job run this launch belongs to, only when the jobs store confirms it is
+ * The kind of job behind this launch, only when the jobs store confirms it is
  * live and targets this session. Caller meta alone never qualifies: /v1/inputs
  * passes meta through, so a claimed `source.kind: 'job'` is just a claim.
  */
-export function readVerifiedJobRunId(input: {
+export function readVerifiedJobLaunchKind(input: {
   inputAttemptStore: InputAttemptStore | undefined
   inputAttemptId: string | undefined
   acpRunId: string | undefined
   runStore: RunStore | undefined
   sessionRef: SessionRef
   authority: JobFirstBirthAuthority | undefined
-}): string | undefined {
+}): ReturnType<JobFirstBirthAuthority> {
   if (input.authority === undefined) {
     return undefined
   }
@@ -63,7 +63,7 @@ export function readVerifiedJobRunId(input: {
   if (jobRunId === undefined) {
     return undefined
   }
-  return input.authority({ jobRunId, sessionRef: input.sessionRef }) ? jobRunId : undefined
+  return input.authority({ jobRunId, sessionRef: input.sessionRef })
 }
 
 function hrcDispatchOriginFromActor(

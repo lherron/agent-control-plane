@@ -2,6 +2,8 @@ import type { SessionRef } from 'agent-scope'
 import type { HrcHarnessIntent, HrcRuntimeIntent, ScopeLocation } from 'hrc-core'
 import type { HrcClient } from 'hrc-sdk'
 import type { HrcRouteReader } from './hrc-route-reader.js'
+import { AcpHttpError } from './http.js'
+import type { JobFirstBirthAuthority } from './jobs/first-birth-authority.js'
 import {
   type FetchPlacementResolution,
   daemonHarnessToHrcHarness,
@@ -14,12 +16,25 @@ type LiveTmuxRuntime = {
   runtimeId: string
 }
 
+export class JobTargetRemoteError extends AcpHttpError {
+  static readonly code = 'job_target_remote'
+
+  constructor(sessionRef: string, homeNodeId: string) {
+    super(
+      409,
+      JobTargetRemoteError.code,
+      `input-only job target ${sessionRef} is bound to ${homeNodeId}; use an agent-dispatch step for cross-node prompt delivery`,
+      { sessionRef, homeNodeId }
+    )
+  }
+}
+
 export async function assertPromptLaunchOwnedLocally(input: {
   client: Partial<Pick<HrcClient, 'locateScope'>>
   sessionRef: SessionRef
   prompt: string | undefined
   /** Set only when the jobs store vouches for this launch's job run. */
-  jobRunId: string | undefined
+  jobKind: ReturnType<JobFirstBirthAuthority>
 }): Promise<'local' | 'job-first-birth'> {
   if (!input.prompt) {
     return 'local'
@@ -34,8 +49,15 @@ export async function assertPromptLaunchOwnedLocally(input: {
   if (!requiresCollaborationLedgerDelivery(location)) {
     return 'local'
   }
-  if (location.authority.state === 'unbound' && input.jobRunId !== undefined) {
+  if (location.authority.state === 'unbound' && input.jobKind !== undefined) {
     return 'job-first-birth'
+  }
+
+  if (location.authority.state === 'bound' && input.jobKind === 'input-only') {
+    throw new JobTargetRemoteError(
+      toHrcSessionRef(input.sessionRef),
+      location.authority.record.homeNodeId
+    )
   }
 
   throw new Error(

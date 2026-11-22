@@ -3,6 +3,7 @@ import { HrcDomainError } from 'hrc-core'
 import { forbidden } from '../http.js'
 import { causationLaunchEnvFromInputMetadata } from '../jobs/causation-env.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
+import { JobTargetRemoteError } from '../launcher-placement.js'
 import {
   type AdmissionAttempt,
   type AdmissionRecords,
@@ -225,7 +226,10 @@ export async function admitNewWork(
       const current = deps.runStore.getRun(run.runId)
       if (current?.status === 'pending') {
         const errorMessage = error instanceof Error ? error.message : String(error)
-        const errorCode = error instanceof HrcDomainError ? error.code : 'launch_failed'
+        const errorCode =
+          error instanceof HrcDomainError || error instanceof JobTargetRemoteError
+            ? error.code
+            : 'launch_failed'
         const failedRun = deps.runStore.updateRun(run.runId, {
           status: 'failed',
           errorCode,
