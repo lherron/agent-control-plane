@@ -19,7 +19,7 @@ For a local non-network drive run `bun packages/wlearn/src/cli.ts playbook draft
 
 ## Gotchas
 
-wlearn drafts are local outputs, not activation or promotion proof. `e2e-cap-acp-real` / `e2e-cap-pbc` enqueue real HRC work; never run them for scratch-only verification.
+wlearn drafts are local outputs, not activation or promotion proof. `e2e-cap-acp-real` enqueues real HRC work; never run them for scratch-only verification.
 
 ## Proven when
 

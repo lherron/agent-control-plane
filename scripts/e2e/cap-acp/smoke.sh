@@ -8,10 +8,6 @@
 # passed, hit a known adapter limitation, hit an explicit precondition block, or
 # exposed an unexplained/manifest failure.
 #
-# PBC capabilities are opt-in because they create real wrkq tasks and can launch
-# pbc-writer/pbc-reviewer agents. Set CAP_PBC_E2E=1 only when deliberately
-# validating cap-pbc changes.
-#
 # Real ACP agent-dispatch paths are also opt-in. Set CAP_ACP_E2E_REAL_AGENT=1
 # when deliberately validating HRC turn launch/delivery behavior through cap.
 set -uo pipefail
@@ -43,7 +39,6 @@ SESSION_SCOPE="${SESSION_SCOPE:-agent:smokey:project:agent-control-plane:task:T-
 LANE_REF="main"
 GATEWAY_ID="cap-acp-smoke"
 CONVERSATION_REF="channel:${SMOKE_ID}"
-PBC_TASK_ID=""
 WRKF_TASK_ID=""
 SESSION_ID=""
 RUN_ID=""
@@ -55,10 +50,8 @@ JOB_RUN_ID=""
 DELIVERY_ACK_ID=""
 DELIVERY_FAIL_ID=""
 DELIVERY_RETRY_ID=""
-PBC_JOB_ID=""
 INTERFACE_BINDING_ID=""
 WRKQ_PROJECT="${WRKQ_PROJECT:-agent-control-plane}"
-CAP_PBC_E2E="${CAP_PBC_E2E:-0}"
 CAP_ACP_E2E_REAL_AGENT="${CAP_ACP_E2E_REAL_AGENT:-0}"
 
 truthy() {
@@ -70,10 +63,6 @@ truthy() {
       return 1
       ;;
   esac
-}
-
-pbc_e2e_enabled() {
-  truthy "${CAP_PBC_E2E}"
 }
 
 real_agent_e2e_enabled() {
@@ -199,7 +188,6 @@ write_input() {
   LANE_REF="$LANE_REF" \
   GATEWAY_ID="$GATEWAY_ID" \
   CONVERSATION_REF="$CONVERSATION_REF" \
-  PBC_TASK_ID="$PBC_TASK_ID" \
   WRKF_TASK_ID="$WRKF_TASK_ID" \
   SESSION_ID="$SESSION_ID" \
   RUN_ID="$RUN_ID" \
@@ -211,7 +199,6 @@ write_input() {
   DELIVERY_ACK_ID="$DELIVERY_ACK_ID" \
   DELIVERY_FAIL_ID="$DELIVERY_FAIL_ID" \
   DELIVERY_RETRY_ID="$DELIVERY_RETRY_ID" \
-  PBC_JOB_ID="$PBC_JOB_ID" \
   INTERFACE_BINDING_ID="$INTERFACE_BINDING_ID" \
   CAP_ACP_E2E_REAL_AGENT="$CAP_ACP_E2E_REAL_AGENT" \
   python3 - "$file" <<'PY'
@@ -225,7 +212,6 @@ scope = os.environ['SESSION_SCOPE']
 lane = os.environ['LANE_REF']
 gateway = os.environ['GATEWAY_ID']
 conversation = os.environ['CONVERSATION_REF']
-pbc_task = os.environ.get('PBC_TASK_ID') or f'{smoke}-missing-pbc-task'
 wrkf_task = os.environ.get('WRKF_TASK_ID') or f'{smoke}-missing-wrkf-task'
 session_id = os.environ.get('SESSION_ID') or f'{smoke}-missing-session'
 run_id = os.environ.get('RUN_ID') or f'{smoke}-missing-run'
@@ -237,7 +223,6 @@ job_run_id = os.environ.get('JOB_RUN_ID') or f'{smoke}-missing-job-run'
 delivery_ack = os.environ.get('DELIVERY_ACK_ID') or f'{smoke}-missing-delivery-ack'
 delivery_fail = os.environ.get('DELIVERY_FAIL_ID') or f'{smoke}-missing-delivery-fail'
 delivery_retry = os.environ.get('DELIVERY_RETRY_ID') or f'{smoke}-missing-delivery-retry'
-pbc_job = os.environ.get('PBC_JOB_ID') or f'{smoke}-missing-pbc-job'
 binding_id = os.environ.get('INTERFACE_BINDING_ID') or ''
 session_ref = {'scopeRef': scope, 'laneRef': lane}
 real_agent = os.environ.get('CAP_ACP_E2E_REAL_AGENT', '').strip().lower() in {'1', 'true', 'yes', 'on'}
@@ -325,20 +310,6 @@ payloads = {
         'subject': {'type': 'capability-smoke', 'id': smoke},
         'payload': {'smokeId': smoke},
     },
-    'pbc.workflow_instance.start.progressive_refinement': {
-        'taskId': pbc_task, 'idempotencyKey': f'{smoke}:pbc-start',
-        'intake': {'title': f'PBC smoke {smoke}', 'summary': 'Exercise PBC semantic capability route.'},
-    },
-    'pbc.workflow_instance.get.progressive_refinement': {'taskId': pbc_task},
-    'pbc.workflow_instance.submit_input.progressive_refinement': {
-        'taskId': pbc_task, 'kind': 'clarification_response',
-        'idempotencyKey': f'{smoke}:pbc-input',
-        'data': {'answer': 'Use the e2e harness result as the acceptance signal.'},
-    },
-    'pbc.workflow_instance.continue.progressive_refinement': {'taskId': pbc_task, 'idempotencyKey': f'{smoke}:pbc-continue'},
-    'pbc.workflow_instance.dispose.progressive_refinement': {'taskId': pbc_task, 'resolution': 'wont_fix', 'reason': f'cap-acp smoke cleanup {smoke}'},
-    'pbc.effect.reconcile.progressive_refinement': {'taskId': pbc_task},
-    'pbc.execution.get.continuation_job': {'jobId': pbc_job},
 }
 
 if a not in payloads:
@@ -597,7 +568,7 @@ seed_delivery() {
   json_find_key "$out" deliveryRequestId
 }
 
-seed_pbc_task() {
+seed_wrkq_task() {
   local slug="$1"
   local title="$2"
   local out="$WORKDIR/wrkq-task.json"
@@ -628,10 +599,7 @@ close_seeded_wrkq_task() {
 }
 
 close_seeded_wrkq_tasks() {
-  if [ -n "$PBC_TASK_ID" ]; then
-    close_seeded_wrkq_task "$PBC_TASK_ID"
-  fi
-  if [ -n "$WRKF_TASK_ID" ] && [ "$WRKF_TASK_ID" != "$PBC_TASK_ID" ]; then
+  if [ -n "$WRKF_TASK_ID" ]; then
     close_seeded_wrkq_task "$WRKF_TASK_ID"
   fi
 }
@@ -734,11 +702,6 @@ echo "== ACP capability http-json e2e =="
 echo "SMOKE_ID=$SMOKE_ID"
 echo "ACP_BASE_URL=$ACP_BASE_URL"
 echo "ACP target: running dev server with namespaced throwaway data"
-if pbc_e2e_enabled; then
-  echo "PBC capability smoke: enabled (CAP_PBC_E2E=${CAP_PBC_E2E})"
-else
-  echo "PBC capability smoke: skipped (set CAP_PBC_E2E=1 to run cap-pbc)"
-fi
 if real_agent_e2e_enabled; then
   echo "Real agent dispatch: enabled (CAP_ACP_E2E_REAL_AGENT=${CAP_ACP_E2E_REAL_AGENT})"
 else
@@ -776,27 +739,8 @@ if ! register_provider_manifest acp; then
   cat "$WORKDIR/register-acp.err"
   exit 1
 fi
-if pbc_e2e_enabled; then
-  echo "Registering full PBC provider manifest from capabilities/provider.pbc.yaml."
-  if ! register_provider_manifest pbc; then
-    echo "FAIL: could not register full PBC provider manifest"
-    cat "$WORKDIR/register-pbc.err"
-    exit 1
-  fi
-fi
-
-if pbc_e2e_enabled; then
-  echo "== seed real wrkq task for PBC route preconditions =="
-  PBC_TASK_ID="$(seed_pbc_task "${SMOKE_ID}-pbc" "Cap ACP PBC smoke ${SMOKE_ID}")"
-  if [ -z "$PBC_TASK_ID" ]; then
-    echo "FAIL: could not create wrkq seed task"
-    exit 1
-  fi
-  echo "PBC_TASK_ID=$PBC_TASK_ID"
-fi
-
 echo "== seed real wrkf task for WRKF action/participant preconditions =="
-WRKF_TASK_ID="$(seed_pbc_task "${SMOKE_ID}-wrkf" "Cap ACP WRKF smoke ${SMOKE_ID}")"
+WRKF_TASK_ID="$(seed_wrkq_task "${SMOKE_ID}-wrkf" "Cap ACP WRKF smoke ${SMOKE_ID}")"
 if [ -z "$WRKF_TASK_ID" ]; then
   echo "FAIL: could not create wrkf seed task"
   exit 1
@@ -941,38 +885,6 @@ else
   run_cap "acp.execution.get.automation_job_run" "none"
 fi
 run_cap "acp.event.ingest.normalized" "operation_and_execution" "${SMOKE_ID}:event-ingest"
-
-if pbc_e2e_enabled; then
-  echo "== invoke PBC capabilities =="
-  if run_cap "pbc.workflow_instance.start.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-start" 90; then
-    PBC_JOB_ID="$(json_get "$WORKDIR/pbc_workflow_instance_start_progressive_refinement.json" output.activeJob.id)"
-    [ -n "$PBC_JOB_ID" ] || PBC_JOB_ID="$(json_find_key "$WORKDIR/pbc_workflow_instance_start_progressive_refinement.json" jobId)"
-  fi
-  run_cap "pbc.workflow_instance.get.progressive_refinement" "none"
-  PBC_SCREEN="$(json_get "$WORKDIR/pbc_workflow_instance_get_progressive_refinement.json" output.screen)"
-  case "$PBC_SCREEN" in
-    clarification)
-      run_cap "pbc.workflow_instance.submit_input.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-input" 90 "$HUMAN_ACTOR"
-      ;;
-    patch_decision)
-      record_block "pbc.workflow_instance.submit_input.progressive_refinement" "PRECONDITION-BLOCKED" "current screen is patch_decision; harness does not synthesize a patch_decision payload"
-      ;;
-    *)
-      record_block "pbc.workflow_instance.submit_input.progressive_refinement" "PRECONDITION-BLOCKED" "current screen '${PBC_SCREEN:-missing}' does not accept clarification_response input"
-      ;;
-  esac
-  if run_cap "pbc.workflow_instance.continue.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-continue" 90; then
-    [ -z "$PBC_JOB_ID" ] && PBC_JOB_ID="$(json_get "$WORKDIR/pbc_workflow_instance_continue_progressive_refinement.json" output.activeJob.id)"
-    [ -z "$PBC_JOB_ID" ] && PBC_JOB_ID="$(json_find_key "$WORKDIR/pbc_workflow_instance_continue_progressive_refinement.json" jobId)"
-  fi
-  run_cap "pbc.workflow_instance.dispose.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-dispose" 90 "$HUMAN_ACTOR"
-  run_cap "pbc.effect.reconcile.progressive_refinement" "operation_and_execution" "${SMOKE_ID}:pbc-reconcile" 90
-  if [ -z "$PBC_JOB_ID" ]; then
-    record_block "pbc.execution.get.continuation_job" "PRECONDITION-BLOCKED" "no continuation jobId was produced by PBC start/continue"
-  else
-    run_cap "pbc.execution.get.continuation_job" "none"
-  fi
-fi
 
 echo "== negative error-class mapping =="
 NEG_IN="$WORKDIR/negative-agent-profile.json"

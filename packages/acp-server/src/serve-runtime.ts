@@ -103,7 +103,6 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
         ].some((table) => tables.has(table))
       )
         commitBus.notify('admissions')
-      if (tables.has('pbc_continuation_jobs') || tables.has('*')) commitBus.notify('jobs')
     },
   })
   const adminStore =
@@ -278,7 +277,7 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
     options.port
   )
   const { wakeDispatcher, interfaceRunDispatcher, inputQueueDispatcher, schedulerLoop } =
-    startServeWorkers({ resolvedDeps, stateStore, commitBus, wrkqStore, options })
+    startServeWorkers({ resolvedDeps, stateStore, commitBus })
 
   let closed = false
   return {

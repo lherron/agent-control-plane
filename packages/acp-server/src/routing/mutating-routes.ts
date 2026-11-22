@@ -19,10 +19,6 @@ function readPlanOwnerScopeRef(body: unknown): string | undefined {
 }
 
 export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
-  'GET /v1/wrkf/pbc/tasks/:task/inspect': {
-    operation: 'wrkf.pbc.inspect',
-    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['task'] }),
-  },
   'POST /v1/admin/agents': {
     operation: 'admin.agents.create',
     resource: ({ body }) => ({ kind: 'agent', id: readBodyString(body, 'agentId') }),
@@ -144,21 +140,6 @@ export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
     operation: 'wrkf.obligations.satisfy',
     resource: ({ params }) => ({ kind: 'wrkf-obligation', id: params['obligationId'] }),
   },
-  'POST /v1/wrkf/pbc/tasks/:task/run-step': {
-    operation: 'wrkf.pbc.run-step',
-    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['task'] }),
-    parseActorBody: false,
-  },
-  'POST /v1/wrkf/pbc/tasks/:task/approve-transition': {
-    operation: 'wrkf.pbc.approve-transition',
-    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['task'] }),
-    parseActorBody: false,
-  },
-  'POST /v1/wrkf/pbc/tasks/:task/run-until-blocked': {
-    operation: 'wrkf.pbc.run-until-blocked',
-    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['task'] }),
-    parseActorBody: false,
-  },
   'POST /v1/wrkf/effects/deliver': {
     operation: 'wrkf.effects.deliver',
     resource: ({ body }) => ({ kind: 'wrkf-task', id: readBodyString(body, 'task') }),
@@ -166,25 +147,5 @@ export const mutatingRouteSpecs: Record<string, ActorAndAuthzSpec> = {
   'POST /v1/wrkf/actions/launch': {
     operation: 'wrkf.actions.launch',
     resource: ({ body }) => ({ kind: 'wrkf-task', id: readBodyString(body, 'taskId') }),
-  },
-  'POST /v1/pbc/tasks/:taskId/start': {
-    operation: 'pbc.tasks.start',
-    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['taskId'] }),
-  },
-  'POST /v1/pbc/tasks/:taskId/input': {
-    operation: 'pbc.tasks.input',
-    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['taskId'] }),
-  },
-  'POST /v1/pbc/tasks/:taskId/continue': {
-    operation: 'pbc.tasks.continue',
-    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['taskId'] }),
-  },
-  'POST /v1/pbc/tasks/:taskId/dispose': {
-    operation: 'pbc.tasks.dispose',
-    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['taskId'] }),
-  },
-  'POST /v1/pbc/tasks/:taskId/effects/reconcile': {
-    operation: 'pbc.tasks.effects.reconcile',
-    resource: ({ params }) => ({ kind: 'wrkf-task', id: params['taskId'] }),
   },
 } as const

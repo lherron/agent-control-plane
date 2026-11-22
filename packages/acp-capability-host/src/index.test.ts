@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { Database } from 'bun:sqlite'
 import { afterEach, describe, expect, test } from 'bun:test'
 
 import { type AcpCapabilityHost, startAcpCapabilityHost } from './index.js'
@@ -19,7 +20,7 @@ afterEach(async () => {
 })
 
 describe('acp-capability-host', () => {
-  test('self-registers the ACP and PBC provider manifests', async () => {
+  test('self-registers the ACP provider manifest', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'acp-cap-host-test-'))
     tempDirs.push(dir)
     const host = await startAcpCapabilityHost({
@@ -30,10 +31,7 @@ describe('acp-capability-host', () => {
     })
     hosts.push(host)
 
-    expect(host.registeredProviders).toEqual([
-      { id: 'acp', capabilityCount: 31 },
-      { id: 'pbc', capabilityCount: 7 },
-    ])
+    expect(host.registeredProviders).toEqual([{ id: 'acp', capabilityCount: 31 }])
     const response = await host.handleHttpJsonRpc(
       new Request('http://127.0.0.1/v1/cap/rpc', {
         method: 'POST',
@@ -48,7 +46,48 @@ describe('acp-capability-host', () => {
 
     expect(response.status).toBe(200)
     expect(body.error).toBeUndefined()
-    expect(body.result?.providers?.map((provider) => provider.id)).toEqual(['acp', 'pbc'])
+    expect(body.result?.providers?.map((provider) => provider.id)).toEqual(['acp'])
+  })
+
+  test('boot drops a catalogued provider that no longer ships and keeps a shipped one', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'acp-cap-host-test-'))
+    tempDirs.push(dir)
+    const capabilitiesDir = join(import.meta.dir, '../../..', 'capabilities')
+    const catalogStateDir = join(dir, 'catalog')
+    const boot = () =>
+      startAcpCapabilityHost({
+        capabilitiesDir,
+        socketPath: join(dir, 'cap.sock'),
+        catalogStateDir,
+        acpBaseUrl: 'http://127.0.0.1:18470',
+      })
+
+    await (await boot()).shutdown()
+    // A row left by an earlier boot (or a cap.sock registration) for a provider
+    // whose manifest is not in capabilitiesDir, as pbc was before T-14375.
+    const db = new Database(join(catalogStateDir, 'catalog.db'))
+    const acpRow = db
+      .query("SELECT manifest_json FROM cap_provider_manifests WHERE provider = 'acp'")
+      .get() as { manifest_json: string }
+    const retired = JSON.parse(acpRow.manifest_json) as {
+      provider: { id: string }
+      capabilities: Array<{ id: string }>
+    }
+    retired.provider.id = 'retired'
+    retired.capabilities = retired.capabilities.map((cap) => ({ ...cap, id: `retired.${cap.id}` }))
+    db.query(
+      "INSERT INTO cap_provider_manifests (provider, manifest_json, updated_at) VALUES ('retired', $json, 'x')"
+    ).run({ $json: JSON.stringify(retired) })
+    db.close()
+
+    const host = await boot()
+    hosts.push(host)
+    const listed = await host.call<{ providers: Array<{ id: string }> }>('cap.provider.list')
+    expect(listed.providers.map((provider) => provider.id)).toEqual(['acp'])
+    const check = new Database(join(catalogStateDir, 'catalog.db'), { readonly: true })
+    const rows = check.query('SELECT provider FROM cap_provider_manifests').all()
+    check.close()
+    expect(rows).toEqual([{ provider: 'acp' }])
   })
 
   test('logs one rpc.request line per cap.sock frame, never the frame itself', async () => {

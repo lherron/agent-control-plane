@@ -222,7 +222,7 @@ function projectActionRecord(value: unknown, label = 'action'): ActionRecord {
   const action = requireRecord(value, label)
   const id = readOptionalString(action, 'id')
   const kind = readOptionalString(action, 'kind')
-  // PBC@5 emits transition-kind actions with id='transition_<name>' (no 'transition' field).
+  // Some templates emit transition-kind actions with id='transition_<name>' (no 'transition' field).
   // Strip the prefix so harness can use the bare wrkf transition name.
   const explicitTransition = readOptionalString(action, 'transition')
   const derivedTransition =

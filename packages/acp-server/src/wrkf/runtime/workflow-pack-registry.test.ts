@@ -1,54 +1,44 @@
 /**
- * WorkflowPack registry + PBC manifest resolution (T-02347, T-02402)
+ * WorkflowPack registry resolution (T-02347, T-02402)
  *
  * The caller-visible effect of resolution is the GET /v1/tasks/:taskId `pack`
- * block (handlers/workflow-tasks.ts -> defaultWorkflowPackRegistry). The plain
- * supported / unknown-ref projections are asserted there, in
- * src/__tests__/wrkf-workflow-pack-projection.test.ts. This file keeps:
- *   - the template-hash fail-closed resolution through the production default
- *     registry (no route test covers a mismatched hash yet; rewrite-held),
- *   - the versioned-ref exact-match guard,
- *   - the multi-pack claimed-but-blocked precedence contract (T-02402).
+ * block (handlers/workflow-tasks.ts -> defaultWorkflowPackRegistry). No packs
+ * ship since the PBC pack was removed (T-14375), so the production registry
+ * resolves every ref to the generic level-0 projection. This file keeps the
+ * multi-pack claimed-but-blocked precedence contract (T-02402), driven by a
+ * hash-pinned stub pack.
  */
 
 import { describe, expect, test } from 'bun:test'
 
 import { defaultWorkflowPackRegistry } from '../packs/default-registry.js'
-import { pbcManifest } from '../packs/pbc/manifest.js'
 import { WorkflowPackRegistry } from './workflow-pack-registry.js'
+import type { WorkflowPack } from './workflow-pack.js'
 
-describe('PBC pack resolution', () => {
-  // A modified/unknown template hash means the compiled prompt, parser and
-  // transition policy cannot be trusted: block (level 0) rather than degrade to
-  // best-effort (level 1). The claiming pack's id is kept so callers can see
-  // which pack blocked the task.
-  describe('template-hash pinning', () => {
-    test('a pbc ref with a mismatched templateHash resolves blocked: pack pbc, supported:false, level 0, reason template-hash-mismatch', () => {
-      const result = defaultWorkflowPackRegistry.resolve({
-        workflowRef: 'pbc-progressive-refinement@9',
-        // A hash that is clearly not the real PBC template hash
-        templateHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
-      })
+const PINNED_REF = 'pinned-demo@1'
+const PINNED_HASH = 'sha256:1111111111111111111111111111111111111111111111111111111111111111'
 
-      expect(result.pack?.id).toBe('pbc')
-      expect(result.support).toMatchObject({
-        supported: false,
-        level: 0,
-        reason: 'template-hash-mismatch',
-      })
+/** Claims PINNED_REF only; blocks (claimed, unsupported) on a foreign template hash. */
+const pinnedPack: WorkflowPack = {
+  id: 'pinned',
+  displayName: 'Pinned Stub',
+  supports: ({ workflowRef, templateHash }) => {
+    if (workflowRef !== PINNED_REF) return { supported: false, level: 0 }
+    if (templateHash !== undefined && templateHash !== PINNED_HASH) {
+      return { supported: false, level: 0, reason: 'template-hash-mismatch', claimed: true }
+    }
+    return { supported: true, level: 3, claimed: true }
+  },
+}
+
+describe('default registry', () => {
+  test('ships no packs: a former PBC ref resolves to the generic level-0 projection', () => {
+    const result = defaultWorkflowPackRegistry.resolve({
+      workflowRef: PINNED_REF,
     })
-  })
 
-  describe('versioned workflowRef', () => {
-    test('pbc-progressive-refinement at another version is not supported (exact ref match, no prefix match)', () => {
-      // Only @9 is supported; earlier versions are not
-      const result = pbcManifest.supports({
-        workflowRef: 'pbc-progressive-refinement@4',
-      })
-
-      expect(result.supported).toBe(false)
-      expect(result.level).toBe(0)
-    })
+    expect(result.pack).toBeUndefined()
+    expect(result.support).toMatchObject({ supported: false, level: 0 })
   })
 })
 
@@ -71,15 +61,15 @@ describe('PBC pack resolution', () => {
 describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-02402)', () => {
   // ── 4a. Claimed-but-blocked must NOT fall through to a later pack ─────────
   //
-  // RED because: current resolve() only checks supported:true; when pbcManifest
+  // RED because: current resolve() only checks supported:true; when pinnedPack
   // returns { supported:false, level:0, reason:'template-hash-mismatch' } the
   // registry falls through to the fallback pack and returns it as the winner.
   // GREEN once: resolve() halts at the first pack whose supports() returns claimed:true.
   //
   describe('claimed-but-blocked: stops at claiming pack, NOT fallback (RED: falls through)', () => {
-    test('resolve returns pack.id="pbc" (not "fallback-stub") for pbc ref with mismatched hash', () => {
+    test('resolve returns pack.id="pinned" (not "fallback-stub") for the pinned ref with mismatched hash', () => {
       const registry = new WorkflowPackRegistry()
-      registry.register(pbcManifest)
+      registry.register(pinnedPack)
       // Stub fallback that would "support" anything — must NOT win here
       registry.register({
         id: 'fallback-stub',
@@ -88,17 +78,17 @@ describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-024
       })
 
       const result = registry.resolve({
-        workflowRef: 'pbc-progressive-refinement@9',
+        workflowRef: PINNED_REF,
         templateHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
       })
 
-      // pbc claimed this ref; fallback must not override the block
-      expect(result.pack?.id).toBe('pbc')
+      // the pinned pack claimed this ref; fallback must not override the block
+      expect(result.pack?.id).toBe('pinned')
     })
 
-    test('resolve returns supported:false for pbc ref with mismatched hash (hash-block is terminal)', () => {
+    test('resolve returns supported:false for the pinned ref with mismatched hash (hash-block is terminal)', () => {
       const registry = new WorkflowPackRegistry()
-      registry.register(pbcManifest)
+      registry.register(pinnedPack)
       registry.register({
         id: 'fallback-stub',
         displayName: 'Fallback Stub',
@@ -106,7 +96,7 @@ describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-024
       })
 
       const result = registry.resolve({
-        workflowRef: 'pbc-progressive-refinement@9',
+        workflowRef: PINNED_REF,
         templateHash: 'sha256:deadbeef00000000000000000000000000000000000000000000000000000000',
       })
 
@@ -114,9 +104,9 @@ describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-024
       expect(result.support.supported).toBe(false)
     })
 
-    test('resolve surfaces reason="template-hash-mismatch" when pbc claims and blocks', () => {
+    test('resolve surfaces reason="template-hash-mismatch" when the pinned pack claims and blocks', () => {
       const registry = new WorkflowPackRegistry()
-      registry.register(pbcManifest)
+      registry.register(pinnedPack)
       registry.register({
         id: 'fallback-stub',
         displayName: 'Fallback Stub',
@@ -124,7 +114,7 @@ describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-024
       })
 
       const result = registry.resolve({
-        workflowRef: 'pbc-progressive-refinement@9',
+        workflowRef: PINNED_REF,
         templateHash: 'sha256:deadbeef00000000000000000000000000000000000000000000000000000000',
       })
 
@@ -142,14 +132,14 @@ describe('WorkflowPackRegistry.resolve() — claimed-but-blocked semantic (T-024
   describe('contrast — unclaimed workflowRef falls through to fallback (GREEN: must stay green)', () => {
     test('resolve falls through to fallback-stub for a ref no pack claims', () => {
       const registry = new WorkflowPackRegistry()
-      registry.register(pbcManifest)
+      registry.register(pinnedPack)
       registry.register({
         id: 'fallback-stub',
         displayName: 'Fallback Stub',
         supports: () => ({ supported: true, level: 1 }),
       })
 
-      // pbcManifest does NOT claim this ref → unclaimed → fallback wins
+      // pinnedPack does NOT claim this ref → unclaimed → fallback wins
       const result = registry.resolve({ workflowRef: 'some-other-workflow@7' })
 
       expect(result.support.supported).toBe(true)

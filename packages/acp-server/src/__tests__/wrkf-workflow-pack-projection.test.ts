@@ -1,40 +1,13 @@
 /**
- * RED TESTS — Phase 2a: GET /v1/tasks/:taskId projection includes pack block (T-02347)
+ * GET /v1/tasks/:taskId projection includes the pack block (T-02347).
  *
- * All tests fail NOW because the handler does not return a `pack` field yet.
- * The `pack` assertion (expect(body.pack).toBeDefined()) will fail for every test below.
+ * Target: packages/acp-server/src/handlers/workflow-tasks.ts (handleGetWorkflowTask),
+ * which resolves `${templateId}@${templateVersion}` (+ templateHash) through
+ * defaultWorkflowPackRegistry and returns { id?, level, supported, reason? } as `pack`.
  *
- * Target: packages/acp-server/src/handlers/workflow-tasks.ts (handleGetWorkflowTask)
- *
- * What the impl agent must change to make these tests green:
- *
- *   1. Create/import a global WorkflowPackRegistry (wired in create-acp-server or an init
- *      module) with pbcManifest registered. The registry must be PBC-free itself; the
- *      pbcManifest registration is the only place PBC strings appear in the wiring.
- *
- *   2. In handleGetWorkflowTask, after projectFlatWrkfInspect builds the task projection:
- *        const workflowId  = optionalString(inspectedRecord, 'templateId') ?? ''
- *        const version     = String(optionalWorkflowVersion(inspectedRecord))
- *        const templateHash = optionalString(inspectedRecord, 'templateHash')
- *        const workflowRef  = `${workflowId}@${version}`
- *        const { pack: resolvedPack, support } = packRegistry.resolve({ workflowRef, templateHash })
- *        const packBlock = {
- *          ...(resolvedPack?.id !== undefined ? { id: resolvedPack.id } : {}),
- *          level: support.level,
- *          supported: support.supported,
- *          ...(support.reason !== undefined ? { reason: support.reason } : {}),
- *        }
- *
- *   3. Include packBlock in the json() response:
- *        return json({ source: 'wrkf', task, instance, pack: packBlock, next, ... })
- *
- *   4. Unknown workflow (no registered pack claims it) → { level: 0, supported: false }
- *      PBC workflow (pbcManifest claims it)            → { id: 'pbc', level: 3, supported: true }
- *
- * Grep boundary (must stay clean after impl):
- *   rg -i 'pbc|progressive.refinement|pressure|clarification|patch_decision' \
- *      packages/acp-server/src/wrkf/runtime/
- *   → must be EMPTY
+ * No packs ship since the PBC pack was removed (T-14375): every workflow,
+ * including a task still on pbc-progressive-refinement, gets { level: 0,
+ * supported: false } with no pack id.
  */
 
 import { describe, expect, test } from 'bun:test'
@@ -149,17 +122,9 @@ function makePackTestWrkfPort(fields: FakeInspectFields): AcpWrkfWorkflowPort {
 // ── Test suites ───────────────────────────────────────────────────────────────
 
 describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => {
-  // ── 1. PBC workflow ref → pack: { id: 'pbc', level: 3, supported: true } ───
-  //
-  // RED because: handler does not include a `pack` field in its json() response yet.
-  // GREEN once: handler calls packRegistry.resolve({ workflowRef, templateHash }) and
-  //             includes the result as `pack` in the response JSON.
-  //
-  // The inspect returns templateId='pbc-progressive-refinement', templateVersion='5'
-  // (no hash supplied here — hash-free case; pbcManifest returns supported:true).
-  //
-  describe('PBC workflow inspect → pack resolved as supported level-3 (RED: pack field absent)', () => {
-    test('pack block has supported:true and level:3 for pbc-progressive-refinement@9', async () => {
+  // ── 1. Former PBC workflow ref → generic block (pack removed, T-14375) ──
+  describe('former PBC workflow inspect → generic level-0 pack block', () => {
+    test('pack block has supported:false, level:0 and no id for pbc-progressive-refinement@9', async () => {
       await withWiredServer(
         async (fixture) => {
           const response = await fixture.request({
@@ -170,11 +135,7 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
           const body = await fixture.json<{
             pack: { id?: string; level: number; supported: boolean; reason?: string }
           }>(response)
-          // RED: body.pack is undefined
-          expect(body.pack).toBeDefined()
-          expect(body.pack.supported).toBe(true)
-          expect(body.pack.level).toBe(3)
-          expect(body.pack.id).toBe('pbc')
+          expect(body.pack).toEqual({ level: 0, supported: false })
           expect((body as unknown as Record<string, unknown>)['source']).toBe('wrkf')
           expect((body as unknown as Record<string, unknown>)['task']).toBeDefined()
           expect((body as unknown as Record<string, unknown>)['next']).toBeDefined()
@@ -191,11 +152,7 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
 
   // ── 2. Unknown workflow ref → pack: { level: 0, supported: false } ─────────
   //
-  // RED because: handler does not include a `pack` field in its json() response yet.
-  // GREEN once: handler includes pack from registry; registry returns level-0/unsupported
-  //             for any workflowRef not claimed by a registered pack.
-  //
-  describe('unknown workflow inspect → pack: { level: 0, supported: false } (RED: pack field absent)', () => {
+  describe('unknown workflow inspect → pack: { level: 0, supported: false } ', () => {
     test('pack block has supported:false and level:0 for an unknown workflow ref', async () => {
       await withWiredServer(
         async (fixture) => {
@@ -207,7 +164,6 @@ describe('P2a: GET /v1/tasks/:taskId — projection includes pack block', () => 
           const body = await fixture.json<{
             pack: { id?: string; level: number; supported: boolean; reason?: string }
           }>(response)
-          // RED: body.pack is undefined
           expect(body.pack).toBeDefined()
           expect(body.pack.supported).toBe(false)
           expect(body.pack.level).toBe(0)

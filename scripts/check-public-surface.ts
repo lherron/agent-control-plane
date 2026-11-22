@@ -247,7 +247,7 @@ async function apiSurface(root: string): Promise<JsonValue> {
 async function capabilitySurface(root: string): Promise<JsonValue> {
   const source = await readText(root, capSmokeRel)
   const aliases = sorted(
-    [...source.matchAll(/'((?:acp|pbc)\.[a-z0-9_.]+)'\s*:/g)].map((match) => match[1] ?? '')
+    [...source.matchAll(/'(acp\.[a-z0-9_.]+)'\s*:/g)].map((match) => match[1] ?? '')
   )
   if (aliases.length === 0) throw new Error(`${capSmokeRel}: no capability aliases found`)
   return {
@@ -280,7 +280,7 @@ function extractDocApiReferences(text: string): string[] {
 
 function extractDocCapabilityReferences(text: string): string[] {
   return sorted(
-    [...text.matchAll(/\b((?:acp|pbc)\.[a-z0-9_.]+)\b/g)]
+    [...text.matchAll(/\b(acp\.[a-z0-9_.]+)\b/g)]
       .filter((match) => text[(match.index ?? 0) - 1] !== '-')
       .map((match) => match[1] ?? '')
   )

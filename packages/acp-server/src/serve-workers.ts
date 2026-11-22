@@ -2,7 +2,6 @@ import { writeLogLine } from 'acp-core'
 import { createJobsScheduler } from 'acp-jobs-store'
 import type { AcpStateStore } from 'acp-state-store'
 import { normalizeSessionRef } from 'agent-scope'
-import type { WrkqStoreAdapter } from 'wrkq-lib'
 import type { ResolvedAcpServerDeps } from './deps.js'
 import { dispatchJobRunThroughInputs } from './handlers/admin-jobs.js'
 import { resolveHrcRoutes } from './hrc-client.js'
@@ -21,10 +20,7 @@ import { advanceJobFlow } from './jobs/flow-engine.js'
 import { createJobLifecycleEmitter } from './jobs/lifecycle-events.js'
 import { createJobOutputReconciler } from './jobs/output-reconciler.js'
 import { getRunFinalAssistantText } from './jobs/run-final-output.js'
-import { createPbcWorkerRunner } from './pbc/worker-runner.js'
-import { createPbcWorkerScheduler } from './pbc/worker-scheduler.js'
 import {
-  type AcpServerCliOptions,
   DEFAULT_INPUT_QUEUE_LEASE_TIMEOUT_MS,
   DEFAULT_INPUT_QUEUE_STALE_PENDING_RUN_TIMEOUT_MS,
   DEFAULT_INTERFACE_DISPATCHER_DISPATCH_STALE_TIMEOUT_MS,
@@ -44,10 +40,8 @@ export function startServeWorkers(input: {
   resolvedDeps: ResolvedAcpServerDeps
   stateStore: AcpStateStore
   commitBus: StoreCommitBus
-  wrkqStore: WrkqStoreAdapter | undefined
-  options: AcpServerCliOptions
 }) {
-  const { resolvedDeps, stateStore, commitBus, wrkqStore, options } = input
+  const { resolvedDeps, stateStore, commitBus } = input
   const { coordStore, interfaceStore, jobsStore, conversationStore, jobNodeIdentityAuthority } =
     resolvedDeps
 
@@ -233,23 +227,11 @@ export function startServeWorkers(input: {
             : {}),
         })
       : undefined
-  const pbcWorkerRunner = schedulerEnabled
-    ? createPbcWorkerRunner({ deps: resolvedDeps, wrkqStore, options })
-    : undefined
-  const pbcWorkerScheduler =
-    pbcWorkerRunner !== undefined
-      ? createPbcWorkerScheduler({
-          stateStore,
-          runWorker: pbcWorkerRunner,
-        })
-      : undefined
   let schedulerNextDelayMs = 60_000
   const schedulerLoop =
-    jobsScheduler !== undefined ||
-    jobOutputReconciler !== undefined ||
-    pbcWorkerScheduler !== undefined
+    jobsScheduler !== undefined || jobOutputReconciler !== undefined
       ? createStoreScanLoop({
-          name: 'jobs-pbc-scheduler',
+          name: 'jobs-scheduler',
           retryDelayMs: DEFAULT_JOBS_SCHEDULER_INTERVAL_MS,
           bus: commitBus,
           topics: ['jobs', 'runs'],
@@ -304,19 +286,6 @@ export function startServeWorkers(input: {
                   err: error,
                 })
               })
-              .then(async () => {
-                if (pbcWorkerScheduler !== undefined) {
-                  await pbcWorkerScheduler.tick()
-                }
-              })
-              .catch((error) => {
-                writeLogLine({
-                  level: 'error',
-                  component: 'pbc',
-                  event: 'pbc.worker_scheduler_tick_failed',
-                  err: error,
-                })
-              })
             const now = Date.now()
             const diagnostics = jobNodeIdentityAuthority?.getDiagnostics()
             const identity =
@@ -331,19 +300,6 @@ export function startServeWorkers(input: {
                     cadenceMs: DEFAULT_JOBS_SCHEDULER_INTERVAL_MS,
                     nodeId: identity?.nodeId,
                   })
-            for (const job of [
-              ...stateStore.pbcContinuationJobs.listByStatus('queued'),
-              ...stateStore.pbcContinuationJobs.listByStatus('running'),
-            ]) {
-              schedulerNextDelayMs = Math.min(
-                schedulerNextDelayMs,
-                job.leaseExpiresAt === undefined
-                  ? DEFAULT_JOBS_SCHEDULER_INTERVAL_MS
-                  : Date.parse(job.leaseExpiresAt) > now
-                    ? Date.parse(job.leaseExpiresAt) - now
-                    : DEFAULT_JOBS_SCHEDULER_INTERVAL_MS
-              )
-            }
           },
         })
       : undefined

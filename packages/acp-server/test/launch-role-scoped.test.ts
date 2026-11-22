@@ -203,7 +203,7 @@ describe('resolveLaunchIntent env injection', () => {
         inputAttemptStore: fixture.inputAttemptStore,
         runStore: fixture.runStore,
         runtimeResolver: async () => ({
-          agentRoot: '/tmp/agents/pbc-writer',
+          agentRoot: '/tmp/agents/demo-writer',
           projectRoot: '/tmp/project',
           cwd: '/tmp/project',
         }),
@@ -212,17 +212,17 @@ describe('resolveLaunchIntent env injection', () => {
       const intent = await resolveLaunchIntent(
         deps,
         {
-          scopeRef: `agent:pbc-writer:project:${fixture.seed.projectId}:task:T-42100:role:agent`,
+          scopeRef: `agent:demo-writer:project:${fixture.seed.projectId}:task:T-42100:role:agent`,
           laneRef: 'main',
         },
         {
           initialPrompt: 'do the thing',
-          env: { WRKF_ACTOR: 'pbc-writer', WRKF_ROLE: 'agent', WRKF_TASK: 'T-42100' },
+          env: { WRKF_ACTOR: 'demo-writer', WRKF_ROLE: 'agent', WRKF_TASK: 'T-42100' },
         }
       )
 
       expect(intent.launch?.env).toMatchObject({
-        WRKF_ACTOR: 'pbc-writer',
+        WRKF_ACTOR: 'demo-writer',
         WRKF_ROLE: 'agent',
         WRKF_TASK: 'T-42100',
       })
@@ -239,14 +239,14 @@ describe('resolveLaunchIntent env injection', () => {
         inputAttemptStore: fixture.inputAttemptStore,
         runStore: fixture.runStore,
         runtimeResolver: async () => ({
-          agentRoot: '/tmp/agents/pbc-writer',
+          agentRoot: '/tmp/agents/demo-writer',
           projectRoot: '/tmp/project',
           cwd: '/tmp/project',
         }),
       })
 
       const intent = await resolveLaunchIntent(deps, {
-        scopeRef: `agent:pbc-writer:project:${fixture.seed.projectId}:task:T-42101:role:agent`,
+        scopeRef: `agent:demo-writer:project:${fixture.seed.projectId}:task:T-42101:role:agent`,
         laneRef: 'main',
       })
 

@@ -72,8 +72,6 @@ function makeDeps(captured: HrcRuntimeIntent[] = []): ResolvedAcpServerDeps {
     authorize: () => 'allow',
     defaultActor: { kind: 'system', id: 'test' },
     inputQueuePolicy: {},
-    pbcIdempotencyStore: {},
-    pbcCaptureStore: {},
     wrkf: undefined,
   } as unknown as ResolvedAcpServerDeps
 }

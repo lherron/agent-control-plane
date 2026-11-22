@@ -1,8 +1,0 @@
-{
-  "taskId": "T-05185",
-  "kind": "clarification_response",
-  "idempotencyKey": "pbc-input:T-05185:clarification-1",
-  "data": {
-    "answer": "Prefer the simplest implementation that preserves existing behavior."
-  }
-}

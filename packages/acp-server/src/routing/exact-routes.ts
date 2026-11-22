@@ -68,7 +68,7 @@ import { handleWrkqWebhook } from '../handlers/webhooks-wrkq.js'
 import { handleCreateWorkflowInteractRun } from '../handlers/workflow-interact-runs.js'
 import { handleCreateWorkflowParticipantRun } from '../handlers/workflow-participant-runs.js'
 import { handleLaunchWrkfAction } from '../handlers/wrkf-action-launch.js'
-import { handleWrkfPbcDeliverEffects } from '../handlers/wrkf-pbc-deliver-effects.js'
+import { handleWrkfDeliverEffects } from '../handlers/wrkf-deliver-effects.js'
 import { handleWrkfPing } from '../handlers/wrkf-ping.js'
 import { handleListWrkqTasks } from '../handlers/wrkq-tasks.js'
 import { handleLaunchSession } from '../launch-role-scoped.js'
@@ -227,7 +227,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('POST', '/v1/wrkf/effects/deliver')]: maybeWrapMutatingRoute(
       'POST',
       '/v1/wrkf/effects/deliver',
-      handleWrkfPbcDeliverEffects
+      handleWrkfDeliverEffects
     ),
     [exactRouteKey('POST', '/v1/wrkf/actions/launch')]: maybeWrapMutatingRoute(
       'POST',

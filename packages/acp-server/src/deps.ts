@@ -59,13 +59,6 @@ import type { AcpHrcSdkClient } from './hrc-client.js'
 import type { JobExecPolicy } from './jobs/exec-policy.js'
 import { type MobileAuthStore, resolveMobileAuthStore } from './mobile-auth/store.js'
 import { acpStateDir } from './state-dir.js'
-import {
-  InMemoryWrkfParticipantCaptureStore,
-  InMemoryWrkfRouteIdempotencyStore,
-  type WrkfParticipantCaptureStore,
-  type WrkfRouteIdempotencyStore,
-  createDurableWrkfStores,
-} from './wrkf/pbc-route-idempotency-store.js'
 import type { AcpWrkfWorkflowPort } from './wrkf/port.js'
 
 export const DEFAULT_INTERFACE_DB_PATH = '/Users/lherron/praesidium/var/db/acp-interface.db'
@@ -371,8 +364,6 @@ export interface AcpServerDeps {
     | ((principalRef: string) => Promise<CollaborationLedger>)
     | undefined
   wrkf?: AcpWrkfWorkflowPort | undefined
-  pbcIdempotencyStore?: WrkfRouteIdempotencyStore | undefined
-  pbcCaptureStore?: WrkfParticipantCaptureStore | undefined
   /** Fixed Jobhunt hop configuration; production defaults resolve once per server. */
   jobhunt?: JobhuntOptions | undefined
   /** Plugin-page relay paths; tests inject fixtures, production reads fixed locations. */
@@ -409,8 +400,6 @@ export interface ResolvedAcpServerDeps extends AcpServerDeps {
     | ((principalRef: string) => Promise<CollaborationLedger>)
     | undefined
   wrkf: AcpWrkfWorkflowPort | undefined
-  pbcIdempotencyStore: WrkfRouteIdempotencyStore
-  pbcCaptureStore: WrkfParticipantCaptureStore
   jobhuntConfig: JobhuntConfig
   pluginPages: ResolvedPluginPagesOptions
   mobileAuthStore: MobileAuthStore
@@ -431,8 +420,6 @@ export type AuthorizeFn = (
 export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps {
   const stateStore = deps.stateStore
   const useStateInputStores = deps.inputAttemptStore === undefined && deps.runStore === undefined
-  const durableWrkfStores =
-    stateStore !== undefined ? createDurableWrkfStores(stateStore) : undefined
 
   return {
     ...deps,
@@ -484,14 +471,6 @@ export function resolveAcpServerDeps(deps: AcpServerDeps): ResolvedAcpServerDeps
       ? { collaborationLedgerForPrincipal: deps.collaborationLedgerForPrincipal }
       : {}),
     wrkf: deps.wrkf,
-    pbcIdempotencyStore:
-      deps.pbcIdempotencyStore ??
-      durableWrkfStores?.idempotencyStore ??
-      new InMemoryWrkfRouteIdempotencyStore(),
-    pbcCaptureStore:
-      deps.pbcCaptureStore ??
-      durableWrkfStores?.captureStore ??
-      new InMemoryWrkfParticipantCaptureStore(),
     jobhuntConfig: resolveJobhuntConfig(deps.jobhunt),
     pluginPages: resolvePluginPagesOptions(deps.pluginPages),
     mobileAuthStore: deps.mobileAuthStore ?? resolveMobileAuthStore(),

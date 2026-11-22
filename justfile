@@ -96,10 +96,6 @@ e2e-cap-acp:
 e2e-cap-acp-real:
     CAP_ACP_E2E_REAL_AGENT=1 scripts/e2e/cap-acp/smoke.sh
 
-# Manually run ACP smoke with cap-pbc enabled; creates real wrkq tasks and agent turns
-e2e-cap-pbc:
-    CAP_PBC_E2E=1 CAP_ACP_E2E_REAL_AGENT=1 scripts/e2e/cap-acp/smoke.sh
-
 # Prepare or update one wrkq refactor-deferred task work packet
 # (Scheduling is handled by the ACP-native schedule at
 #  var/agents/cody/schedules/wrkq-refactor.toml — the old LaunchAgent wrapper

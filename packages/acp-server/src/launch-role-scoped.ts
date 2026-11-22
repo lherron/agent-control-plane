@@ -220,10 +220,10 @@ export async function resolveLaunchIntent(
     taskContext?: HrcTaskContext | undefined
     /**
      * Extra environment variables injected into the launched runtime via
-     * intent.launch.env. The PBC continuation worker uses this to pass the
-     * participant's TRUSTED actor/role binding (WRKF_BOUND_ACTOR/ROLE) and task
-     * so the agent can call `wrkf` directly as itself without being able to
-     * impersonate (paired with wrkq T-03777 E2). Merged over any placement env.
+     * intent.launch.env, e.g. a participant's TRUSTED actor/role binding
+     * (WRKF_BOUND_ACTOR/ROLE) and task so the agent can call `wrkf` directly as
+     * itself without being able to impersonate (paired with wrkq T-03777 E2).
+     * Merged over any placement env.
      */
     env?: Record<string, string> | undefined
   } = {}

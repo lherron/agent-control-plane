@@ -37,10 +37,7 @@ Source anchors (repo-relative): packages/acp-core/src/index.ts; packages/acp-ser
 - Surface: `route:GET /v1/admin/jobs/:jobId/detail @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:GET /v1/job-runs/:jobRunId @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:GET /v1/jobs/:jobId/runs @ packages/acp-server/src/routing/param-routes.ts`
-- Surface: `route:GET /v1/pbc/jobs/:jobId @ packages/acp-server/src/routing/param-routes.ts`
-- Surface: `route:GET /v1/pbc/tasks/:taskId @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:GET /v1/tasks/:taskId @ packages/acp-server/src/routing/param-routes.ts`
-- Surface: `route:GET /v1/wrkf/pbc/tasks/:task/inspect @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:GET /v1/wrkf/ping @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:GET /v1/wrkq/tasks @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:GET /v1/wrkq/tasks/:taskId @ packages/acp-server/src/routing/param-routes.ts`
@@ -48,11 +45,6 @@ Source anchors (repo-relative): packages/acp-core/src/index.ts; packages/acp-ser
 - Surface: `route:POST /v1/admin/jobs @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/admin/jobs/:jobId/run @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:POST /v1/admin/jobs/validate @ packages/acp-server/src/routing/exact-routes.ts`
-- Surface: `route:POST /v1/pbc/tasks/:taskId/continue @ packages/acp-server/src/routing/param-routes.ts`
-- Surface: `route:POST /v1/pbc/tasks/:taskId/dispose @ packages/acp-server/src/routing/param-routes.ts`
-- Surface: `route:POST /v1/pbc/tasks/:taskId/effects/reconcile @ packages/acp-server/src/routing/param-routes.ts`
-- Surface: `route:POST /v1/pbc/tasks/:taskId/input @ packages/acp-server/src/routing/param-routes.ts`
-- Surface: `route:POST /v1/pbc/tasks/:taskId/start @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:POST /v1/tasks/:taskId/evidence @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:POST /v1/tasks/:taskId/obligations/:obligationId/cancel @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:POST /v1/tasks/:taskId/obligations/:obligationId/satisfy @ packages/acp-server/src/routing/param-routes.ts`
@@ -64,9 +56,6 @@ Source anchors (repo-relative): packages/acp-core/src/index.ts; packages/acp-ser
 - Surface: `route:POST /v1/workflow-participant-runs/:runId/fail @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:POST /v1/wrkf/actions/launch @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/wrkf/effects/deliver @ packages/acp-server/src/routing/exact-routes.ts`
-- Surface: `route:POST /v1/wrkf/pbc/tasks/:task/approve-transition @ packages/acp-server/src/routing/param-routes.ts`
-- Surface: `route:POST /v1/wrkf/pbc/tasks/:task/run-step @ packages/acp-server/src/routing/param-routes.ts`
-- Surface: `route:POST /v1/wrkf/pbc/tasks/:task/run-until-blocked @ packages/acp-server/src/routing/param-routes.ts`
 
 ## How to get to it
 

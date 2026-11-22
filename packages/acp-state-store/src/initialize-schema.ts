@@ -339,6 +339,9 @@ export function initializeSchema(sqlite: SqliteDatabase): void {
       value_json TEXT NOT NULL
     );
 
+    -- wrkf_route_idempotency, wrkf_participant_captures and pbc_continuation_jobs
+    -- have had no reader or writer since the PBC removal (T-14375); kept so
+    -- existing rows and schema stay untouched.
     CREATE TABLE IF NOT EXISTS wrkf_route_idempotency (
       route TEXT NOT NULL,
       task_id TEXT NOT NULL,

@@ -13,12 +13,12 @@
 import { describe, expect, test } from 'bun:test'
 
 import { withWiredServer } from '../../test/fixtures/wired-server.js'
-import type { PbcEffectDeliveryPort } from './effect-delivery.js'
+import type { WrkfEffectDeliveryPort } from './effect-delivery.js'
 import type { AcpWrkfWorkflowPort } from './port.js'
 
 type SpyCall = { method: string; params: unknown }
 
-type FakeEffectPort = PbcEffectDeliveryPort & { _calls: SpyCall[] }
+type FakeEffectPort = WrkfEffectDeliveryPort & { _calls: SpyCall[] }
 
 /** Raw effect shape as returned by wrkf effect.list RPC. */
 interface RawEffect {

@@ -125,7 +125,7 @@ Areas:
 
 Examples:
   bun scripts/discover-acp.ts routes "GET /v1/tasks/:taskId"
-  bun scripts/discover-acp.ts routes pbc --json
+  bun scripts/discover-acp.ts routes wrkf --json
   bun scripts/discover-acp.ts packages acp-server
   bun scripts/discover-acp.ts cli "task timeline"
   bun scripts/discover-acp.ts adoption --json`)

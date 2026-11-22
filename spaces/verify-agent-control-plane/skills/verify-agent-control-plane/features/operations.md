@@ -32,7 +32,6 @@ Source anchors (repo-relative): justfile; .githooks; .github/workflows; launchd.
 - Surface: `recipe:e2e`
 - Surface: `recipe:e2e-cap-acp`
 - Surface: `recipe:e2e-cap-acp-real`
-- Surface: `recipe:e2e-cap-pbc`
 - Surface: `recipe:env-down`
 - Surface: `recipe:env-up`
 - Surface: `recipe:info`

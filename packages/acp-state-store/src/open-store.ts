@@ -9,14 +9,11 @@ import { InputApplicationRepo } from './repos/input-application-repo.js'
 import { InputAttemptRepo } from './repos/input-attempt-repo.js'
 import { InputQueueRepo } from './repos/input-queue-repo.js'
 import { MobileTimelineProjectionRepo } from './repos/mobile-timeline-projection-repo.js'
-import { PbcContinuationJobsRepo } from './repos/pbc-continuation-jobs-repo.js'
 import { RunRepo } from './repos/run-repo.js'
 import { SessionAdmissionSequenceRepo } from './repos/session-admission-sequence-repo.js'
 import type { RepoContext } from './repos/shared.js'
 import { TransitionOutboxRepo } from './repos/transition-outbox-repo.js'
 import { WorkflowRuntimeRepo } from './repos/workflow-runtime-repo.js'
-import { WrkfParticipantCapturesRepo } from './repos/wrkf-participant-captures-repo.js'
-import { WrkfRouteIdempotencyRepo } from './repos/wrkf-route-idempotency-repo.js'
 import Database, { type SqliteDatabase } from './sqlite.js'
 
 export interface OpenAcpStateStoreOptions {
@@ -34,9 +31,6 @@ export interface AcpStateStore {
   readonly sessionAdmissionSequences: SessionAdmissionSequenceRepo
   readonly transitionOutbox: TransitionOutboxRepo
   readonly workflowRuntime: WorkflowRuntimeRepo
-  readonly wrkfRouteIdempotency: WrkfRouteIdempotencyRepo
-  readonly wrkfParticipantCaptures: WrkfParticipantCapturesRepo
-  readonly pbcContinuationJobs: PbcContinuationJobsRepo
   readonly mobileTimeline: MobileTimelineProjectionRepo
   runInTransaction<T>(fn: (store: AcpStateStore) => T): T
   close(): void
@@ -80,9 +74,6 @@ export function openAcpStateStore(options: OpenAcpStateStoreOptions): AcpStateSt
     sessionAdmissionSequences: new SessionAdmissionSequenceRepo(context),
     transitionOutbox: new TransitionOutboxRepo(context),
     workflowRuntime: new WorkflowRuntimeRepo(context),
-    wrkfRouteIdempotency: new WrkfRouteIdempotencyRepo(context),
-    wrkfParticipantCaptures: new WrkfParticipantCapturesRepo(context),
-    pbcContinuationJobs: new PbcContinuationJobsRepo(context),
     mobileTimeline: new MobileTimelineProjectionRepo(context),
     runInTransaction<T>(fn: (activeStore: AcpStateStore) => T): T {
       return sqlite.transaction(() => fn(store))()

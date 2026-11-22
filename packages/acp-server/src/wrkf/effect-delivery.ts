@@ -1,4 +1,4 @@
-export type PbcEffectDeliveryPort = {
+export type WrkfEffectDeliveryPort = {
   effect: {
     list(params: { task: string }): Promise<unknown>
     deliver(params: { effectId: string; adapter: string }): Promise<unknown>
@@ -31,7 +31,7 @@ const DEFAULT_ADAPTER = 'acp'
 const WRKF_LEASE_CONFLICT = 'WRKF_LEASE_CONFLICT'
 
 export async function deliverWrkfEffects(
-  port: PbcEffectDeliveryPort,
+  port: WrkfEffectDeliveryPort,
   input: EffectDeliveryInput
 ): Promise<EffectDeliveryResult> {
   const adapter = input.adapter ?? DEFAULT_ADAPTER

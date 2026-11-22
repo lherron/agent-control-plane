@@ -85,6 +85,15 @@ export async function startAcpCapabilityHost(
     store,
   })
   const registeredProviders = await registerProviderManifests(server, options.capabilitiesDir)
+  if (store instanceof SqliteCatalogStore) {
+    // The sqlite catalogue mirrors capabilities/*.yaml across restarts; drop a
+    // provider whose manifest no longer ships so its capabilities stop resolving
+    // (T-14375 removed pbc). cap-service also serves cap.provider.register on
+    // cap.sock, so a provider registered at runtime over the socket is dropped at
+    // the next host restart and must register again. cap.sock has no known
+    // caller today (T-14115 waiver).
+    store.retainProviders(registeredProviders.map((provider) => provider.id))
+  }
   const socket = await serveCapSocket(server, options.socketPath)
   options.logger?.(
     `acp capability host listening on ${socket.path} providers=${registeredProviders
@@ -164,6 +173,15 @@ class SqliteCatalogStore implements CatalogStore {
         $manifestJson: JSON.stringify(manifest),
         $updatedAt: new Date().toISOString(),
       })
+  }
+
+  /** Delete manifests for providers not in `providerIds`; operation history stays. */
+  retainProviders(providerIds: readonly string[]): void {
+    this.db
+      .query(
+        'DELETE FROM cap_provider_manifests WHERE provider NOT IN (SELECT value FROM json_each($ids))'
+      )
+      .run({ $ids: JSON.stringify(providerIds) })
   }
 
   async listProviders(): Promise<string[]> {
@@ -327,10 +345,7 @@ async function registerProviderManifests(
   server: CapRpcServer,
   capabilitiesDir: string
 ): Promise<RegisteredCapabilityProvider[]> {
-  const manifestPaths = [
-    join(capabilitiesDir, 'provider.acp.yaml'),
-    join(capabilitiesDir, 'provider.pbc.yaml'),
-  ]
+  const manifestPaths = [join(capabilitiesDir, 'provider.acp.yaml')]
   const registered: RegisteredCapabilityProvider[] = []
 
   for (const manifestPath of manifestPaths) {
