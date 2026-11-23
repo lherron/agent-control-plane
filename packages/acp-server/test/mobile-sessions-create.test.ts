@@ -59,6 +59,7 @@ describe('POST /v1/mobile/sessions', () => {
         expect(starts[0]).toMatchObject({
           conflictPolicy: policy,
           runtimeIntent: { initialPrompt: 'ship it' },
+          coldBirth: { promptMode: 'append-to-priming' },
         })
         expect(steers).toEqual([
           {
@@ -98,7 +99,42 @@ describe('POST /v1/mobile/sessions', () => {
       expect(blank.status).toBe(200)
       expect(await json(blank)).not.toHaveProperty('initialPrompt')
       expect(starts[0]?.runtimeIntent).not.toHaveProperty('initialPrompt')
+      expect(starts[0]).not.toHaveProperty('coldBirth')
     }, client)
+  })
+
+  test.each([
+    { delivered: true, runId: 'run-launch', submissionId: 'hrc-launch' },
+    { delivered: false, reason: 'runtime_reused' },
+  ] as const)('projects the native prompt result without a fallback: %j', async (result) => {
+    const { client } = createMobileSessionHrcClient()
+    const startRuntime = client.startRuntime
+    client.startRuntime = async (request) => ({
+      ...(await startRuntime(request)),
+      initialPrompt: result,
+    })
+    let fallbackCalls = 0
+    client.steer = async () => {
+      fallbackCalls += 1
+      throw new Error('unexpected steer')
+    }
+    const routes = {
+      readRuntimes: async () => {
+        fallbackCalls += 1
+        return []
+      },
+    } as unknown as HrcRouteReader
+    await withMobileSessionServer(
+      async ({ post, json }) => {
+        const response = await post({ initialPrompt: 'ship it' })
+        expect(response.status).toBe(200)
+        expect(await json(response)).toMatchObject({ initialPrompt: result, replayed: false })
+        expect(fallbackCalls).toBe(0)
+      },
+      client,
+      undefined,
+      routes
+    )
   })
 
   test.each([
@@ -110,6 +146,11 @@ describe('POST /v1/mobile/sessions', () => {
     ['untyped error', 'steer_failed'],
   ] as const)('keeps the start successful on %s', async (failure, reason) => {
     const { client } = createMobileSessionHrcClient()
+    const startRuntime = client.startRuntime
+    client.startRuntime = async (request) => ({
+      ...(await startRuntime(request)),
+      initialPrompt: { delivered: false, reason: 'self_brokered' },
+    })
     let steers = 0
     client.steer = async () => {
       steers += 1

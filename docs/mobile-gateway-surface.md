@@ -105,15 +105,20 @@ from that claim rather than from what ACP asked for.
 `initialPrompt` is an optional string. ACP trims it and treats an empty value
 as absent. A trimmed string over 16 KiB of UTF-8 returns HTTP 400
 `malformed_request` with `details.field: "initialPrompt"`. On claim paths,
-HRC binds the trimmed prompt to the start idempotency key. After a successful
-start, ACP steers the claimed seat as `agent:lance` if HRC reports a matching
-runtime created at or after request arrival and the start is fresh. The steer
-can join priming in progress or start a turn after priming finishes.
+HRC binds the trimmed prompt to the start idempotency key. When starting a
+fresh runtime, HRC appends the prompt to priming and delivers both in one
+first turn. A self-brokered claim or a start response without prompt delivery
+evidence can still use ACP's steer as `agent:lance`, provided the start is
+unreplayed and ACP finds the matching runtime created at or after request
+arrival. Force restart and successor launch use their existing start doors
+and follow the same guarded steer path.
 
 When the request includes a nonempty prompt, a successful session response
-includes `initialPrompt: { delivered: true, idempotencyKey }` after HRC admits
-the steer, or `initialPrompt: { delivered: false, reason }` if delivery fails
-or ACP skips it. `runtime_not_fresh` covers replays, runtime reuse, unavailable
+includes `initialPrompt: { delivered: true, runId, submissionId }` when HRC
+carries the prompt at birth, `initialPrompt: { delivered: true, idempotencyKey }`
+after HRC admits a fallback steer, or `initialPrompt: { delivered: false, reason }`
+if delivery fails or ACP skips it. `runtime_reused` means HRC reused a runtime
+and ACP skips delivery. For the fallback, `runtime_not_fresh` covers replays, unavailable
 runtime evidence and a force restart whose launch failed. Other reasons are
 HRC's error code or submission refusal reason, HRC's `expired` or `cancelled`
 disposition when it supplies no reason, or `steer_failed` for an untyped

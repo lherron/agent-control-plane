@@ -1,11 +1,11 @@
 import { parseScopeRef } from 'agent-scope'
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
-import type { HrcRuntimeIntent } from 'hrc-core'
+import type { HrcRuntimeIntent, StartRuntimeInitialPrompt } from 'hrc-core'
 
 import type { AcpHrcClient } from '../deps.js'
 import { json } from '../http.js'
 import type { RouteContext } from '../routing/route-context.js'
-import { deliverMobileInitialPrompt } from './mobile-initial-prompt.js'
+import { claimStartPrompt, deliverMobileInitialPrompt } from './mobile-initial-prompt.js'
 import { expireInputComposedForDroppedContext, restartRefusal } from './mobile-sessions-restart.js'
 import { formatSessionIdentityHandle } from './shared.js'
 
@@ -48,7 +48,11 @@ type Launch =
   | { status: 'started'; runtimeId: string }
   | { status: 'failed'; code?: string | undefined; message: string }
 
-type Outcome = { status: number; body: Record<string, unknown> }
+type Outcome = {
+  status: number
+  body: Record<string, unknown>
+  startPrompt?: StartRuntimeInitialPrompt | undefined
+}
 
 /** HRC was called and never gave a typed answer. */
 type Uncertain = { branch: 'restart' } | { branch: 'create' }
@@ -311,10 +315,7 @@ async function exactStart(
   try {
     started = await hrc.startRuntime({
       sessionRef: input.sessionRef,
-      runtimeIntent:
-        initialPrompt === undefined
-          ? input.runtimeIntent
-          : { ...input.runtimeIntent, initialPrompt },
+      ...claimStartPrompt(input.runtimeIntent, initialPrompt),
       conflictPolicy: 'reject',
       summonIntent: 'implicit',
       idempotencyKey: input.idempotencyKey,
@@ -332,20 +333,23 @@ async function exactStart(
   }
   // The claim response carries no generation; HRC's head names it.
   const claimed = await resolveHead(hrc, input.sessionRef)
-  return committed(
-    'created',
-    {
-      hostSessionId: started.hostSessionId,
-      generation:
-        claimed.kind === 'local' && claimed.hostSessionId === started.hostSessionId
-          ? claimed.generation
-          : undefined,
-      scopeRef: started.claim.scopeRef,
-      sessionRef: started.claim.sessionRef,
-    },
-    { status: 'started', runtimeId: started.runtimeId },
-    { replayed: started.claim.replayed }
-  )
+  return {
+    ...committed(
+      'created',
+      {
+        hostSessionId: started.hostSessionId,
+        generation:
+          claimed.kind === 'local' && claimed.hostSessionId === started.hostSessionId
+            ? claimed.generation
+            : undefined,
+        scopeRef: started.claim.scopeRef,
+        sessionRef: started.claim.sessionRef,
+      },
+      { status: 'started', runtimeId: started.runtimeId },
+      { replayed: started.claim.replayed }
+    ),
+    startPrompt: started.initialPrompt,
+  }
 }
 
 async function runLaunchSuccessor(
@@ -420,7 +424,7 @@ async function settleUncertain(
 
 function replay(outcome: Outcome): Outcome {
   return outcome.status === 200
-    ? { status: 200, body: { ...outcome.body, replayed: true } }
+    ? { ...outcome, body: { ...outcome.body, replayed: true } }
     : outcome
 }
 
@@ -526,6 +530,7 @@ export async function handleForcePrimary(input: ForcePrimaryInput): Promise<Resp
             hostSessionId: body['hostSessionId'],
             runtimeId: typeof body['runtimeId'] === 'string' ? body['runtimeId'] : undefined,
             replayed: body['replayed'] === true,
+            startResult: outcome.startPrompt,
           })
         : { delivered: false, reason: 'runtime_not_fresh' }
     return json({ ...body, initialPrompt }, outcome.status)

@@ -56,6 +56,7 @@ type Script = {
   restart?: (request: Record<string, unknown>) => unknown
   start?: (request: Record<string, unknown>) => unknown
   readRuntimes?: HrcRouteReader['readRuntimes']
+  initialPromptReply?: Awaited<ReturnType<AcpHrcClient['startRuntime']>>['initialPrompt']
 }
 
 function session(head: NonNullable<Head>): HrcSessionRecord {
@@ -137,6 +138,7 @@ function hrcClient(script: Script, calls: Calls): AcpHrcClient {
         hostSessionId: SUCCESSOR,
         transport: 'tmux',
         status: 'ready',
+        initialPrompt: script.initialPromptReply,
         ...(request['conflictPolicy'] === undefined
           ? {}
           : {
@@ -310,6 +312,7 @@ describe('POST /v1/mobile/sessions with force', () => {
           if (disposition === 'created') {
             expect(calls.starts[0]).toMatchObject({
               runtimeIntent: { initialPrompt: 'start here' },
+              coldBirth: { promptMode: 'append-to-priming' },
             })
           }
           expect((await post(request)).body).toMatchObject({
@@ -329,6 +332,30 @@ describe('POST /v1/mobile/sessions with force', () => {
       )
     }
   )
+
+  test('force claim retains the native prompt receipt without steering on replay', async () => {
+    const initialPromptReply = {
+      delivered: true,
+      runId: 'run-native',
+      submissionId: 'hrc-native',
+    } as const
+    await scenario(
+      { heads: [null, { hostSessionId: SUCCESSOR, generation: 1 }], initialPromptReply },
+      stores(),
+      async (post, calls) => {
+        const request = { ...FORCE, requestId: 'req-native-prompt', initialPrompt: 'start here' }
+        const result = await post(request)
+        expect(result.status).toBe(200)
+        expect(result.body).toMatchObject({ initialPrompt: initialPromptReply, replayed: false })
+        expect((await post(request)).body).toMatchObject({
+          initialPrompt: initialPromptReply,
+          replayed: true,
+        })
+        expect(calls.starts).toHaveLength(1)
+        expect(calls.steers).toEqual([])
+      }
+    )
+  })
 
   test('force off keeps the suffix roster and never restarts', async () => {
     await scenario(

@@ -63,7 +63,8 @@ Collaboration-mail delivery is not part of ACP. It lives in praesidium-kernel
 
 Mobile New Session accepts an optional `initialPrompt` on
 `POST /v1/mobile/sessions`. A successful session response with a nonempty
-prompt includes `initialPrompt: { delivered: true, idempotencyKey }` or
+prompt includes `initialPrompt: { delivered: true, runId, submissionId }`,
+`initialPrompt: { delivered: true, idempotencyKey }` for a fallback steer, or
 `initialPrompt: { delivered: false, reason }`.
 [Mobile session request and delivery contract](mobile-gateway-surface.md#mobile-session-creation)
 

@@ -1,5 +1,10 @@
 import { writeLogLine } from 'acp-core'
 import { HrcDomainError } from 'hrc-core'
+import type {
+  ExactStartRuntimeRequest,
+  HrcRuntimeIntent,
+  StartRuntimeInitialPrompt,
+} from 'hrc-core'
 
 import type { AcpHrcClient } from '../deps.js'
 import { resolveHrcRoutes } from '../hrc-client.js'
@@ -18,7 +23,20 @@ export function parseMobileInitialPrompt(body: Record<string, unknown>): string 
   return prompt || undefined
 }
 
+export function claimStartPrompt(
+  runtimeIntent: HrcRuntimeIntent,
+  initialPrompt: string | undefined
+): Pick<ExactStartRuntimeRequest, 'runtimeIntent' | 'coldBirth'> {
+  return initialPrompt === undefined
+    ? { runtimeIntent }
+    : {
+        runtimeIntent: { ...runtimeIntent, initialPrompt },
+        coldBirth: { promptMode: 'append-to-priming' },
+      }
+}
+
 type InitialPromptDelivery =
+  | Extract<StartRuntimeInitialPrompt, { delivered: true }>
   | { delivered: true; idempotencyKey: string }
   | { delivered: false; reason: string }
 
@@ -51,7 +69,20 @@ export async function deliverMobileInitialPrompt(input: {
   hostSessionId: string
   runtimeId: string | undefined
   replayed: boolean
+  startResult?: StartRuntimeInitialPrompt | undefined
 }): Promise<InitialPromptDelivery> {
+  const { startResult } = input
+  if (startResult?.delivered === true) {
+    return {
+      delivered: true,
+      runId: startResult.runId,
+      submissionId: startResult.submissionId,
+    }
+  }
+  if (startResult?.reason === 'runtime_reused') {
+    return { delivered: false, reason: 'runtime_reused' }
+  }
+  // A self-brokered claim or an older HRC can still need the guarded steer.
   if (
     input.replayed ||
     input.runtimeId === undefined ||

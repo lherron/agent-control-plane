@@ -31,7 +31,11 @@ import {
 } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
 import { handleForcePrimary, parseMobileForce } from './mobile-force-primary.js'
-import { deliverMobileInitialPrompt, parseMobileInitialPrompt } from './mobile-initial-prompt.js'
+import {
+  claimStartPrompt,
+  deliverMobileInitialPrompt,
+  parseMobileInitialPrompt,
+} from './mobile-initial-prompt.js'
 
 const IDEMPOTENCY_KEY_PREFIX = 'acp-mobile-session:v1:'
 const DEFAULT_MOBILE_TASK_ID = 'primary'
@@ -165,13 +169,15 @@ export function buildMobileStartRequest(input: {
   conflictPolicy: MobileSessionConflictPolicy
   sessionRef: string
   runtimeIntent: HrcRuntimeIntent
+  initialPrompt?: string | undefined
   idempotencyKey: string
   scopeConfirmation?: MobileScopeConfirmation | undefined
 }): StartRuntimeRequest {
+  const intent = claimStartPrompt(input.runtimeIntent, input.initialPrompt)
   if (input.conflictPolicy === 'suffix') {
     return {
       baseSessionRef: input.sessionRef,
-      runtimeIntent: input.runtimeIntent,
+      ...intent,
       conflictPolicy: input.scopeConfirmation === undefined ? 'suffix' : 'confirm',
       ...(input.scopeConfirmation?.confirmedTaskId !== undefined
         ? { confirmedTaskId: input.scopeConfirmation.confirmedTaskId }
@@ -183,7 +189,7 @@ export function buildMobileStartRequest(input: {
   }
   return {
     sessionRef: input.sessionRef,
-    runtimeIntent: input.runtimeIntent,
+    ...intent,
     conflictPolicy: 'reject',
     summonIntent: 'implicit',
     idempotencyKey: input.idempotencyKey,
@@ -409,8 +415,8 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
         conflictPolicy,
         scopeConfirmation,
         sessionRef: formatSessionRef(baseSession),
-        runtimeIntent:
-          initialPrompt === undefined ? runtimeIntent : { ...runtimeIntent, initialPrompt },
+        runtimeIntent,
+        initialPrompt,
         idempotencyKey,
       })
     )
@@ -440,6 +446,7 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
               hostSessionId: started.hostSessionId,
               runtimeId: started.runtimeId,
               replayed: started.claim.replayed,
+              startResult: started.initialPrompt,
             }),
           }
         : {}),
