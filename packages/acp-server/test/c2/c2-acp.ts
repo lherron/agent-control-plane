@@ -31,6 +31,18 @@ export const RETIRED_SEAT = 'agent:stella:project:arris:task:primary-quasar'
 export const ATTENTION_AT = '2026-11-01T05:00:00.000Z'
 export const ASK = 'Ship the disposable fixture?'
 export const ANSWER_TEXT = `1. ${ASK} \u2014 Ship.`
+/** Card contract rev 5.6 \u00a76c (c2-core 0.6.0): every delivered answer starts with one c2 header line naming the
+ *  answered row, its task and its age. The age moves with the clock, so it is matched, not pinned. */
+export const ANSWER_HEADER =
+  /^\[c2\] Lance answering from his cards: ship \(task T-12239, asked [^)\n]+\)$/
+
+/** The text a seat receives for an answer: the header line, then `rest` (Lance's text, or a note and the text). */
+export function splitDeliveredAnswer(delivered: string): { header: string; rest: string } {
+  const cut = delivered.indexOf('\n')
+  return cut < 0
+    ? { header: delivered, rest: '' }
+    : { header: delivered.slice(0, cut), rest: delivered.slice(cut + 1) }
+}
 export const SCOPE_ALLOW = ['^agent:smokey:project:c2:task:c2fixture-[a-z0-9-]+$']
 
 export type C2Roots = { wrkqArtifacts: string; scratchC2: string; outside: string }

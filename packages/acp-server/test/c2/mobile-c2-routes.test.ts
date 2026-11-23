@@ -11,6 +11,7 @@ import { createMobileAuthStore } from '../../src/mobile-auth/store.js'
 
 import {
   ACTIONS,
+  ANSWER_HEADER,
   ANSWER_TEXT,
   ASK,
   type ActionResponse,
@@ -27,6 +28,7 @@ import {
   seatSends,
   settle,
   snapshotEntry,
+  splitDeliveredAnswer,
   withC2Acp,
 } from './c2-acp.js'
 
@@ -247,12 +249,17 @@ describe('POST /v1/mobile/c2/v2/actions', () => {
       expect(sends).toHaveLength(1)
       // Rev 5.2 (T-13271): Lance's answer is HRC's steer, keyed by the request id, with no fences or enter.
       expect(sends[0]?.path).toBe('/v1/submissions/steer')
-      expect(sends[0]?.body).toEqual({
+      const steer = sends[0]?.body as { body: string }
+      expect(steer).toEqual({
         target: SEAT_REF,
-        body: ANSWER_TEXT,
+        body: expect.any(String),
         origin: { principalRef: 'agent:lance' },
         idempotencyKey: request.requestId,
       })
+      // Rev 5.6 §6c: the seat gets the c2 header line, then Lance's text; the row's sent.text stays his text alone.
+      const delivered = splitDeliveredAnswer(steer.body)
+      expect(delivered.header).toMatch(ANSWER_HEADER)
+      expect(delivered.rest).toBe(ANSWER_TEXT)
       const sent = (acp.record().body as { questions: Array<{ sent?: Record<string, unknown> }> })
         .questions[0]?.sent
       expect(sent).toMatchObject({

@@ -9,11 +9,13 @@ import type { ActionResponse } from '@praesidium/c2-core'
 
 import {
   ACTIONS,
+  ANSWER_HEADER,
   type C2Acp,
   SEAT,
   answerRequest,
   settle,
   snapshotEntry,
+  splitDeliveredAnswer,
   withC2Acp,
 } from './c2-acp.js'
 
@@ -64,8 +66,11 @@ describe('answering a seat with no runtime (§6b)', () => {
       const sent = inputs[0]?.body as { body: string; idempotencyKey: string; origin: unknown }
       expect(sent.idempotencyKey).toBe(req.requestId)
       expect(sent.origin).toEqual({ principalRef: 'agent:lance' })
-      expect(sent.body.startsWith('[c2] You had no running session')).toBe(true)
-      expect(sent.body.endsWith(req.text ?? '')).toBe(true)
+      // Rev 5.6 §6c with §6b: the header line, then the previous-session note, then a blank line and the text.
+      const delivered = splitDeliveredAnswer(sent.body)
+      expect(delivered.header).toMatch(ANSWER_HEADER)
+      expect(delivered.rest.startsWith('You had no running session')).toBe(true)
+      expect(delivered.rest.endsWith(`\n\n${req.text ?? ''}`)).toBe(true)
       const seat = acp.fake.seats.get(SEAT)
       expect(seat?.runtimeLive).toBe(true)
       expect(seat?.hostSessionId).toBe(before.hostSessionId)
@@ -114,7 +119,9 @@ describe('answering a seat with no runtime (§6b)', () => {
       const { body } = await acp.postJson<ActionResponse>(ACTIONS, req)
       expect(body.outcome).toBe('sent')
       expect(startCalls(acp).length).toBe(0)
-      expect((seatInputs(acp)[0]?.body as { body: string }).body).toBe(req.text)
+      const delivered = splitDeliveredAnswer((seatInputs(acp)[0]?.body as { body: string }).body)
+      expect(delivered.header).toMatch(ANSWER_HEADER)
+      expect(delivered.rest).toBe(req.text ?? '')
     })
   })
 })
