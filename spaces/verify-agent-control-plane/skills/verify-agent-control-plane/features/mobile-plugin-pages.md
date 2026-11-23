@@ -50,7 +50,16 @@ Installed, through jobhunt's real page: `bun ~/praesidium/var/wrkq-artifacts/T-1
 
 Its read steps make no write. The subscribe step makes one `tracker.touch {"job_id": null}` on jobhunt's singleton tracker, sanctioned by jobhunt's owner for at most 5 runs a day. Pass `--skip-subscribe` to stay read-only.
 
-Isolated: `~/praesidium/var/wrkq-artifacts/T-14125/run-isolated.sh` boots acp-server on :18479. It uses a throwaway HOME whose Loggia config adds a fixture `assets` page, and scratch wrkq and HRC paths. That covers the asset Range and `..` steps without touching a live owner.
+Isolated: `~/praesidium/var/wrkq-artifacts/T-14125/run-isolated.sh` boots acp-server on :18479. It uses a throwaway HOME whose Loggia config lists Lance's real roots plus a fixture `assets` page, symlinks `~/praesidium` and `~/.cargo`, and points wrkq and HRC at scratch paths. That covers the asset Range and `..` steps, but its relay steps still call the live jobhunt kernel (`hunt.pipeline`, a read). It is not a scratch-only drive.
+
+Scratch, fail-closed only (T-14448): the catalog, schema and `cardo` resolve from HOME, not from an override. A dev-env acp-server therefore reads the real Loggia roots, and its relay reaches live kernels. Never call these routes on it. Boot a second source acp-server inside the owned root instead: `env -i` with a throwaway HOME holding a fixture-only Loggia config, a copy of the schema and a symlink to the real `cardo` binary only (`cardo ls --all` under that HOME prints `mounts: []`), the asset origin on refused `127.0.0.1:9`, every DB under the root and no HRC. Read its exec-time environment before calling. There, these answers were observed:
+- the catalog lists only the fixture page, with its mount `available: false`;
+- a schema-invalid page logs `plugin.page_refused` and its bundle is 404 `page_not_found`, the same as an unknown page;
+- `graph.query` and a listed op on the absent mount answer 503 `mount_unavailable` with `sent: false` (real `cardo` exit 75);
+- an unlisted op is 403 `op_not_allowed`; an unlisted mount, `ui` and `cardo-ui:ui` are 403 `mount_not_allowed`; a non-object body is 400 `invalid_request`;
+- a `..%2F` asset ref is 400 `invalid_asset_ref`, and GET or HEAD on a refused origin is 503 `asset_unavailable`.
+
+That proves admission, the allowlist and the refusal envelopes only. A relayed reply, a subscription and a served asset still need the owner-sanctioned paths above.
 
 ## Gotchas
 

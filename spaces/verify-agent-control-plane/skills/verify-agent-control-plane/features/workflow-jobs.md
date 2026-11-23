@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-Task transitions, participant runs, evidence/obligations, actions, effects, scheduled jobs and job runs.
+Task transitions, participant runs, evidence/obligations, actions, effects, event jobs and job runs. Recurring schedules moved to the Praesidium kernel schedule module (T-14267); ACP's cron scheduler, `--cron` flags and `GET /v1/admin/jobs/scheduler` are gone. `ACP_SCHEDULER_ENABLED=1` now only enables the event worker and run recovery.
 
 Source anchors (repo-relative): packages/acp-core/src/index.ts; packages/acp-server/src/jobs; tests/conformance/acp-workflow. Exact tracked surface inventory follows; a mapping is not a behavioral assertion.
 
@@ -63,11 +63,11 @@ Discover `bun scripts/discover-acp.ts routes workflow` and `acp task --help`, `a
 
 ## Driving it
 
-Run `bun test tests/conformance/acp-workflow` for source conformance. The full owned `just verify` runs package integration suites with ephemeral state. A manual end-to-end transition or job drive additionally needs scratch wrkf ledger, explicit actor/project/task and inert effects; until configured, report undriven.
+Run `bun test tests/conformance/acp-workflow` for source conformance. The full owned `just verify` runs package integration suites with ephemeral state. A manual end-to-end transition or job drive additionally needs scratch wrkf ledger, explicit actor/project/task and inert effects; until configured, report undriven. A dev-env drive without `ACP_SCHEDULER_ENABLED` covers definitions only: validate, create (disabled, event trigger), list, show, patch, missing and an empty run list (T-14448).
 
 ## Gotchas
 
-Source conformance includes state-machine failure cases but is not installed job dispatch proof. Never load production schedules, managed resources, hooks, or job recipients into scratch. No live scheduler substitution. `job create` takes no `--job` (usage error, exit 2): the server mints `job_<hex>`, so read it from the create response. `job validate` exits 1 when the body reports `valid: false` and still prints the errors (T-11922). An input-only job aimed at a seat bound to another node fails with `job_target_remote` and names the bound node. Use an `agent-dispatch` step for cross-node delivery. A fresh scratch jobs DB contains two built-in event jobs, `acp-health-dispatch-timeout-fettle` and `hrc-first-turn-missing-notify` (observed T-12334).
+Source conformance includes state-machine failure cases but is not installed job dispatch proof. Never load production schedules, managed resources, hooks, or job recipients into scratch. Never substitute the live event worker or the schedule module. A job with a `schedule` trigger is refused 400 `malformed_request` "schedule jobs are owned by the schedule module" by both `job validate` and `job create`; `job create --cron` is a usage error (exit 2). `GET /v1/admin/jobs/scheduler` now falls through to the `:jobId` route and answers 404 `job not found: scheduler`. `job create` takes no `--job` (usage error, exit 2): the server mints `job_<hex>`, so read it from the create response. `job validate` exits 1 when the body reports `valid: false` and still prints the errors (T-11922). An input-only job aimed at a seat bound to another node fails with `job_target_remote` and names the bound node. Use an `agent-dispatch` step for cross-node delivery. A fresh scratch jobs DB contains two built-in event jobs, `acp-health-dispatch-timeout-fettle` and `hrc-first-turn-missing-notify` (observed T-12334).
 
 ## Proven when
 
