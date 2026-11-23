@@ -72,7 +72,7 @@ describe('POST /v1/mobile/sessions', () => {
     }, client)
   })
 
-  test.each(['primary', 'minisvc', 'minilab', ' minisvc '] as const)(
+  test.each(['primary', 'minisvc', ' minisvc '] as const)(
     'sends the %s quick-pick lane to HRC as a suffix roster start',
     async (rawTaskId) => {
       const taskId = rawTaskId.trim()

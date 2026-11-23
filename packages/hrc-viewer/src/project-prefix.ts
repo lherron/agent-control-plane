@@ -24,6 +24,7 @@ const PROJECT_PREFIXES: Readonly<Record<string, string>> = {
   jobhunt: 'job',
   'media-ingest': 'ingest',
   praesidium: 'prs',
+  'praesidium-kernel': 'prae',
   'project-util': 'pju',
   rex: 'rex',
   safoundry: 'safoundry',

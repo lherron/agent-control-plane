@@ -9,7 +9,7 @@ import {
 } from './fixtures/mobile-session-creation.js'
 
 describe('mobile alternate scope consent (T-13458)', () => {
-  test.each(['primary', 'minisvc', 'minilab'])(
+  test.each(['primary', 'minisvc'])(
     'requires confirmation for %s and preserves exact approval',
     async (taskId) => {
       const { client, starts } = createMobileSessionHrcClient()

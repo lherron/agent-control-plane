@@ -51,7 +51,7 @@ const MOBILE_RESTART_STYLE: RestartStyle = 'reuse_pty'
  * "give me a free session near this lane", so a collision walks the suffix
  * roster (`primary` -> `primary-nova`) instead of failing.
  */
-const ROSTER_MOBILE_TASK_IDS = new Set(['primary', 'minisvc', 'minilab'])
+const ROSTER_MOBILE_TASK_IDS = new Set(['primary', 'minisvc'])
 
 type MobileSessionErrorCode =
   | 'session_roster_exhausted'
@@ -85,7 +85,7 @@ export function deriveMobileSessionIdempotencyKey(requestId: string): string {
 
 /**
  * Mobile clients pick a session scope by task token — the well-known operator
- * lanes (primary, minisvc, minilab, hrcdev) and any task the operator types by
+ * lanes (primary, minisvc, hrcdev) and any task the operator types by
  * hand. There is no server-side allowlist: the only constraint is the canonical
  * agent-scope token grammar, checked here so a malformed token is rejected at
  * the MALFORMED_REQUEST boundary rather than escaping as an untyped ScopeRef
