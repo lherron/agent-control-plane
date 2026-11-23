@@ -112,6 +112,7 @@ export type HrcRuntimeRow = {
   scopeRef?: string | undefined
   laneRef?: string | undefined
   transport?: string | undefined
+  createdAt?: string | undefined
   updatedAt?: string | undefined
   tmuxJson?: unknown
 }

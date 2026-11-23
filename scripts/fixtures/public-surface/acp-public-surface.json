@@ -1394,6 +1394,7 @@
         "GET /v1/wrkq/projects/:project/timeline",
         "GET /v1/wrkq/tasks",
         "GET /v1/wrkq/tasks/:taskId",
+        "POST /v1/mobile/sessions",
         "POST /v1/tasks/:taskId/evidence",
         "POST /v1/tasks/:taskId/transitions",
         "POST /v1/webhooks/events",

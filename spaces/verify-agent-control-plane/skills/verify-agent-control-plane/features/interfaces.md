@@ -102,6 +102,8 @@ Health is not history/timeline or bearer-auth proof. Source fake-client tests ar
 
 ## Proven when
 
+Mobile New Session accepts a trimmed `initialPrompt` of up to 16 KiB on ordinary, confirmation and force-primary requests. On loopback, create a disposable tabularasa seat with a distinctive prompt and check `initialPrompt: { delivered: true, idempotencyKey }` and the answer in its transcript. Repeat the same requestId and check `replayed: true` with `initialPrompt: { delivered: false, reason: "runtime_not_fresh" }` and no second steer. A create without a prompt omits the field. Archive the disposable runtimes after capturing evidence.
+
 Health response and route rejection recorded by scratch helper prove HTTP plumbing only. A dev-env drive of `acp mobile auth|devices|pairing-code` against the scratch auth file proves the following on loopback only (T-11920, T-12334):
 - empty-roster enable refusal (exit 2);
 - single-use pairing: a wrong code and a reused code both get 401;

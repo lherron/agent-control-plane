@@ -72,13 +72,16 @@ Refused connections return 503 `gateway_jobhunt_unavailable` (POST:
 the lead again after an uncertain write. These errors use
 `{error: {code, message, details}}`. Jobhunt owns lead semantics and fences.
 
-`POST /v1/mobile/sessions` accepts `agentId`, `projectId`, optional `taskId`,
-optional `viewerWindow`, optional `model`, optional `force`, and `requestId`. The server derives an HRC idempotency
+### Mobile session creation
+
+`POST /v1/mobile/sessions` accepts `agentId`, `projectId`, `requestId`, and
+optional `taskId`, `viewerWindow`, `model`, `force`, `scopeConfirmation`, and
+`initialPrompt`. The server derives an HRC idempotency
 key from `requestId`, names the
 `agent:<agentId>:project:<projectId>:task:<taskId>` scope, and returns the scope
 HRC actually claimed. `taskId` is trimmed and defaults to `primary`; it is not
 restricted to a server-side allowlist — well-known lanes (`primary`, `minisvc`,
-`minilab`, `hrcdev`) and operator-typed task ids alike are accepted as long as
+`hrcdev`) and operator-typed task ids alike are accepted as long as
 they satisfy the canonical agent-scope token grammar (`[A-Za-z0-9._-]{1,64}`).
 Tokens outside that grammar are rejected as `malformed_request` before any HRC
 call.
@@ -87,7 +90,8 @@ The task token selects the HRC creation policy:
 
 | `taskId` | HRC START shape | Collision behavior |
 |---|---|---|
-| `primary`, `minisvc`, `minilab` | `{ baseSessionRef, conflictPolicy: "suffix" }` | Walks the roster family (`primary` → `primary-nova` → ...). |
+| `primary`, `minisvc` | `{ baseSessionRef, conflictPolicy: "suffix" }` | Walks the roster family (`primary` → `primary-nova` → ...). |
+| `primary`, `minisvc` with `scopeConfirmation.mode: "require"` | `{ baseSessionRef, conflictPolicy: "confirm" }` | Requires confirmation before claiming an alternate slot. |
 | `hrcdev` and every other valid token | `{ sessionRef, conflictPolicy: "reject" }` | Claims that one scope or refuses it; no next slot, no reuse of a live conversation. |
 
 Both shapes send `summonIntent: "implicit"`, the durable request-derived
@@ -97,6 +101,23 @@ resolves where the named scope lives from policy and registry state. Both
 responses must carry HRC's claim, and the response DTO (`claimedScope`,
 `sessionRef`, `hostSessionId`, `runtimeId`, `status`, `replayed`) is projected
 from that claim rather than from what ACP asked for.
+
+`initialPrompt` is an optional string. ACP trims it and treats an empty value
+as absent. A trimmed string over 16 KiB of UTF-8 returns HTTP 400
+`malformed_request` with `details.field: "initialPrompt"`. On claim paths,
+HRC binds the trimmed prompt to the start idempotency key. After a successful
+start, ACP steers the claimed seat as `agent:lance` if HRC reports a matching
+runtime created at or after request arrival and the start is fresh. The steer
+can join priming in progress or start a turn after priming finishes.
+
+When the request includes a nonempty prompt, a successful session response
+includes `initialPrompt: { delivered: true, idempotencyKey }` after HRC admits
+the steer, or `initialPrompt: { delivered: false, reason }` if delivery fails
+or ACP skips it. `runtime_not_fresh` covers replays, runtime reuse, unavailable
+runtime evidence and a force restart whose launch failed. Other reasons are
+HRC's error code or submission refusal reason, HRC's `expired` or `cancelled`
+disposition when it supplies no reason, or `steer_failed` for an untyped
+failure. A request without a nonempty prompt omits the response field.
 
 Reaching HRC is not the same as landing a session. Suffix starts additionally
 require every member of the claimed roster family (`<taskId>`, `<taskId>-nova`,

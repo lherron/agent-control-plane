@@ -5,6 +5,7 @@ import type { HrcRuntimeIntent } from 'hrc-core'
 import type { AcpHrcClient } from '../deps.js'
 import { json } from '../http.js'
 import type { RouteContext } from '../routing/route-context.js'
+import { deliverMobileInitialPrompt } from './mobile-initial-prompt.js'
 import { expireInputComposedForDroppedContext, restartRefusal } from './mobile-sessions-restart.js'
 import { formatSessionIdentityHandle } from './shared.js'
 
@@ -61,6 +62,7 @@ type LedgerEntry = {
   agentId: string
   projectId: string
   model: string | undefined
+  initialPrompt: string | undefined
   expiresAt: number
   state: LedgerState
 }
@@ -135,6 +137,7 @@ export type ForcePrimaryInput = {
   sessionRef: string
   runtimeIntent: HrcRuntimeIntent
   idempotencyKey: string
+  initialPrompt?: string | undefined
   /**
    * T-13968: the phone-selected model. The absent-primary start and launch
    * recovery carry it in `runtimeIntent`; the restart forwards it as HRC's
@@ -299,12 +302,19 @@ async function runNewContext(input: ForcePrimaryInput, hrc: AcpHrcClient): Promi
  * replays this request's own claim (and starts that session) or claims anew;
  * it never adopts another caller's session.
  */
-async function exactStart(input: ForcePrimaryInput, hrc: AcpHrcClient): Promise<Outcome> {
+async function exactStart(
+  input: ForcePrimaryInput,
+  hrc: AcpHrcClient,
+  initialPrompt = input.initialPrompt
+): Promise<Outcome> {
   let started: Awaited<ReturnType<AcpHrcClient['startRuntime']>>
   try {
     started = await hrc.startRuntime({
       sessionRef: input.sessionRef,
-      runtimeIntent: input.runtimeIntent,
+      runtimeIntent:
+        initialPrompt === undefined
+          ? input.runtimeIntent
+          : { ...input.runtimeIntent, initialPrompt },
       conflictPolicy: 'reject',
       summonIntent: 'implicit',
       idempotencyKey: input.idempotencyKey,
@@ -397,9 +407,10 @@ async function readOnlyUnknown(
 async function settleUncertain(
   input: ForcePrimaryInput,
   hrc: AcpHrcClient,
-  uncertain: Uncertain
+  uncertain: Uncertain,
+  initialPrompt: string | undefined
 ): Promise<Outcome> {
-  if (uncertain.branch === 'create') return await exactStart(input, hrc)
+  if (uncertain.branch === 'create') return await exactStart(input, hrc, initialPrompt)
   return await readOnlyUnknown(
     input,
     hrc,
@@ -423,6 +434,7 @@ async function track(
     agentId: input.agentId,
     projectId: input.projectId,
     model: input.model,
+    initialPrompt: previous === undefined ? input.initialPrompt : previous.initialPrompt,
     expiresAt: Date.now() + LEDGER_TTL_MS,
     state: { kind: 'done', outcome: { status: 0, body: {} } },
   }
@@ -464,7 +476,9 @@ async function forcePrimary(input: ForcePrimaryInput, hrc: AcpHrcClient): Promis
     entry !== undefined &&
     (entry.agentId !== input.agentId ||
       entry.projectId !== input.projectId ||
-      entry.model !== input.model)
+      entry.model !== input.model ||
+      ((input.force.mode !== 'reconcile' || input.initialPrompt !== undefined) &&
+        entry.initialPrompt !== input.initialPrompt))
   ) {
     return refusal(
       input.requestId,
@@ -490,12 +504,31 @@ async function forcePrimary(input: ForcePrimaryInput, hrc: AcpHrcClient): Promis
       return replay(entry.state.outcome)
     case 'uncertain': {
       const uncertain = entry.state.uncertain
-      return await track(ledger, input, entry, () => settleUncertain(input, hrc, uncertain))
+      return await track(ledger, input, entry, () =>
+        settleUncertain(input, hrc, uncertain, entry.initialPrompt)
+      )
     }
   }
 }
 
 export async function handleForcePrimary(input: ForcePrimaryInput): Promise<Response> {
-  const outcome = await forcePrimary(input, input.deps.hrcClient as AcpHrcClient)
+  const hrc = input.deps.hrcClient as AcpHrcClient
+  const outcome = await forcePrimary(input, hrc)
+  if (outcome.status === 200 && input.initialPrompt !== undefined) {
+    const { body } = outcome
+    const initialPrompt =
+      typeof body['sessionRef'] === 'string' && typeof body['hostSessionId'] === 'string'
+        ? await deliverMobileInitialPrompt({
+            ...input,
+            initialPrompt: input.initialPrompt,
+            hrc,
+            sessionRef: body['sessionRef'],
+            hostSessionId: body['hostSessionId'],
+            runtimeId: typeof body['runtimeId'] === 'string' ? body['runtimeId'] : undefined,
+            replayed: body['replayed'] === true,
+          })
+        : { delivered: false, reason: 'runtime_not_fresh' }
+    return json({ ...body, initialPrompt }, outcome.status)
+  }
   return json(outcome.body, outcome.status)
 }

@@ -24,6 +24,7 @@ import type { HrcSessionRecord } from 'hrc-core'
 
 import type { AcpRuntimePlacement } from '../src/deps.js'
 import { deriveMobileSessionIdempotencyKey } from '../src/handlers/mobile-sessions-create.js'
+import type { HrcRouteReader } from '../src/hrc-route-reader.js'
 import {
   type AcpHrcClient,
   InMemoryInputAdmissionStore,
@@ -45,6 +46,7 @@ type Calls = {
   restarts: Record<string, unknown>[]
   starts: Record<string, unknown>[]
   resolves: number
+  steers: Parameters<AcpHrcClient['steer']>[0][]
 }
 
 type Script = {
@@ -53,6 +55,7 @@ type Script = {
   homeNodeId?: string
   restart?: (request: Record<string, unknown>) => unknown
   start?: (request: Record<string, unknown>) => unknown
+  readRuntimes?: HrcRouteReader['readRuntimes']
 }
 
 function session(head: NonNullable<Head>): HrcSessionRecord {
@@ -69,6 +72,10 @@ function session(head: NonNullable<Head>): HrcSessionRecord {
 
 function hrcClient(script: Script, calls: Calls): AcpHrcClient {
   return {
+    steer: async (request: Parameters<AcpHrcClient['steer']>[0]) => {
+      calls.steers.push(request)
+      return { admission: 'admitted', submissionId: 'hrc-force-steer', runId: 'run-force-steer' }
+    },
     resolveRuntimeIntent: async (request: Record<string, unknown>) => ({
       intent: {
         harness: { provider: 'anthropic', interactive: true, id: 'claude-code' },
@@ -226,7 +233,7 @@ const ALL_QUEUED = {
 }
 
 function emptyCalls(): Calls {
-  return { restarts: [], starts: [], resolves: 0 }
+  return { restarts: [], starts: [], resolves: 0, steers: [] }
 }
 
 type Post = (
@@ -252,7 +259,15 @@ async function scenario(
       }
       await run(post, calls)
     },
-    { hrcClient: hrcClient(script, calls), runtimeResolver, ...s }
+    {
+      hrcClient: hrcClient(script, calls),
+      hrcRoutes:
+        script.readRuntimes === undefined
+          ? undefined
+          : ({ readRuntimes: script.readRuntimes } as HrcRouteReader),
+      runtimeResolver,
+      ...s,
+    }
   )
 }
 
@@ -260,6 +275,61 @@ const FORCE = { force: { mode: 'new_context' } }
 const RECONCILE = { force: { mode: 'reconcile' } }
 
 describe('POST /v1/mobile/sessions with force', () => {
+  test.each(['created', 'restarted'] as const)(
+    'steers once when force %s returns a fresh runtime',
+    async (disposition) => {
+      await scenario(
+        {
+          heads:
+            disposition === 'created'
+              ? [null, { hostSessionId: SUCCESSOR, generation: 1 }]
+              : [{ hostSessionId: PRIOR, generation: 3 }],
+          readRuntimes: async () => [
+            {
+              runtimeId: disposition === 'created' ? 'rt-started' : 'rt-successor',
+              hostSessionId: SUCCESSOR,
+              status: 'ready',
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+        stores(),
+        async (post, calls) => {
+          const request = {
+            ...FORCE,
+            requestId: 'req-force-prompt',
+            initialPrompt: '  start here  ',
+          }
+          const result = await post(request)
+          expect(result.status).toBe(200)
+          const idempotencyKey = `${deriveMobileSessionIdempotencyKey(request.requestId)}:initial-prompt`
+          expect(result.body).toMatchObject({
+            disposition,
+            initialPrompt: { delivered: true, idempotencyKey },
+          })
+          if (disposition === 'created') {
+            expect(calls.starts[0]).toMatchObject({
+              runtimeIntent: { initialPrompt: 'start here' },
+            })
+          }
+          expect((await post(request)).body).toMatchObject({
+            replayed: true,
+            initialPrompt: { delivered: false, reason: 'runtime_not_fresh' },
+          })
+          expect((await post({ ...request, initialPrompt: 'changed' })).status).toBe(409)
+          expect(calls.steers).toEqual([
+            {
+              target: SESSION_REF,
+              body: 'start here',
+              origin: { principalRef: 'agent:lance' },
+              idempotencyKey,
+            },
+          ])
+        }
+      )
+    }
+  )
+
   test('force off keeps the suffix roster and never restarts', async () => {
     await scenario(
       { heads: [{ hostSessionId: PRIOR, generation: 3 }] },
@@ -570,6 +640,37 @@ describe('Launch recovery (force.mode launch_successor)', () => {
   const LAUNCH = {
     force: { mode: 'launch_successor', expectedHostSessionId: SUCCESSOR, expectedGeneration: 4 },
   }
+
+  test('leaves the prompt unsent when launch recovery reuses an older runtime', async () => {
+    await scenario(
+      {
+        heads: [{ hostSessionId: SUCCESSOR, generation: 4 }],
+        readRuntimes: async () => [
+          {
+            runtimeId: 'rt-started',
+            hostSessionId: SUCCESSOR,
+            status: 'ready',
+            createdAt: NOW,
+          },
+        ],
+      },
+      stores(),
+      async (post, calls) => {
+        const result = await post({
+          requestId: 'req-launch-reuse',
+          ...LAUNCH,
+          initialPrompt: 'keep as draft',
+        })
+        expect(result.status).toBe(200)
+        expect(result.body).toMatchObject({
+          disposition: 'launched',
+          initialPrompt: { delivered: false, reason: 'runtime_not_fresh' },
+        })
+        expect(calls.starts[0]?.['intent']).not.toHaveProperty('initialPrompt')
+        expect(calls.steers).toEqual([])
+      }
+    )
+  })
 
   test('starts the successor without rotating it', async () => {
     await scenario(

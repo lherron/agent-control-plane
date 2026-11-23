@@ -61,6 +61,12 @@ Collaboration-mail delivery is not part of ACP. It lives in praesidium-kernel
 
 ## Runtime And Config
 
+Mobile New Session accepts an optional `initialPrompt` on
+`POST /v1/mobile/sessions`. A successful session response with a nonempty
+prompt includes `initialPrompt: { delivered: true, idempotencyKey }` or
+`initialPrompt: { delivered: false, reason }`.
+[Mobile session request and delivery contract](mobile-gateway-surface.md#mobile-session-creation)
+
 The installed `acp` CLI defaults to `http://127.0.0.1:18470`.
 
 The launchd-managed ACP server uses:

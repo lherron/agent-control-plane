@@ -31,6 +31,7 @@ import {
 } from '../parsers/body.js'
 import type { RouteHandler } from '../routing/route-context.js'
 import { handleForcePrimary, parseMobileForce } from './mobile-force-primary.js'
+import { deliverMobileInitialPrompt, parseMobileInitialPrompt } from './mobile-initial-prompt.js'
 
 const IDEMPOTENCY_KEY_PREFIX = 'acp-mobile-session:v1:'
 const DEFAULT_MOBILE_TASK_ID = 'primary'
@@ -43,6 +44,7 @@ const ALLOWED_FIELDS = new Set([
   'requestId',
   'force',
   'scopeConfirmation',
+  'initialPrompt',
 ])
 const MOBILE_RESTART_STYLE: RestartStyle = 'reuse_pty'
 
@@ -313,6 +315,8 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
   const agentId = requireTrimmedStringField(body, 'agentId')
   const projectId = requireTrimmedStringField(body, 'projectId')
   const requestId = requireTrimmedStringField(body, 'requestId')
+  const idempotencyKey = deriveMobileSessionIdempotencyKey(requestId)
+  const initialPrompt = parseMobileInitialPrompt(body)
   const taskId = resolveMobileTaskId(body)
   const scopeConfirmation = parseScopeConfirmation(body, taskId)
   const force = parseMobileForce(body, taskId)
@@ -391,7 +395,8 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
       receivedAt,
       sessionRef: formatSessionRef(baseSession),
       runtimeIntent,
-      idempotencyKey: deriveMobileSessionIdempotencyKey(requestId),
+      idempotencyKey,
+      initialPrompt,
       model,
     })
   }
@@ -404,8 +409,9 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
         conflictPolicy,
         scopeConfirmation,
         sessionRef: formatSessionRef(baseSession),
-        runtimeIntent,
-        idempotencyKey: deriveMobileSessionIdempotencyKey(requestId),
+        runtimeIntent:
+          initialPrompt === undefined ? runtimeIntent : { ...runtimeIntent, initialPrompt },
+        idempotencyKey,
       })
     )
     // Both claim-and-start shapes report the scope they actually claimed; the
@@ -421,6 +427,22 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
       runtimeId: started.runtimeId,
       status: started.status,
       replayed: started.claim.replayed,
+      ...(initialPrompt !== undefined
+        ? {
+            initialPrompt: await deliverMobileInitialPrompt({
+              deps,
+              hrc: deps.hrcClient,
+              initialPrompt,
+              requestId,
+              receivedAt,
+              idempotencyKey,
+              sessionRef: started.claim.sessionRef,
+              hostSessionId: started.hostSessionId,
+              runtimeId: started.runtimeId,
+              replayed: started.claim.replayed,
+            }),
+          }
+        : {}),
     })
   } catch (error) {
     if (error instanceof HrcDomainError) {

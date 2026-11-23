@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from 'bun:test'
 import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import { deriveMobileSessionIdempotencyKey } from '../src/handlers/mobile-sessions-create.js'
+import type { HrcRouteReader } from '../src/hrc-route-reader.js'
 import {
   BASE_SCOPE_REF,
   BASE_SESSION_REF,
@@ -13,6 +14,141 @@ import {
 const HRCDEV_SESSION_REF = 'agent:mable:project:hrc-runtime:task:hrcdev/lane:main'
 
 describe('POST /v1/mobile/sessions', () => {
+  test.each([
+    ['suffix', {}],
+    ['confirm', { scopeConfirmation: { mode: 'require', confirmedTaskId: 'primary-nova' } }],
+    ['reject', { taskId: 'hrcdev' }],
+  ] as const)('steers the trimmed prompt to the %s claim once', async (policy, fields) => {
+    const { client, starts } = createMobileSessionHrcClient()
+    const steers: Parameters<typeof client.steer>[0][] = []
+    client.steer = async (input) => {
+      steers.push(input)
+      return {
+        admission: 'admitted',
+        submissionId: 'hrc-test',
+        disposition: { type: 'absorbed', turnId: 'turn-test' },
+      } as Awaited<ReturnType<typeof client.steer>>
+    }
+    const reads: Parameters<HrcRouteReader['readRuntimes']>[0][] = []
+    const routes = {
+      readRuntimes: async (query: Parameters<HrcRouteReader['readRuntimes']>[0]) => {
+        reads.push(query)
+        return [
+          {
+            runtimeId: 'rt-mobile-new-session',
+            hostSessionId: 'hsid-mobile-new-session',
+            status: 'ready',
+            createdAt: new Date().toISOString(),
+          },
+        ]
+      },
+    } as HrcRouteReader
+    await withMobileSessionServer(
+      async ({ post, json }) => {
+        const request = { ...fields, initialPrompt: '  ship it  ' }
+        const started = await post(request)
+        expect(started.status).toBe(200)
+        const response = await json<{
+          sessionRef: string
+          initialPrompt: { delivered: boolean; idempotencyKey: string }
+        }>(started)
+        expect(response.initialPrompt).toEqual({
+          delivered: true,
+          idempotencyKey: `${deriveMobileSessionIdempotencyKey(REQUEST_ID)}:initial-prompt`,
+        })
+        expect(starts[0]).toMatchObject({
+          conflictPolicy: policy,
+          runtimeIntent: { initialPrompt: 'ship it' },
+        })
+        expect(steers).toEqual([
+          {
+            target: response.sessionRef,
+            body: 'ship it',
+            origin: { principalRef: 'agent:lance' },
+            idempotencyKey: response.initialPrompt.idempotencyKey,
+          },
+        ])
+        expect(await json(await post(request))).toMatchObject({
+          replayed: true,
+          initialPrompt: { delivered: false, reason: 'runtime_not_fresh' },
+        })
+        expect(steers).toHaveLength(1)
+        expect(reads).toEqual([
+          { runtimeId: 'rt-mobile-new-session', hostSessionId: 'hsid-mobile-new-session' },
+        ])
+      },
+      client,
+      undefined,
+      routes
+    )
+  })
+
+  test('validates the byte cap and treats whitespace as absent before HRC delivery', async () => {
+    const { client, starts, resolveCalls } = createMobileSessionHrcClient()
+    await withMobileSessionServer(async ({ post, json }) => {
+      const oversized = await post({ initialPrompt: 'é'.repeat(8193) })
+      expect(oversized.status).toBe(400)
+      expect(await json(oversized)).toMatchObject({
+        error: { code: 'malformed_request', details: { field: 'initialPrompt' } },
+      })
+      const wrongType = await post({ initialPrompt: 17 })
+      expect(wrongType.status).toBe(400)
+      expect(resolveCalls).toHaveLength(0)
+      const blank = await post({ initialPrompt: '  \n ' })
+      expect(blank.status).toBe(200)
+      expect(await json(blank)).not.toHaveProperty('initialPrompt')
+      expect(starts[0]?.runtimeIntent).not.toHaveProperty('initialPrompt')
+    }, client)
+  })
+
+  test.each([
+    ['old runtime', 'runtime_not_fresh'],
+    ['missing row', 'runtime_not_fresh'],
+    ['failed read', 'runtime_not_fresh'],
+    ['HTTP error', HrcErrorCode.RUNTIME_UNAVAILABLE],
+    ['refused admission', 'seat_not_available'],
+    ['untyped error', 'steer_failed'],
+  ] as const)('keeps the start successful on %s', async (failure, reason) => {
+    const { client } = createMobileSessionHrcClient()
+    let steers = 0
+    client.steer = async () => {
+      steers += 1
+      if (failure === 'HTTP error')
+        throw new HrcDomainError(HrcErrorCode.RUNTIME_UNAVAILABLE, 'private prompt')
+      if (failure === 'untyped error') throw new Error('private prompt')
+      return { admission: 'rejected', submissionId: 'hrc-test', reason: 'seat_not_available' }
+    }
+    const routes = {
+      readRuntimes: async () => {
+        if (failure === 'failed read') throw new Error('reader unavailable')
+        if (failure === 'missing row') return []
+        return [
+          {
+            runtimeId: 'rt-mobile-new-session',
+            hostSessionId: 'hsid-mobile-new-session',
+            status: 'ready',
+            createdAt:
+              failure === 'old runtime' ? '2020-01-01T00:00:00.000Z' : new Date().toISOString(),
+          },
+        ]
+      },
+    } as unknown as HrcRouteReader
+    await withMobileSessionServer(
+      async ({ post, json }) => {
+        const response = await post({ initialPrompt: `  ${'é'.repeat(8192)}  ` })
+        expect(response.status).toBe(200)
+        expect(await json(response)).toMatchObject({
+          runtimeId: 'rt-mobile-new-session',
+          initialPrompt: { delivered: false, reason },
+        })
+        expect(steers).toBe(reason === 'runtime_not_fresh' ? 0 : 1)
+      },
+      client,
+      undefined,
+      routes
+    )
+  })
+
   test('passes only the base scope to HRC and projects the claimed scope prominently', async () => {
     const { client, starts } = createMobileSessionHrcClient()
 

@@ -123,7 +123,8 @@ export function withMobileSessionServer(
     json: WiredServerFixture['json']
   }) => Promise<void>,
   hrcClient: AcpHrcClient,
-  hrcAgentSources?: AcpServerDeps['hrcAgentSources']
+  hrcAgentSources?: AcpServerDeps['hrcAgentSources'],
+  hrcRoutes?: AcpServerDeps['hrcRoutes']
 ): Promise<void> {
   return withWiredServer(
     ({ request, json }) =>
@@ -139,6 +140,7 @@ export function withMobileSessionServer(
     {
       hrcClient,
       runtimeResolver,
+      hrcRoutes,
       ...(hrcAgentSources === undefined ? {} : { hrcAgentSources }),
     }
   )
