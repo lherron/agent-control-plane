@@ -1,15 +1,5 @@
 /**
- * Phase C RED tests — Phase E: apply/status orchestration layer.
- *
- * STATUS: INTENTIONALLY FAILING — Phase E (packages/acp-server/src/resources/apply.ts)
- * has not yet been implemented. These tests will go GREEN when Phase E delivers:
- *   - validateManagedResourcesPlan: local JSON schema validation of ASP plan v1
- *   - applyManagedResourcesPlan: orchestrates Phase D store APIs for all three resource kinds
- *   - getManagedResourcesStatus: reports per-resource drift and state
- *
- * Dependency ordering: these tests require BOTH Phase D (store layer) AND Phase E
- * (orchestration layer) to go GREEN. Phase D tests in acp-jobs-store/__tests__ and
- * acp-interface-store/__tests__ can go GREEN independently before Phase E is implemented.
+ * Conformance tests for the managed-resource orchestrator.
  *
  * Wire input: canonical ASP plan fixture (tests/fixtures/resources/asp-plan-v1.json)
  *   sourced from agent-spaces packages/config/src/__fixtures__/resources/expected-plan.json
@@ -30,17 +20,16 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-// Phase E will create this module. Until then, this import fails at module resolution,
-// making all tests in this file RED. When apply.ts is created and exports these symbols,
-// the tests will run and (when correctly implemented) go GREEN.
 import {
   type ApplyManagedResourcesPlanInput,
-  type ManagedResourcesPlan,
   applyManagedResourcesPlan,
-  getManagedResourcesStatus,
-  validateManagedResourcesPlan,
 } from '../../../packages/acp-server/src/resources/apply.js'
-import * as managedResourceOrchestrator from '../../../packages/acp-server/src/resources/apply.js'
+import {
+  type ManagedResourcesPlan,
+  validateManagedResourcesPlan,
+} from '../../../packages/acp-server/src/resources/plan.js'
+import * as reconciliation from '../../../packages/acp-server/src/resources/reconcile.js'
+import { getManagedResourcesStatus } from '../../../packages/acp-server/src/resources/status.js'
 
 // ------------------------------------------------------------------
 // Load the canonical ASP plan fixture (versioned wire input)
@@ -597,6 +586,45 @@ describe('managed-resource operator readback (T-05243)', () => {
 // ==================================================================
 
 describe('managed-resource source deletion reconciliation (T-05244)', () => {
+  test.each(['archive', 'purge'] as const)(
+    '%s reports unsupported deletion for active and disabled resources without changing status',
+    async (sourceDeletionPolicy) => {
+      const input = makePersistentApplyInput()
+      await applyManagedResourcesPlan(input)
+      // Disable only the event hook, leaving the binding active.
+      await reconciliation.reconcileManagedResourcesPlan({
+        ...input,
+        plan: planWithoutProjectionIds(CANONICAL_PLAN, [EVENT_HOOK_PROJECTION_ID]),
+      })
+      const request = { ...input, plan: { ...CANONICAL_PLAN, resources: [] }, sourceDeletionPolicy }
+      const before = await getManagedResourcesStatus(request)
+      expect(
+        before.resources.map(({ projectionId, isStale, recommendedAction }) => ({
+          projectionId,
+          isStale,
+          recommendedAction,
+        }))
+      ).toEqual([
+        { projectionId: EVENT_HOOK_PROJECTION_ID, isStale: true, recommendedAction: 'none' },
+        { projectionId: BINDING_PROJECTION_ID, isStale: true, recommendedAction: 'unsupported' },
+      ])
+
+      const result = await reconciliation.reconcileManagedResourcesPlan(request)
+      expect(result.apply.outcomes).toEqual([])
+      expect(result.sourceDeletion.outcomes).toEqual(
+        before.resources.map((resource) =>
+          expect.objectContaining({
+            projectionId: resource.projectionId,
+            outcome: 'stale_unsupported_action',
+            previousState: resource.state,
+            finalState: resource.state,
+          })
+        )
+      )
+      expect(await getManagedResourcesStatus(request)).toEqual(before)
+    }
+  )
+
   test('plan-aware status classifies only same-owner missing projections as stale', async () => {
     const input = makePersistentApplyInput(CANONICAL_PLAN)
     await applyManagedResourcesPlan(input)
@@ -656,7 +684,7 @@ describe('managed-resource source deletion reconciliation (T-05244)', () => {
 
   test('default reconcile disables stale resources once and returns stale_noop on repeat', async () => {
     const reconcileManagedResourcesPlan = (
-      managedResourceOrchestrator as {
+      reconciliation as {
         reconcileManagedResourcesPlan?: (input: unknown) => Promise<{
           apply: { outcomes: Array<Record<string, unknown>> }
           sourceDeletion: { outcomes: Array<Record<string, unknown>> }

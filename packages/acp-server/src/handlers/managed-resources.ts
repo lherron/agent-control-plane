@@ -2,14 +2,10 @@ import { badRequest, json } from '../http.js'
 import { resolveJobExecPolicy } from '../jobs/exec-policy.js'
 import { getJobExecutionStatus } from '../jobs/execution-status.js'
 import { isRecord, parseJsonBody } from '../parsers/body.js'
-import {
-  type ManagedResourcesPlan,
-  type SourceDeletionPolicy,
-  applyPlanWithStores,
-  reconcilePlanWithStores,
-  statusWithStores,
-  validateManagedResourcesPlan,
-} from '../resources/apply.js'
+import { applyPlanWithStores } from '../resources/apply.js'
+import { type ManagedResourcesPlan, validateManagedResourcesPlan } from '../resources/plan.js'
+import { type SourceDeletionPolicy, reconcilePlanWithStores } from '../resources/reconcile.js'
+import { statusWithStores } from '../resources/status.js'
 import type { RouteHandler } from '../routing/route-context.js'
 
 const SOURCE_DELETION_POLICIES: ReadonlySet<string> = new Set(['disable', 'archive', 'purge'])
