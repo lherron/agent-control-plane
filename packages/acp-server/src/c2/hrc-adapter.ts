@@ -57,6 +57,8 @@ export type C2HrcHostOptions = {
   openThreadSeat?:
     | ((scopeRef: string, requestId: string) => Promise<StartedSeat | Refusal>)
     | undefined
+  onFollowReady?(signal: AbortSignal): Promise<void>
+  onLifecycleEvent?(event: HrcLifecycleEvent): void
   log(line: string): void
 }
 
@@ -476,6 +478,7 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
             hasConnected = true
             log(`c2.follow.connected fromSeq=${afterSeq + 1}`)
             backoff = FOLLOW_BACKOFF_MIN_MS
+            await options.onFollowReady?.(followAbort.signal)
           } else if (record.type === 'gap' || record.type === 'ledger_replaced') {
             // Reopen from a current, incarnation-fenced head and resync once at ready.
             if (record.type === 'ledger_replaced') {
@@ -489,6 +492,7 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
             break
           } else {
             invalidate(record.event)
+            options.onLifecycleEvent?.(record.event)
           }
         }
         if (closed) return

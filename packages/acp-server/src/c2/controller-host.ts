@@ -22,10 +22,13 @@ import {
   validateRequest,
   wireResponse,
 } from '@praesidium/c2-core'
-
 import { writeLogLine } from 'acp-core'
 
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../deps.js'
+import {
+  expireInputOnGenerationBump,
+  reconcileQueuedInputContexts,
+} from '../input-admission/expire-queued-input.js'
 import { mintArtifactId, serveArtifact } from './artifacts.js'
 import { type AcpC2Config, C2_DEFAULTS, defaultArtifactRoots } from './config.js'
 import { type C2HrcHost, createC2HrcHost, splitSessionRef } from './hrc-adapter.js'
@@ -97,7 +100,8 @@ export function createC2Service(
   hrcClient: AcpHrcClient,
   openThreadSeat?:
     | ((scopeRef: string, requestId: string) => Promise<StartedSeat | Refusal>)
-    | undefined
+    | undefined,
+  queueDeps?: Parameters<typeof expireInputOnGenerationBump>[0]
 ): C2Service {
   const pollMs = config.pollMs ?? C2_DEFAULTS.pollMs
   const coalesceMs = Math.min(pollMs, 2_000)
@@ -111,6 +115,12 @@ export function createC2Service(
     ownsUnscoped: config.vestaSeat === PRODUCTION_VESTA,
     literalInputTimeoutMs: config.literalInputTimeoutMs ?? C2_DEFAULTS.literalInputTimeoutMs,
     handoffSince: hrcHandoffSince(hrcClient),
+    ...(queueDeps !== undefined
+      ? {
+          onFollowReady: (signal) => reconcileQueuedInputContexts(queueDeps, hrcClient, signal),
+          onLifecycleEvent: (event) => expireInputOnGenerationBump(queueDeps, event),
+        }
+      : {}),
     log: (line) => log('c2.host', { line }),
   })
   const controller = new Controller(host, {
@@ -371,13 +381,15 @@ export function createC2Service(
 const services = new WeakMap<AcpC2Config, C2Service>()
 
 /** One always-on service per instance config; created on server construction. */
-export function ensureC2Service(deps: {
-  c2?: AcpC2Config | undefined
-  hrcClient?: AcpHrcClient | undefined
-  agentInspectionAuthority?: ResolvedAcpServerDeps['agentInspectionAuthority'] | undefined
-  adminStore?: ResolvedAcpServerDeps['adminStore'] | undefined
-  workClientForPrincipal?: ResolvedAcpServerDeps['workClientForPrincipal'] | undefined
-}): C2Service | undefined {
+export function ensureC2Service(
+  deps: Parameters<typeof expireInputOnGenerationBump>[0] & {
+    c2?: AcpC2Config | undefined
+    hrcClient?: AcpHrcClient | undefined
+    agentInspectionAuthority?: ResolvedAcpServerDeps['agentInspectionAuthority'] | undefined
+    adminStore?: ResolvedAcpServerDeps['adminStore'] | undefined
+    workClientForPrincipal?: ResolvedAcpServerDeps['workClientForPrincipal'] | undefined
+  }
+): C2Service | undefined {
   if (deps.c2 === undefined || deps.hrcClient === undefined) return undefined
   let service = services.get(deps.c2)
   if (service === undefined) {
@@ -418,7 +430,7 @@ export function ensureC2Service(deps: {
           }
         }
       : undefined
-    service = createC2Service(deps.c2, hrcClient, openThreadSeat)
+    service = createC2Service(deps.c2, hrcClient, openThreadSeat, deps)
     services.set(deps.c2, service)
   }
   return service

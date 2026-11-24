@@ -1,5 +1,5 @@
 import type { InputResetPolicy } from 'acp-core'
-import type { SessionRef } from 'agent-scope'
+import { type SessionRef, formatSessionRef } from 'agent-scope'
 import type { ResolvedAcpServerDeps } from '../deps.js'
 import type { StoredRun } from '../domain/run-store.js'
 
@@ -33,22 +33,37 @@ export function queueDepthExceeded(
   return maxDepth !== undefined && activeQueueDepth(deps, scopeRef, laneRef) >= maxDepth
 }
 
-export function queueFenceFromResetPolicy(
+export async function queueFenceFromResetPolicy(
+  deps: ResolvedAcpServerDeps,
+  sessionRef: SessionRef,
   resetPolicy: InputResetPolicy,
   activeRun: StoredRun | undefined
-): {
+): Promise<{
   expectedHostSessionId?: string | undefined
   expectedGeneration?: number | undefined
-} {
-  if (resetPolicy === 'follow_latest' || activeRun === undefined) {
-    return {}
+}> {
+  if (resetPolicy === 'follow_latest') return {}
+  const host = activeRun?.hostSessionId
+  const generation = activeRun?.generation
+  if (host !== undefined && generation !== undefined) {
+    return { expectedHostSessionId: host, expectedGeneration: generation }
   }
-  return {
-    ...(activeRun.hostSessionId !== undefined
-      ? { expectedHostSessionId: activeRun.hostSessionId }
-      : {}),
-    ...(activeRun.generation !== undefined ? { expectedGeneration: activeRun.generation } : {}),
+  if (deps.hrcClient !== undefined) {
+    const current = await deps.hrcClient.resolveSession({
+      sessionRef: formatSessionRef(sessionRef),
+    })
+    if (
+      current.found &&
+      (host === undefined || host === current.hostSessionId) &&
+      (generation === undefined || generation === current.generation)
+    ) {
+      return {
+        expectedHostSessionId: current.hostSessionId,
+        expectedGeneration: current.generation,
+      }
+    }
   }
+  return { expectedHostSessionId: host, expectedGeneration: generation }
 }
 
 function isActiveRun(run: StoredRun): boolean {

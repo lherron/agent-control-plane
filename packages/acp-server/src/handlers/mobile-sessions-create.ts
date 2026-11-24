@@ -338,6 +338,17 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
   // agentId and projectId request fields before any placement or HRC call.
   parseScopeRef(baseScopeRef)
   const baseSession = normalizeSessionRef({ scopeRef: baseScopeRef, laneRef: 'main' })
+  if (force !== undefined) {
+    return await handleForcePrimary({
+      deps,
+      force,
+      requestId,
+      sessionRef: formatSessionRef(baseSession),
+      initialPrompt,
+      model,
+    })
+  }
+
   const baseIntent = await resolveLaunchIntent(deps, baseSession)
   const declarationRequest: ResolveRuntimeIntentRequest = {
     agentId,
@@ -389,22 +400,6 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
       ? { summonDirectives: resolved.intent.summonDirectives }
       : {}),
     ...(viewerWindow !== undefined ? { presentation: { viewerWindow } } : {}),
-  }
-
-  if (force !== undefined) {
-    return await handleForcePrimary({
-      deps,
-      force,
-      agentId,
-      projectId,
-      requestId,
-      receivedAt,
-      sessionRef: formatSessionRef(baseSession),
-      runtimeIntent,
-      idempotencyKey,
-      initialPrompt,
-      model,
-    })
   }
 
   const conflictPolicy = resolveMobileConflictPolicy(taskId)

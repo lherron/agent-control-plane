@@ -58,6 +58,7 @@ import { InMemoryRunStore, type RunStore, type StoredRun } from './domain/run-st
 import type { AcpHrcSdkClient } from './hrc-client.js'
 import type { JobExecPolicy } from './jobs/exec-policy.js'
 import { type MobileAuthStore, resolveMobileAuthStore } from './mobile-auth/store.js'
+import type { SeatRestartCall } from './seat-restart-client.js'
 import { acpStateDir } from './state-dir.js'
 import type { AcpWrkfWorkflowPort } from './wrkf/port.js'
 
@@ -149,6 +150,7 @@ export type LaunchRoleScopedRun = (input: {
   runStore?: RunStore | undefined
   onEvent?: ((event: UnifiedSessionEvent) => void | Promise<void>) | undefined
   waitForCompletion?: boolean | undefined
+  queueFence?: import('./domain/run-store.js').DispatchFence | undefined
 }) => Promise<{
   runId: string
   sessionId: string
@@ -248,27 +250,6 @@ export type AcpHrcClient = Pick<
     request: HrcActiveRunContributionRequest
   ): Promise<HrcActiveRunContributionResponse>
   getActiveRunContribution(inputApplicationId: string): Promise<HrcActiveRunContributionResponse>
-  /**
-   * T-10850 operator restart (`POST /v1/sessions/restart`). Optional until the
-   * hrc-sdk pin carries it; absent, the mobile restart route answers 501.
-   */
-  restartSession?(request: {
-    hostSessionId: string
-    expectedGeneration: number
-    /** T-10942: only the mobile "Force new session" sends it. */
-    force?: boolean
-    /** T-13968: per-restart summon directives; the successor keeps them. */
-    provision?: { model?: string }
-  }): Promise<{
-    priorHostSessionId: string
-    hostSessionId: string
-    generation: number
-    launch:
-      | { status: 'started'; runtimeId: string }
-      | { status: 'failed'; code?: string | undefined; message: string }
-    /** T-13968: the successor intent's directive block; absent when it has none. */
-    summonDirectives?: { model?: string; reasoning_effort?: string } | undefined
-  }>
 }
 
 export type HrcAgentSources = {
@@ -277,6 +258,7 @@ export type HrcAgentSources = {
 }
 
 export interface AcpServerDeps {
+  seatRestartCall?: SeatRestartCall | undefined
   commitBus?: StoreCommitBus | undefined
   // The four acp-core store ports, served by the @wrkq/client-backed adapter
   // (wrkq-lib createWrkqStoreAdapter). Optional: when wrkf is disabled

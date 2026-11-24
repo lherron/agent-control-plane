@@ -199,6 +199,14 @@ export class InputQueueRepo {
     return row === undefined ? undefined : mapRow(row)
   }
 
+  listQueuedForContextExpiry(): readonly InputQueueItem[] {
+    const rows = this.context.sqlite
+      .prepare(`${INPUT_QUEUE_SELECT_SQL}
+          WHERE status = 'queued' AND reset_policy <> 'follow_latest'`)
+      .all() as InputQueueRow[]
+    return rows.map(mapRow)
+  }
+
   listForSession(scopeRef: string, laneRef: string): readonly InputQueueItem[] {
     const rows = this.context.sqlite
       .prepare(

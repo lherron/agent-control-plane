@@ -70,6 +70,7 @@ export interface InputQueueStore {
   listDispatchable(limit?: number): readonly InputQueueItem[]
   listDispatchableSessionHeads(limit?: number): readonly InputQueueItem[]
   listForSession(scopeRef: string, laneRef: string): readonly InputQueueItem[]
+  listQueuedForContextExpiry(): readonly InputQueueItem[]
   update(queueItemId: string, patch: InputQueueUpdateInput): InputQueueItem
 }
 
@@ -266,6 +267,12 @@ export class InMemoryInputQueueStore implements InputQueueStore {
           : left.scopeRef.localeCompare(right.scopeRef)
       )
       .slice(0, limit)
+  }
+
+  listQueuedForContextExpiry(): readonly InputQueueItem[] {
+    return this.listAll().filter(
+      (item) => item.status === 'queued' && item.resetPolicy !== 'follow_latest'
+    )
   }
 
   listForSession(scopeRef: string, laneRef: string): readonly InputQueueItem[] {

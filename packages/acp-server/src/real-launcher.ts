@@ -1,4 +1,4 @@
-import { HrcConflictError } from 'hrc-core'
+import { HrcConflictError, HrcErrorCode } from 'hrc-core'
 import { HrcClient, discoverSocket } from 'hrc-sdk'
 import type { InputAttemptStore, LaunchRoleScopedRun, RunStore } from './deps.js'
 import type { DispatchFence, UpdateRunInput } from './domain/run-store.js'
@@ -85,6 +85,7 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
     runStore,
     onEvent,
     waitForCompletion,
+    queueFence,
   }) => {
     const client = createClient(socketPath)
     const liveTmuxRuntime = await findLiveTmuxRuntimeForSessionRef(hrc, sessionRef)
@@ -122,30 +123,29 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
         authority: options.jobFirstBirthAuthority,
       }),
     })
-    if (placement === 'job-first-birth') {
+    if (placement === 'job-first-birth' && queueFence === undefined) {
       await client.ensureTarget({
         sessionRef: toHrcSessionRef(sessionRef),
         runtimeIntent: normalizedIntent,
       })
     }
 
+    // Broker cutover (T-01691): create:true mints the host session for a fresh
+    // scope (cold-launch). dispatchTurn below then provisions the runtime via
+    // the broker on this first turn — mirroring the `hrc run` CLI cold-start.
+    const resolved = await client.resolveSession({
+      sessionRef: toHrcSessionRef(sessionRef),
+      runtimeIntent: normalizedIntent,
+      create: queueFence === undefined,
+    })
+    if (!resolved.found) {
+      if (queueFence !== undefined)
+        throw new HrcConflictError(HrcErrorCode.STALE_CONTEXT, 'queued session is no longer active')
+      throw new Error(
+        `HRC could not resolve or provision a session for ${toHrcSessionRef(sessionRef)}`
+      )
+    }
     if (!prompt) {
-      // Broker cutover (T-01691): HRC retired the headless cold-start path.
-      // A fresh scope has no host session, so resolveSession without create
-      // returns found:false / hostSessionId:null. Passing create:true makes
-      // HRC mint the host session; the runtime is provisioned by the broker on
-      // the first dispatch turn (there is none here — no prompt — so this only
-      // ensures continuity exists).
-      const resolved = await client.resolveSession({
-        sessionRef: toHrcSessionRef(sessionRef),
-        runtimeIntent: normalizedIntent,
-        create: true,
-      })
-      if (!resolved.found) {
-        throw new Error(
-          `HRC could not resolve or provision a session for ${toHrcSessionRef(sessionRef)}`
-        )
-      }
       updateAcpRun(runStore, acpRunId, {
         hostSessionId: resolved.hostSessionId,
         generation: resolved.generation,
@@ -165,25 +165,14 @@ export function createRealLauncher(options: RealLauncherOptions = {}): LaunchRol
       }
     }
 
-    // Broker cutover (T-01691): create:true mints the host session for a fresh
-    // scope (cold-launch). dispatchTurn below then provisions the runtime via
-    // the broker on this first turn — mirroring the `hrc run` CLI cold-start.
-    const resolved = await client.resolveSession({
-      sessionRef: toHrcSessionRef(sessionRef),
-      runtimeIntent: normalizedIntent,
-      create: true,
-    })
-    if (!resolved.found) {
-      throw new Error(
-        `HRC could not resolve or provision a session for ${toHrcSessionRef(sessionRef)}`
-      )
-    }
-    const dispatchFence = resolveDispatchFence({
-      acpRunId,
-      runStore,
-      hostSessionId: resolved.hostSessionId,
-      generation: resolved.generation,
-    })
+    const dispatchFence =
+      queueFence ??
+      resolveDispatchFence({
+        acpRunId,
+        runStore,
+        hostSessionId: resolved.hostSessionId,
+        generation: resolved.generation,
+      })
 
     updateAcpRun(runStore, acpRunId, {
       hostSessionId: resolved.hostSessionId,

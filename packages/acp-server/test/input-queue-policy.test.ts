@@ -127,6 +127,11 @@ describe('input queue policy', () => {
               found: true,
               hostSessionId: 'hsid-pin',
               generation: 4,
+              session: {
+                hostSessionId: 'hsid-pin',
+                generation: 4,
+                createdAt: new Date().toISOString(),
+              },
             }),
           } as never,
           inputAdmissionStore: stores.inputAdmissionStore,

@@ -1,27 +1,19 @@
+import { randomUUID } from 'node:crypto'
 import { badRequest, json } from '../http.js'
-import { expireQueuedInput, isPendingQueueItem } from '../input-admission/expire-queued-input.js'
 import { parseJsonBody, requireRecord } from '../parsers/body.js'
 
-import type { AcpHrcClient } from '../deps.js'
-import type { RouteContext, RouteHandler } from '../routing/route-context.js'
-
-/**
- * T-10850 — `POST /v1/mobile/sessions/:hostSessionId/restart` (ADR hrc-ios
- * architecture/adr/2026-10-14-semantic-session-restart.md).
- *
- * HRCMac's restart hotkey: end the leaf's conversation and relaunch the same
- * scope fresh. HRC decides first; every HRC refusal passes through and ACP
- * mutates nothing. Only after HRC commits does ACP expire the input composed
- * for the dropped context: items fenced to the prior host session, plus
- * unfenced items queued before this request arrived. Input fenced to the
- * successor, or arriving after the request, is never touched. This route
- * never forces (Lance, 2026-10-14); the only mobile force is the explicit
- * "Force new session" on create (T-10942, mobile-force-primary.ts).
- */
+import type { RouteHandler } from '../routing/route-context.js'
+import { callSeatRestart, requestSeatRestart } from '../seat-restart-client.js'
 
 const MOBILE_CODES: Record<string, { code: string; status: number }> = {
   runtime_busy: { code: 'session_busy', status: 409 },
   seat_unobservable: { code: 'seat_unobservable', status: 409 },
+  model_not_preserved: { code: 'model_not_preserved', status: 409 },
+  idempotency_key_conflict: { code: 'idempotency_key_conflict', status: 409 },
+  session_scope_occupied: { code: 'session_scope_occupied', status: 409 },
+  roster_claim_superseded: { code: 'roster_claim_superseded', status: 409 },
+  remote_scope_unsupported: { code: 'remote_scope_unsupported', status: 422 },
+  not_authorized: { code: 'not_authorized', status: 403 },
   stale_context: { code: 'stale_context', status: 409 },
   missing_runtime_intent: { code: 'not_restartable', status: 422 },
 }
@@ -65,27 +57,6 @@ function refusal(error: unknown): Response {
   return json(refused.body, refused.status)
 }
 
-/**
- * After HRC commits a restart, expire the input composed for the dropped
- * context: items fenced to the prior host, plus unfenced items queued before
- * the request arrived. `follow_latest`, successor-fenced and later input survive.
- */
-export function expireInputComposedForDroppedContext(
-  deps: RouteContext['deps'],
-  input: { scopeRef: string; laneRef: string; priorHostSessionId: string; receivedAt: string }
-): void {
-  for (const item of deps.inputQueueStore.listForSession(input.scopeRef, input.laneRef)) {
-    if (item.resetPolicy === 'follow_latest' || !isPendingQueueItem(item)) continue
-    const composedForDropped =
-      item.expectedHostSessionId === undefined
-        ? item.createdAt < input.receivedAt
-        : item.expectedHostSessionId === input.priorHostSessionId
-    if (composedForDropped) {
-      expireQueuedInput(deps, item, 'queued input expired because the session was restarted')
-    }
-  }
-}
-
 function parseFences(body: Record<string, unknown>, hostSessionId: string): number {
   const fences = body['fences']
   if (fences === null || typeof fences !== 'object' || Array.isArray(fences)) {
@@ -106,39 +77,38 @@ function parseFences(body: Record<string, unknown>, hostSessionId: string): numb
 }
 
 export const handleMobileRestart: RouteHandler = async ({ deps, request, params }) => {
-  const hrcClient = deps.hrcClient as AcpHrcClient | undefined
+  const { hrcClient } = deps
   if (hrcClient === undefined) badRequest('hrcClient not configured')
   const hostSessionId = params['hostSessionId']?.trim() ?? ''
   if (hostSessionId === '') badRequest('hostSessionId path segment is required')
   const expectedGeneration = parseFences(requireRecord(await parseJsonBody(request)), hostSessionId)
-  const receivedAt = new Date().toISOString()
-
-  if (hrcClient.restartSession === undefined) {
-    return json(
-      {
-        ok: false,
-        code: 'restart_unsupported',
-        message: 'this ACP build predates HRC session restart',
-      },
-      501
-    )
-  }
-
-  let session: Awaited<ReturnType<AcpHrcClient['getSession']>>
-  let restarted: Awaited<ReturnType<NonNullable<AcpHrcClient['restartSession']>>>
   try {
-    session = await hrcClient.getSession(hostSessionId)
-    restarted = await hrcClient.restartSession({ hostSessionId, expectedGeneration })
+    const session = await hrcClient.getSession(hostSessionId)
+    const target = {
+      seat: `${session.scopeRef}/lane:${session.laneRef.replace(/^lane:/, '') || 'main'}`,
+      idempotencyKey: randomUUID(),
+    }
+    const result = await requestSeatRestart(
+      deps.seatRestartCall ?? callSeatRestart,
+      'seat-restart.cold',
+      { ...target, when: 'now', expectedHostSessionId: hostSessionId, expectedGeneration },
+      { ...target, reconcile: true }
+    )
+    if (result.outcome !== 'restarted') {
+      return json(
+        { ok: false, code: 'restart_failed', message: 'HRC did not confirm the restart' },
+        502
+      )
+    }
+    return json({
+      ok: true,
+      priorHostSessionId: result.priorHostSessionId,
+      hostSessionId: result.hostSessionId,
+      generation: result.generation,
+      launch: result.launch,
+      summonDirectives: result.summonDirectives,
+    })
   } catch (error) {
     return refusal(error)
   }
-
-  expireInputComposedForDroppedContext(deps, {
-    scopeRef: session.scopeRef,
-    laneRef: session.laneRef,
-    priorHostSessionId: restarted.priorHostSessionId,
-    receivedAt,
-  })
-
-  return json({ ok: true, ...restarted })
 }

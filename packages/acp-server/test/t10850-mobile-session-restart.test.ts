@@ -1,16 +1,6 @@
-/**
- * T-10850 — `POST /v1/mobile/sessions/:hostSessionId/restart` (ADR hrc-ios
- * architecture/adr/2026-10-14-semantic-session-restart.md).
- *
- * Failure modes this guards:
- *  - ACP expires queued input on a refusal (F2: a refusal must change nothing)
- *  - the post-commit expiry cancels input composed for the successor
- *  - the HRC refusal codes collapse into one opaque failure the leaf can't act on
- *  - a missing generation fence restarts whatever generation is current now
- */
 import { describe, expect, test } from 'bun:test'
 
-import type { HrcSessionRecord } from 'hrc-core'
+import type { HrcLifecycleEvent, HrcSessionRecord } from 'hrc-core'
 
 import {
   type AcpHrcClient,
@@ -18,6 +8,11 @@ import {
   InMemoryInputQueueStore,
   InMemoryRunStore,
 } from '../src/index.js'
+import {
+  expireInputOnGenerationBump,
+  reconcileQueuedInputContexts,
+} from '../src/input-admission/expire-queued-input.js'
+import { type SeatRestartCall, SeatRestartRefusal } from '../src/seat-restart-client.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 const NOW = '2026-10-14T12:00:00.000Z'
@@ -35,32 +30,26 @@ const SESSION: HrcSessionRecord = {
   updatedAt: NOW,
 }
 
-type RestartCall = { hostSessionId: string; expectedGeneration: number }
+type RestartCall = { op: string; args: Record<string, unknown> }
 
-function hrcError(code: string, message: string, detail: Record<string, unknown> = {}) {
-  return Object.assign(new Error(message), { code, detail })
+function makeHrcClient(): AcpHrcClient {
+  return { getSession: async () => SESSION } as unknown as AcpHrcClient
 }
 
-function makeHrcClient(input: {
-  calls: RestartCall[]
-  refuse?: Error | undefined
-}): AcpHrcClient {
-  return {
-    getSession: async (hostSessionId: string) => {
-      if (hostSessionId !== PRIOR) throw hrcError('unknown_session', 'unknown session')
-      return SESSION
-    },
-    restartSession: async (request: RestartCall) => {
-      input.calls.push(request)
-      if (input.refuse !== undefined) throw input.refuse
-      return {
-        priorHostSessionId: PRIOR,
-        hostSessionId: SUCCESSOR,
-        generation: 4,
-        launch: { status: 'started', runtimeId: 'rt-successor' },
-      }
-    },
-  } as unknown as AcpHrcClient
+function seatRestartCall(calls: RestartCall[], refusal?: SeatRestartRefusal): SeatRestartCall {
+  return async (op, args) => {
+    calls.push({ op, args })
+    if (refusal !== undefined) throw refusal
+    return {
+      outcome: 'restarted',
+      scopeRef: SCOPE,
+      sessionRef: `${SCOPE}/lane:main`,
+      priorHostSessionId: PRIOR,
+      hostSessionId: SUCCESSOR,
+      generation: 4,
+      launch: { status: 'started', runtimeId: 'rt-successor' },
+    }
+  }
 }
 
 type Stores = {
@@ -118,7 +107,7 @@ function seedQueue(s: Stores) {
 }
 
 async function restart(
-  hrcClient: AcpHrcClient,
+  call: SeatRestartCall,
   s: Stores,
   body: Record<string, unknown>
 ): Promise<{ status: number; body: Record<string, unknown> }> {
@@ -131,17 +120,17 @@ async function restart(
       })
       return { status: response.status, body: await json<Record<string, unknown>>(response) }
     },
-    { hrcClient, ...s }
+    { hrcClient: makeHrcClient(), seatRestartCall: call, ...s }
   )
 }
 
 describe('POST /v1/mobile/sessions/:hostSessionId/restart', () => {
-  test('restarts with the fence and expires only input composed for the dropped context', async () => {
+  test('passes both phone fences to cold restart', async () => {
     const calls: RestartCall[] = []
     const store = stores()
     const items = seedQueue(store)
 
-    const result = await restart(makeHrcClient({ calls }), store, {
+    const result = await restart(seatRestartCall(calls), store, {
       fences: { expectedGeneration: 3 },
     })
 
@@ -153,12 +142,49 @@ describe('POST /v1/mobile/sessions/:hostSessionId/restart', () => {
       generation: 4,
       launch: { status: 'started', runtimeId: 'rt-successor' },
     })
-    expect(calls).toEqual([{ hostSessionId: PRIOR, expectedGeneration: 3 }])
-    expect(store.inputQueueStore.getById(items.prior.queueItemId)?.status).toBe('expired')
-    expect(store.inputQueueStore.getById(items.unfenced.queueItemId)?.status).toBe('expired')
-    expect(store.inputQueueStore.getById(items.successor.queueItemId)?.status).toBe('queued')
-    expect(store.inputQueueStore.getById(items.followLatest.queueItemId)?.status).toBe('queued')
+    expect(calls).toEqual([
+      {
+        op: 'seat-restart.cold',
+        args: {
+          seat: `${SCOPE}/lane:main`,
+          idempotencyKey: expect.any(String),
+          when: 'now',
+          expectedHostSessionId: PRIOR,
+          expectedGeneration: 3,
+        },
+      },
+    ])
+    for (const item of Object.values(items)) {
+      expect(store.inputQueueStore.getById(item.queueItemId)?.status).toBe('queued')
+    }
   })
+
+  test.each(['event', 'reconcile'])(
+    'expires old input on generation observation via %s',
+    async (source) => {
+      const store = stores()
+      const items = seedQueue(store)
+      const bump = new Date(Date.now() + 1000).toISOString()
+      const head = { ...SESSION, hostSessionId: SUCCESSOR, generation: 4, createdAt: bump }
+      if (source === 'event') {
+        expireInputOnGenerationBump(store, {
+          ...head,
+          laneRef: 'lane:main',
+          ts: bump,
+          eventKind: 'session.created',
+        } as HrcLifecycleEvent)
+      } else {
+        const hrc = {
+          resolveSession: async () => ({ found: true, session: head }),
+        } as unknown as AcpHrcClient
+        await reconcileQueuedInputContexts(store, hrc, new AbortController().signal)
+      }
+      expect(store.inputQueueStore.getById(items.prior.queueItemId)?.status).toBe('expired')
+      expect(store.inputQueueStore.getById(items.unfenced.queueItemId)?.status).toBe('expired')
+      expect(store.inputQueueStore.getById(items.successor.queueItemId)?.status).toBe('queued')
+      expect(store.inputQueueStore.getById(items.followLatest.queueItemId)?.status).toBe('queued')
+    }
+  )
 
   for (const [hrcCode, mobileCode, status] of [
     ['runtime_busy', 'session_busy', 409],
@@ -173,7 +199,7 @@ describe('POST /v1/mobile/sessions/:hostSessionId/restart', () => {
       const detail = { activeHostSessionId: SUCCESSOR, activeGeneration: 4 }
 
       const result = await restart(
-        makeHrcClient({ calls, refuse: hrcError(hrcCode, `refused: ${hrcCode}`, detail) }),
+        seatRestartCall(calls, new SeatRestartRefusal(hrcCode, `refused: ${hrcCode}`, detail)),
         store,
         { fences: { expectedGeneration: 3 } }
       )
@@ -190,12 +216,12 @@ describe('POST /v1/mobile/sessions/:hostSessionId/restart', () => {
 
   test('maps a participant refusal to not_restartable', async () => {
     const result = await restart(
-      makeHrcClient({
-        calls: [],
-        refuse: hrcError('runtime_unavailable', 'participant', {
+      seatRestartCall(
+        [],
+        new SeatRestartRefusal('runtime_unavailable', 'participant', {
           reason: 'participant_rotation_unsupported',
-        }),
-      }),
+        })
+      ),
       stores(),
       { fences: { expectedGeneration: 3 } }
     )
@@ -206,7 +232,7 @@ describe('POST /v1/mobile/sessions/:hostSessionId/restart', () => {
 
   test('a restart without fences.expectedGeneration is refused 400 before HRC is called', async () => {
     const calls: RestartCall[] = []
-    const result = await restart(makeHrcClient({ calls }), stores(), {
+    const result = await restart(seatRestartCall(calls), stores(), {
       fences: {},
     })
 

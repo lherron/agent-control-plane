@@ -33,9 +33,13 @@ export async function admitNewWork(
     scopeRef: input.sessionRef.scopeRef,
     laneRef: input.sessionRef.laneRef,
   })
-  const busy = isSessionBusy(deps, input.sessionRef)
   const resetPolicy = intent.resetPolicy ?? 'follow_latest'
   const activeRunForQueue = findTargetActiveRun(deps, input.sessionRef)
+  const queueFence =
+    resetPolicy === 'follow_latest'
+      ? {}
+      : await queueFenceFromResetPolicy(deps, input.sessionRef, resetPolicy, activeRunForQueue)
+  const busy = isSessionBusy(deps, input.sessionRef)
   if (busy && queueDepthExceeded(deps, input.sessionRef.scopeRef, input.sessionRef.laneRef)) {
     return records.createRejectedAdmission({
       attempt,
@@ -77,7 +81,7 @@ export async function admitNewWork(
       laneRef: input.sessionRef.laneRef,
       seq,
       resetPolicy,
-      ...queueFenceFromResetPolicy(resetPolicy, activeRunForQueue),
+      ...queueFence,
     })
     const currentState = { queueStatus: queueItem.status, seq }
     const admission = deps.inputAdmissionStore.create({
@@ -266,7 +270,7 @@ export async function admitNewWork(
       laneRef: input.sessionRef.laneRef,
       seq,
       resetPolicy,
-      ...queueFenceFromResetPolicy(resetPolicy, activeRunForQueue),
+      ...queueFence,
       notBeforeAt: new Date(Date.now() + RUNTIME_BUSY_REQUEUE_DELAY_MS).toISOString(),
     })
     const updatedAdmission = deps.inputAdmissionStore.update(attempt.inputAttempt.inputAttemptId, {

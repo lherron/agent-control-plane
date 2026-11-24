@@ -6,6 +6,7 @@ import type {
   InputQueueStatus,
 } from 'acp-core'
 import { normalizeSessionRef } from 'agent-scope'
+import { HrcDomainError } from 'hrc-core'
 import type { StoreCommitBus } from '../store-commit-bus.js'
 import { createStoreScanLoop } from './store-scan-loop.js'
 
@@ -16,6 +17,10 @@ import {
   admissionStatusForQueueStatus,
   admissionStatusForRunStatus,
 } from '../input-admission/admission-status.js'
+import {
+  expireQueuedInput,
+  isInputComposedForDroppedContext,
+} from '../input-admission/expire-queued-input.js'
 import { recordInputAdmissionEvent } from '../input-admission/input-admission-events.js'
 import {
   RUNTIME_BUSY_REQUEUE_DELAY_MS,
@@ -455,28 +460,6 @@ function queueItemExpiredByTtl(deps: InputQueueDispatcherDeps, item: InputQueueI
   return Date.now() - new Date(item.createdAt).getTime() > ttlMs
 }
 
-async function queueItemExpiredByResetPolicy(
-  deps: InputQueueDispatcherDeps,
-  item: InputQueueItem
-): Promise<boolean> {
-  if (
-    item.resetPolicy === 'follow_latest' ||
-    (item.expectedHostSessionId === undefined && item.expectedGeneration === undefined) ||
-    deps.hrcClient === undefined
-  ) {
-    return false
-  }
-
-  const resolved = await deps.hrcClient.resolveSession({
-    sessionRef: `${item.scopeRef}/lane:${item.laneRef}`,
-  })
-  return (
-    (item.expectedHostSessionId !== undefined &&
-      resolved.hostSessionId !== item.expectedHostSessionId) ||
-    (item.expectedGeneration !== undefined && resolved.generation !== item.expectedGeneration)
-  )
-}
-
 function expireQueueItem(
   deps: InputQueueDispatcherDeps,
   item: InputQueueItem,
@@ -516,9 +499,40 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
       expireQueueItem(deps, item, 'input_queue_ttl_expired')
       return
     }
-    if (await queueItemExpiredByResetPolicy(deps, item)) {
-      expireQueueItem(deps, item, 'reset_policy')
-      return
+    const composedFence = {
+      expectedHostSessionId: item.expectedHostSessionId,
+      expectedGeneration: item.expectedGeneration,
+    }
+    let queueFence = composedFence
+    if (item.resetPolicy !== 'follow_latest' && deps.hrcClient !== undefined) {
+      const current = await deps.hrcClient.resolveSession({
+        sessionRef: `${item.scopeRef}/lane:${item.laneRef}`,
+      })
+      if (deps.inputQueueStore.getById(item.queueItemId)?.status !== 'queued') return
+      if (current.found) {
+        if (isInputComposedForDroppedContext(item, current.session)) {
+          expireQueuedInput(
+            deps,
+            item,
+            'queued input expired because the session generation changed'
+          )
+          return
+        }
+        queueFence = {
+          expectedHostSessionId: composedFence.expectedHostSessionId ?? current.hostSessionId,
+          expectedGeneration: composedFence.expectedGeneration ?? current.generation,
+        }
+      } else if (
+        composedFence.expectedHostSessionId !== undefined ||
+        composedFence.expectedGeneration !== undefined
+      ) {
+        expireQueuedInput(
+          deps,
+          item,
+          'queued input expired because the session is no longer active'
+        )
+        return
+      }
     }
 
     let head = deps.inputQueueStore.getHead(item.scopeRef, item.laneRef)
@@ -598,6 +612,11 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
         inputAttemptId: item.inputAttemptId,
         runStore: deps.runStore,
         waitForCompletion: false,
+        ...(item.resetPolicy !== 'follow_latest' &&
+        (queueFence.expectedGeneration !== undefined ||
+          queueFence.expectedHostSessionId !== undefined)
+          ? { queueFence }
+          : {}),
       })
       const launchedRun = deps.runStore.getRun(item.runId) ?? pendingRun
       const runningQueueItem = deps.inputQueueStore.update(leased.queueItemId, {
@@ -621,6 +640,14 @@ export function createInputQueueDispatcher(deps: InputQueueDispatcherDeps): Inpu
         queueItem: runningQueueItem,
       })
     } catch (error) {
+      if (
+        item.resetPolicy !== 'follow_latest' &&
+        error instanceof HrcDomainError &&
+        error.code === 'stale_context'
+      ) {
+        expireQueuedInput(deps, item, 'queued input expired because the session generation changed')
+        return
+      }
       if (isRuntimeBusyError(error)) {
         deps.runStore.updateRun(item.runId, {
           status: 'queued',
