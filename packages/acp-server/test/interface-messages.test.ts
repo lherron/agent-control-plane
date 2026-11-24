@@ -1,369 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { createInMemoryAdminStore } from 'acp-admin-store'
 import type { HrcRuntimeIntent } from 'hrc-core'
-import type { CollaborationLedger, CollaborationSayInput } from 'wrkq-lib'
 
+import {
+  bindDiscordConversation,
+  postDiscordMessage,
+  resolveCurlyRuntime,
+} from './fixtures/discord-interface-message.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 describe('POST /v1/interface/messages', () => {
-  test('records Discord ingress as an exact-principal ledger-only human say', async () => {
-    const principals: string[] = []
-    const says: CollaborationSayInput[] = []
-    let launchCalls = 0
-    const ledger: CollaborationLedger = {
-      async listMessagesByMember() {
-        return { messages: [] }
-      },
-      async listMessagesByRoom() {
-        return { messages: [] }
-      },
-      async say(input) {
-        says.push(input)
-        return { roomKey: input.ref, groupId: 'EN-00001', envelopes: [] }
-      },
-    }
-
-    await withWiredServer(
-      async (fixture) => {
-        fixture.interfaceStore.bindings.create({
-          bindingId: 'ifb_ledger',
-          gatewayId: 'discord_prod',
-          conversationRef: 'channel:ledger',
-          scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-          laneRef: 'main',
-          projectId: fixture.seed.projectId,
-          status: 'active',
-          createdAt: '2026-08-27T17:00:00.000Z',
-          updatedAt: '2026-08-27T17:00:00.000Z',
-        })
-
-        const response = await fixture.request({
-          method: 'POST',
-          path: '/v1/interface/messages',
-          body: {
-            idempotencyKey: 'discord:message:ledger-1',
-            source: {
-              gatewayId: 'discord_prod',
-              conversationRef: 'channel:ledger',
-              messageRef: 'discord:message:ledger-1',
-              authorRef: 'discord:user:lance',
-            },
-            content: 'Render this from the collaboration room.',
-          },
-        })
-
-        expect(response.status).toBe(201)
-        expect(principals).toEqual(['agent:lance'])
-        expect(says).toEqual([
-          {
-            ref: `curly@${fixture.seed.projectId}`,
-            to: [`curly@${fixture.seed.projectId}`],
-            body: 'Render this from the collaboration room.',
-            idempotencyKey: 'interface:discord_prod:discord:message:ledger-1',
-          },
-        ])
-        expect(launchCalls).toBe(0)
-      },
-      {
-        collaborationLedgerForPrincipal: async (principalRef) => {
-          principals.push(principalRef)
-          return ledger
-        },
-        runtimeResolver: async () => ({
-          agentRoot: '/tmp/agents/curly',
-          projectRoot: '/tmp/project',
-          cwd: '/tmp/project',
-          runMode: 'task',
-          bundle: { kind: 'compose', compose: [] },
-          harness: { provider: 'openai', interactive: true },
-        }),
-        launchRoleScopedRun: async () => {
-          launchCalls += 1
-          return { runId: 'launch-ledger', sessionId: 'session-ledger' }
-        },
-      }
-    )
-  })
-
-  test('spools Discord attachments before minting the ledger envelope body', async () => {
-    const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-interface-ledger-media-'))
-    const says: CollaborationSayInput[] = []
-    const ledger: CollaborationLedger = {
-      async listMessagesByMember() {
-        return { messages: [] }
-      },
-      async listMessagesByRoom() {
-        return { messages: [] }
-      },
-      async say(input) {
-        says.push(input)
-        return { roomKey: input.ref, groupId: 'EN-07794', envelopes: [] }
-      },
-    }
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          fixture.interfaceStore.bindings.create({
-            bindingId: 'ifb_ledger_attachment',
-            gatewayId: 'discord_prod',
-            conversationRef: 'channel:ledger-attachment',
-            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-            projectId: fixture.seed.projectId,
-            status: 'active',
-            createdAt: '2026-08-31T14:48:00.000Z',
-            updatedAt: '2026-08-31T14:48:00.000Z',
-          })
-
-          const sourceUrl =
-            'https://cdn.discordapp.com/attachments/1165715502807658557/1543995780166066348/cody.png?ex=6a96e5a0&is=6a959420&hm=fixture&'
-          const response = await fixture.request({
-            method: 'POST',
-            path: '/v1/interface/messages',
-            body: {
-              source: {
-                gatewayId: 'discord_prod',
-                conversationRef: 'channel:ledger-attachment',
-                messageRef: 'discord:message:1543995780468047953',
-                authorRef: 'discord:user:1165644636807778414',
-              },
-              content: 'What is in this image?',
-              attachments: [
-                {
-                  kind: 'url',
-                  url: sourceUrl,
-                  filename: 'cody.png',
-                  contentType: 'image/png',
-                  sizeBytes: 1592152,
-                },
-              ],
-            },
-          })
-
-          expect(response.status).toBe(201)
-          expect(says).toHaveLength(1)
-          expect(says[0]?.body).not.toContain(sourceUrl)
-          const localPath = says[0]?.body.match(/^Attachment: (.+) \(image\/png,/m)?.[1]
-          expect(localPath).toContain(
-            join(mediaStateDir, 'media', 'attachments', '1543995780468047953', 'cody.png')
-          )
-          expect(says[0]?.body).toBe(
-            `What is in this image?\n\nAttachment: ${localPath} (image/png, discord message 1543995780468047953)`
-          )
-          expect(readFileSync(String(localPath), 'utf8')).toBe('fixture-image-bytes')
-        },
-        {
-          mediaStateDir,
-          attachmentFetchImpl: async () =>
-            new Response('fixture-image-bytes', {
-              headers: { 'content-type': 'image/png', 'content-length': '19' },
-            }),
-          collaborationLedgerForPrincipal: async () => ledger,
-        }
-      )
-    } finally {
-      rmSync(mediaStateDir, { recursive: true, force: true })
-    }
-  })
-
-  test('announces a spooled Discord attachment at a URL a seat on another node can fetch (T-12176)', async () => {
-    const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-interface-ledger-remote-'))
-    const says: CollaborationSayInput[] = []
-    const ledger: CollaborationLedger = {
-      async listMessagesByMember() {
-        return { messages: [] }
-      },
-      async listMessagesByRoom() {
-        return { messages: [] }
-      },
-      async say(input) {
-        says.push(input)
-        return { roomKey: input.ref, groupId: 'EN-12176', envelopes: [] }
-      },
-    }
-    // Files a traversal would reach if the route trusted its params.
-    mkdirSync(join(mediaStateDir, 'media', 'attachments', '9001'), { recursive: true })
-    writeFileSync(join(mediaStateDir, 'media', 'secret.txt'), 'OUTSIDE-SPOOL')
-    writeFileSync(join(mediaStateDir, 'media', 'attachments', '9001', '.hidden'), 'HIDDEN')
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          fixture.interfaceStore.bindings.create({
-            bindingId: 'ifb_ledger_remote',
-            gatewayId: 'discord_prod',
-            conversationRef: 'channel:ledger-remote',
-            scopeRef: `agent:smokey:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-            projectId: fixture.seed.projectId,
-            status: 'active',
-            createdAt: '2026-10-31T12:00:00.000Z',
-            updatedAt: '2026-10-31T12:00:00.000Z',
-          })
-
-          const response = await fixture.request({
-            method: 'POST',
-            path: '/v1/interface/messages',
-            body: {
-              source: {
-                gatewayId: 'discord_prod',
-                conversationRef: 'channel:ledger-remote',
-                messageRef: 'discord:message:9001',
-                authorRef: 'discord:user:lance',
-              },
-              content: 'Quote the marker line.',
-              attachments: [
-                {
-                  kind: 'url',
-                  url: 'https://cdn.discordapp.com/attachments/1/2/notes.txt?ex=1',
-                  filename: 'notes.txt',
-                  contentType: 'text/plain',
-                },
-              ],
-            },
-          })
-          expect(response.status).toBe(201)
-
-          const localPath = join(mediaStateDir, 'media', 'attachments', '9001', 'notes.txt')
-          const url = 'http://100.64.0.9:18470/v1/media/attachments/9001/notes.txt'
-          expect(says[0]?.body).toBe(
-            `Quote the marker line.\n\nAttachment: ${localPath} (text/plain, discord message 9001)\n  from another node: curl -fsS '${url}' -o "\${TMPDIR:-/tmp}/notes.txt"`
-          )
-
-          const fetched = await fixture.request({
-            method: 'GET',
-            path: '/v1/media/attachments/9001/notes.txt',
-          })
-          expect(fetched.status).toBe(200)
-          expect(fetched.headers.get('content-type')).toBe('text/plain')
-          expect(await fetched.text()).toBe('MARKER line one\n')
-
-          const missing = await fixture.request({
-            method: 'GET',
-            path: '/v1/media/attachments/9001/absent.txt',
-          })
-          expect(missing.status).toBe(404)
-
-          for (const path of [
-            '/v1/media/attachments/9001/..%2Fsecret.txt',
-            '/v1/media/attachments/9001/..%2F..%2Fsecret.txt',
-            '/v1/media/attachments/..%2F..%2Fmedia/secret.txt',
-            '/v1/media/attachments/%2E%2E/secret.txt',
-            '/v1/media/attachments/../secret.txt',
-            '/v1/media/attachments/9001/.hidden',
-            '/v1/media/attachments/.9001/notes.txt',
-          ]) {
-            const refused = await fixture.handler(new Request(`http://acp.test${path}`))
-            expect([400, 404]).toContain(refused.status)
-            const text = await refused.text()
-            expect(text).not.toContain('OUTSIDE-SPOOL')
-            expect(text).not.toContain('HIDDEN')
-          }
-        },
-        {
-          mediaStateDir,
-          attachmentBaseUrl: 'http://100.64.0.9:18470',
-          attachmentFetchImpl: async () =>
-            new Response('MARKER line one\n', { headers: { 'content-type': 'text/plain' } }),
-          collaborationLedgerForPrincipal: async () => ledger,
-        }
-      )
-    } finally {
-      rmSync(mediaStateDir, { recursive: true, force: true })
-    }
-  })
-
-  test('includes spooled attachment context in an active-run contribution', async () => {
-    const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-interface-contribution-media-'))
-    const contributions: Array<{ prompt?: string | undefined }> = []
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          fixture.interfaceStore.bindings.create({
-            bindingId: 'ifb_contribution_attachment',
-            gatewayId: 'discord_prod',
-            conversationRef: 'channel:contribution-attachment',
-            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-            projectId: fixture.seed.projectId,
-            status: 'active',
-            createdAt: '2026-08-31T14:48:00.000Z',
-            updatedAt: '2026-08-31T14:48:00.000Z',
-          })
-
-          const response = await fixture.request({
-            method: 'POST',
-            path: '/v1/interface/messages',
-            body: {
-              source: {
-                gatewayId: 'discord_prod',
-                conversationRef: 'channel:contribution-attachment',
-                messageRef: 'discord:message:contribution-attachment',
-                authorRef: 'discord:user:lance',
-              },
-              content: 'Use this image as more context.',
-              intent: {
-                kind: 'contribute_to_active_run',
-                fallback: 'reject',
-              },
-              attachments: [
-                {
-                  kind: 'url',
-                  url: 'https://cdn.discordapp.test/contribution.png',
-                  filename: 'contribution.png',
-                  contentType: 'image/png',
-                },
-              ],
-            },
-          })
-
-          expect(response.status).toBe(201)
-          expect(contributions).toHaveLength(1)
-          const prompt = contributions[0]?.prompt
-          expect(prompt).not.toContain('https://cdn.discordapp.test/contribution.png')
-          expect(prompt).toContain('Use this image as more context.')
-          expect(prompt).toContain(
-            `Attachment: ${join(
-              mediaStateDir,
-              'media',
-              'attachments',
-              'contribution-attachment',
-              'contribution.png'
-            )} (image/png, discord message contribution-attachment)`
-          )
-        },
-        {
-          mediaStateDir,
-          attachmentFetchImpl: async () =>
-            new Response('contribution-image', {
-              headers: { 'content-type': 'image/png', 'content-length': '18' },
-            }),
-          hrcClient: {
-            submitActiveRunContribution: async (request: { prompt?: string | undefined }) => {
-              contributions.push(request)
-              return {
-                status: 'accepted',
-                inputApplicationId: 'iap_attachment_contribution',
-                hostSessionId: 'hsid_attachment_contribution',
-                generation: 1,
-                runtimeId: 'rt_attachment_contribution',
-                runId: 'hrc_attachment_contribution',
-              }
-            },
-          } as never,
-        }
-      )
-    } finally {
-      rmSync(mediaStateDir, { recursive: true, force: true })
-    }
-  })
-
   test('uses the registered project root for project-scoped interface dispatch', async () => {
     const adminStore = createInMemoryAdminStore()
     const agentRoot = '/agents/rex'
@@ -396,19 +42,12 @@ describe('POST /v1/interface/messages', () => {
             updatedAt: '2026-05-05T00:00:00.000Z',
           })
 
-          const response = await fixture.request({
-            method: 'POST',
-            path: '/v1/interface/messages',
-            body: {
-              idempotencyKey: 'discord:message:placement',
-              source: {
-                gatewayId: 'discord_prod',
-                conversationRef: 'channel:1452036862813409310',
-                messageRef: 'discord:message:placement',
-                authorRef: 'discord:user:999',
-              },
-              content: 'placement smoke',
-            },
+          const response = await postDiscordMessage(fixture, {
+            conversationRef: 'channel:1452036862813409310',
+            messageRef: 'discord:message:placement',
+            authorRef: 'discord:user:999',
+            idempotencyKey: 'discord:message:placement',
+            content: 'placement smoke',
           })
 
           expect(response.status).toBe(201)
@@ -470,32 +109,19 @@ describe('POST /v1/interface/messages', () => {
 
     await withWiredServer(
       async (fixture) => {
-        fixture.interfaceStore.bindings.create({
+        bindDiscordConversation(fixture, {
           bindingId: 'ifb_123',
-          gatewayId: 'discord_prod',
           conversationRef: 'channel:123',
-          scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-          laneRef: 'main',
-          projectId: fixture.seed.projectId,
-          status: 'active',
-          createdAt: '2026-04-20T15:00:00.000Z',
-          updatedAt: '2026-04-20T15:00:00.000Z',
         })
 
-        const firstResponse = await fixture.request({
-          method: 'POST',
-          path: '/v1/interface/messages',
-          body: {
-            idempotencyKey: 'discord:message:123',
-            source: {
-              gatewayId: 'discord_prod',
-              conversationRef: 'channel:123',
-              messageRef: 'discord:message:123',
-              authorRef: 'discord:user:999',
-            },
-            content: 'Please summarize the status of T-01144.',
-          },
-        })
+        const message = {
+          conversationRef: 'channel:123',
+          messageRef: 'discord:message:123',
+          authorRef: 'discord:user:999',
+          idempotencyKey: 'discord:message:123',
+          content: 'Please summarize the status of T-01144.',
+        }
+        const firstResponse = await postDiscordMessage(fixture, message)
         const firstPayload = await fixture.json<{
           inputAttemptId: string
           runId: string
@@ -543,20 +169,7 @@ describe('POST /v1/interface/messages', () => {
           receivedAt: expect.any(String),
         })
 
-        const secondResponse = await fixture.request({
-          method: 'POST',
-          path: '/v1/interface/messages',
-          body: {
-            idempotencyKey: 'discord:message:123',
-            source: {
-              gatewayId: 'discord_prod',
-              conversationRef: 'channel:123',
-              messageRef: 'discord:message:123',
-              authorRef: 'discord:user:999',
-            },
-            content: 'Please summarize the status of T-01144.',
-          },
-        })
+        const secondResponse = await postDiscordMessage(fixture, message)
         const secondPayload = await fixture.json<{
           inputAttemptId: string
           runId: string
@@ -576,14 +189,7 @@ describe('POST /v1/interface/messages', () => {
         })
       },
       {
-        runtimeResolver: async () => ({
-          agentRoot: '/tmp/agents/curly',
-          projectRoot: '/tmp/project',
-          cwd: '/tmp/project',
-          runMode: 'task',
-          bundle: { kind: 'compose', compose: [] },
-          harness: { provider: 'openai', interactive: true },
-        }),
+        runtimeResolver: resolveCurlyRuntime,
         launchRoleScopedRun: async (input) => {
           launches.push(input)
           return { runId: 'launch-run-001', sessionId: 'session-001' }
@@ -595,31 +201,17 @@ describe('POST /v1/interface/messages', () => {
   test('returns hostSessionId and generation after launch resolves', async () => {
     await withWiredServer(
       async (fixture) => {
-        fixture.interfaceStore.bindings.create({
+        bindDiscordConversation(fixture, {
           bindingId: 'ifb_live_events',
-          gatewayId: 'discord_prod',
           conversationRef: 'channel:live-events',
-          scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-          laneRef: 'main',
-          projectId: fixture.seed.projectId,
-          status: 'active',
-          createdAt: '2026-04-20T15:00:00.000Z',
-          updatedAt: '2026-04-20T15:00:00.000Z',
         })
 
-        const response = await fixture.request({
-          method: 'POST',
-          path: '/v1/interface/messages',
-          body: {
-            idempotencyKey: 'discord:message:live-events',
-            source: {
-              gatewayId: 'discord_prod',
-              conversationRef: 'channel:live-events',
-              messageRef: 'discord:message:live-events',
-              authorRef: 'discord:user:999',
-            },
-            content: 'start live stream',
-          },
+        const response = await postDiscordMessage(fixture, {
+          conversationRef: 'channel:live-events',
+          messageRef: 'discord:message:live-events',
+          authorRef: 'discord:user:999',
+          idempotencyKey: 'discord:message:live-events',
+          content: 'start live stream',
         })
         const payload = await fixture.json<{
           inputAttemptId: string
@@ -635,14 +227,7 @@ describe('POST /v1/interface/messages', () => {
         expect(payload.generation).toBe(6)
       },
       {
-        runtimeResolver: async () => ({
-          agentRoot: '/tmp/agents/curly',
-          projectRoot: '/tmp/project',
-          cwd: '/tmp/project',
-          runMode: 'task',
-          bundle: { kind: 'compose', compose: [] },
-          harness: { provider: 'openai', interactive: true },
-        }),
+        runtimeResolver: resolveCurlyRuntime,
         launchRoleScopedRun: async ({ acpRunId, runStore }) => {
           if (acpRunId !== undefined && runStore !== undefined) {
             runStore.updateRun(acpRunId, {
@@ -666,336 +251,19 @@ describe('POST /v1/interface/messages', () => {
     )
   })
 
-  test('accepts attachment refs, preserves metadata, and threads them into launch intent', async () => {
-    const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-interface-media-'))
-    const launches: Array<{
-      sessionRef: { scopeRef: string; laneRef: string }
-      intent: {
-        initialPrompt?: string
-        attachments?: Array<Record<string, unknown>>
-      }
-    }> = []
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          fixture.interfaceStore.bindings.create({
-            bindingId: 'ifb_media',
-            gatewayId: 'discord_prod',
-            conversationRef: 'channel:media',
-            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-            projectId: fixture.seed.projectId,
-            status: 'active',
-            createdAt: '2026-04-20T15:00:00.000Z',
-            updatedAt: '2026-04-20T15:00:00.000Z',
-          })
-
-          const response = await fixture.request({
-            method: 'POST',
-            path: '/v1/interface/messages',
-            body: {
-              source: {
-                gatewayId: 'discord_prod',
-                conversationRef: 'channel:media',
-                messageRef: 'discord:message:media',
-                authorRef: 'discord:user:999',
-              },
-              content: '<media:image> (1 image)',
-              attachments: [
-                {
-                  kind: 'url',
-                  url: 'https://cdn.discordapp.test/image.png',
-                  filename: '../../bad image',
-                  contentType: 'image/png',
-                  sizeBytes: 12345,
-                },
-              ],
-            },
-          })
-          const payload = await fixture.json<{
-            inputAttemptId: string
-            runId: string
-          }>(response)
-
-          expect(response.status).toBe(201)
-          const run = fixture.runStore.getRun(payload.runId)
-          expect(run?.metadata).toMatchObject({
-            meta: {
-              attachments: [
-                {
-                  kind: 'url',
-                  url: 'https://cdn.discordapp.test/image.png',
-                  filename: '../../bad image',
-                  contentType: 'image/png',
-                  sizeBytes: 12345,
-                },
-              ],
-              resolvedAttachments: [
-                {
-                  kind: 'file',
-                  filename: 'bad_image.png',
-                  contentType: 'image/png',
-                  sizeBytes: 9,
-                },
-              ],
-            },
-          })
-          const resolved = (
-            (run?.metadata?.meta as Record<string, unknown>)?.['resolvedAttachments'] as Array<{
-              path: string
-            }>
-          )[0]
-          expect(resolved.path).toContain(join(mediaStateDir, 'media', 'attachments'))
-          expect(readFileSync(resolved.path, 'utf8')).toBe('png-bytes')
-          expect(launches).toHaveLength(1)
-          expect(launches[0]?.intent).toMatchObject({
-            initialPrompt: `<media:image> (1 image)\n\nAttachment: ${resolved.path} (image/png, discord message media)`,
-            attachments: [
-              {
-                kind: 'file',
-                path: resolved.path,
-                filename: 'bad_image.png',
-                contentType: 'image/png',
-                sizeBytes: 9,
-              },
-            ],
-          })
-        },
-        {
-          mediaStateDir,
-          attachmentFetchImpl: async () =>
-            new Response('png-bytes', {
-              headers: {
-                'content-type': 'image/png',
-                'content-length': '9',
-              },
-            }),
-          runtimeResolver: async () => ({
-            agentRoot: '/tmp/agents/curly',
-            projectRoot: '/tmp/project',
-            cwd: '/tmp/project',
-            runMode: 'task',
-            bundle: { kind: 'compose', compose: [] },
-            harness: { provider: 'openai', interactive: true },
-          }),
-          launchRoleScopedRun: async (input) => {
-            launches.push(input)
-            return { runId: 'launch-run-media', sessionId: 'session-media' }
-          },
-        }
-      )
-    } finally {
-      rmSync(mediaStateDir, { recursive: true, force: true })
-    }
-  })
-
-  test('validates file attachments and drops failed attachments without blocking launch', async () => {
-    const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-interface-files-'))
-    const existingPath = join(mediaStateDir, 'local image.png')
-    writeFileSync(existingPath, 'local-bytes')
-    const launches: Array<{
-      intent: {
-        initialPrompt?: string
-        attachments?: Array<Record<string, unknown>>
-      }
-    }> = []
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          fixture.interfaceStore.bindings.create({
-            bindingId: 'ifb_files',
-            gatewayId: 'discord_prod',
-            conversationRef: 'channel:files',
-            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-            projectId: fixture.seed.projectId,
-            status: 'active',
-            createdAt: '2026-04-20T15:00:00.000Z',
-            updatedAt: '2026-04-20T15:00:00.000Z',
-          })
-
-          const response = await fixture.request({
-            method: 'POST',
-            path: '/v1/interface/messages',
-            body: {
-              source: {
-                gatewayId: 'discord_prod',
-                conversationRef: 'channel:files',
-                messageRef: 'discord:message:files',
-                authorRef: 'discord:user:999',
-              },
-              content: 'files attached',
-              attachments: [
-                {
-                  kind: 'file',
-                  path: pathToFileURL(existingPath).href,
-                  filename: 'local image.png',
-                  contentType: 'image/png',
-                },
-                {
-                  kind: 'url',
-                  url: 'https://cdn.discordapp.test/missing.png',
-                  filename: 'missing.png',
-                },
-              ],
-            },
-          })
-
-          expect(response.status).toBe(201)
-          expect(launches).toHaveLength(1)
-          expect(launches[0]?.intent).toMatchObject({
-            initialPrompt: `files attached\n\nAttachment: ${existingPath} (image/png, discord message files)\nAttachment unavailable: missing.png (application/octet-stream, discord message files)`,
-            attachments: [
-              {
-                kind: 'file',
-                path: existingPath,
-                filename: 'local_image.png',
-                contentType: 'image/png',
-                sizeBytes: 11,
-              },
-            ],
-          })
-        },
-        {
-          mediaStateDir,
-          attachmentFetchImpl: async () => new Response('not found', { status: 404 }),
-          runtimeResolver: async () => ({
-            agentRoot: '/tmp/agents/curly',
-            projectRoot: '/tmp/project',
-            cwd: '/tmp/project',
-            runMode: 'task',
-            bundle: { kind: 'compose', compose: [] },
-            harness: { provider: 'openai', interactive: true },
-          }),
-          launchRoleScopedRun: async (input) => {
-            launches.push(input)
-            return { runId: 'launch-run-files', sessionId: 'session-files' }
-          },
-        }
-      )
-    } finally {
-      rmSync(mediaStateDir, { recursive: true, force: true })
-    }
-  })
-
-  test('enforces max bytes for downloaded attachments while preserving text-only dispatch', async () => {
-    const mediaStateDir = mkdtempSync(join(tmpdir(), 'acp-interface-limit-'))
-    const launches: Array<{
-      intent: {
-        initialPrompt?: string
-        attachments?: Array<Record<string, unknown>>
-      }
-    }> = []
-
-    try {
-      await withWiredServer(
-        async (fixture) => {
-          fixture.interfaceStore.bindings.create({
-            bindingId: 'ifb_limit',
-            gatewayId: 'discord_prod',
-            conversationRef: 'channel:limit',
-            scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-            laneRef: 'main',
-            projectId: fixture.seed.projectId,
-            status: 'active',
-            createdAt: '2026-04-20T15:00:00.000Z',
-            updatedAt: '2026-04-20T15:00:00.000Z',
-          })
-
-          const response = await fixture.request({
-            method: 'POST',
-            path: '/v1/interface/messages',
-            body: {
-              source: {
-                gatewayId: 'discord_prod',
-                conversationRef: 'channel:limit',
-                messageRef: 'discord:message:limit',
-                authorRef: 'discord:user:999',
-              },
-              content: 'oversized media but text remains',
-              attachments: [
-                {
-                  kind: 'url',
-                  url: 'https://cdn.discordapp.test/large.png',
-                  filename: 'large.png',
-                },
-              ],
-            },
-          })
-
-          expect(response.status).toBe(201)
-          expect(launches).toHaveLength(1)
-          expect(launches[0]?.intent).toMatchObject({
-            initialPrompt:
-              'oversized media but text remains\n\nAttachment unavailable: large.png (application/octet-stream, discord message limit)',
-            placement: {
-              agentRoot: '/tmp/agents/curly',
-              projectRoot: '/tmp/project',
-              cwd: '/tmp/project',
-              runMode: 'task',
-              bundle: { kind: 'compose', compose: [] },
-            },
-          })
-          expect(launches[0]?.intent.attachments).toBeUndefined()
-        },
-        {
-          mediaStateDir,
-          attachmentMaxBytes: 8,
-          attachmentFetchImpl: async () =>
-            new Response('too-large', {
-              headers: {
-                'content-type': 'image/png',
-                'content-length': '9',
-              },
-            }),
-          runtimeResolver: async () => ({
-            agentRoot: '/tmp/agents/curly',
-            projectRoot: '/tmp/project',
-            cwd: '/tmp/project',
-            runMode: 'task',
-            bundle: { kind: 'compose', compose: [] },
-            harness: { provider: 'openai', interactive: true },
-          }),
-          launchRoleScopedRun: async (input) => {
-            launches.push(input)
-            return { runId: 'launch-run-limit', sessionId: 'session-limit' }
-          },
-        }
-      )
-    } finally {
-      rmSync(mediaStateDir, { recursive: true, force: true })
-    }
-  })
-
   test('wires launch session events into outbound delivery capture', async () => {
     await withWiredServer(
       async (fixture) => {
-        fixture.interfaceStore.bindings.create({
+        bindDiscordConversation(fixture, {
           bindingId: 'ifb_123',
-          gatewayId: 'discord_prod',
           conversationRef: 'channel:123',
-          scopeRef: `agent:curly:project:${fixture.seed.projectId}`,
-          laneRef: 'main',
-          projectId: fixture.seed.projectId,
-          status: 'active',
-          createdAt: '2026-04-20T15:00:00.000Z',
-          updatedAt: '2026-04-20T15:00:00.000Z',
         })
 
-        const response = await fixture.request({
-          method: 'POST',
-          path: '/v1/interface/messages',
-          body: {
-            source: {
-              gatewayId: 'discord_prod',
-              conversationRef: 'channel:123',
-              messageRef: 'discord:message:789',
-              authorRef: 'discord:user:999',
-            },
-            content: 'Reply please.',
-          },
+        const response = await postDiscordMessage(fixture, {
+          conversationRef: 'channel:123',
+          messageRef: 'discord:message:789',
+          authorRef: 'discord:user:999',
+          content: 'Reply please.',
         })
 
         expect(response.status).toBe(201)
@@ -1012,14 +280,7 @@ describe('POST /v1/interface/messages', () => {
         ])
       },
       {
-        runtimeResolver: async () => ({
-          agentRoot: '/tmp/agents/curly',
-          projectRoot: '/tmp/project',
-          cwd: '/tmp/project',
-          runMode: 'task',
-          bundle: { kind: 'compose', compose: [] },
-          harness: { provider: 'openai', interactive: true },
-        }),
+        runtimeResolver: resolveCurlyRuntime,
         launchRoleScopedRun: async (input) => {
           await input.onEvent?.({
             type: 'message_end',
@@ -1035,18 +296,11 @@ describe('POST /v1/interface/messages', () => {
 
   test('returns interface_binding_not_found when no active binding exists', async () => {
     await withWiredServer(async (fixture) => {
-      const response = await fixture.request({
-        method: 'POST',
-        path: '/v1/interface/messages',
-        body: {
-          source: {
-            gatewayId: 'discord_prod',
-            conversationRef: 'channel:404',
-            messageRef: 'discord:message:404',
-            authorRef: 'discord:user:404',
-          },
-          content: 'Anyone there?',
-        },
+      const response = await postDiscordMessage(fixture, {
+        conversationRef: 'channel:404',
+        messageRef: 'discord:message:404',
+        authorRef: 'discord:user:404',
+        content: 'Anyone there?',
       })
       const payload = await fixture.json<{ error: { code: string } }>(response)
 
