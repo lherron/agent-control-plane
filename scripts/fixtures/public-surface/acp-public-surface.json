@@ -2,6 +2,7 @@
   "api": {
     "routes": [
       "GET /admin/agents",
+      "GET /health",
       "GET /v1/admin/agents",
       "GET /v1/admin/agents/:agentId",
       "GET /v1/admin/agents/:agentId/detail",

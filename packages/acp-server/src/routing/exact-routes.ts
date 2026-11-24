@@ -20,6 +20,7 @@ import { handleListConversationThreads } from '../handlers/conversation-threads.
 import { handleCreateCoordinationMessage } from '../handlers/coordination-messages.js'
 import { handleListFailedDeliveries } from '../handlers/delivery-list-failed.js'
 import { handleGetDeploymentCoherence } from '../handlers/deployment-coherence.js'
+import { handleHealth } from '../handlers/health.js'
 import { handleCreateInput } from '../handlers/inputs.js'
 import { handleCreateInterfaceBinding } from '../handlers/interface-bindings-create.js'
 import { handleListInterfaceBindings } from '../handlers/interface-bindings-list.js'
@@ -198,6 +199,7 @@ export function buildExactRouteHandlers(_deps: ResolvedAcpServerDeps): ExactRout
     [exactRouteKey('GET', '/v1/session-refs/events')]: handleSessionRefEvents,
     [exactRouteKey('GET', '/v1/sessions')]: handleListSessions,
     [exactRouteKey('POST', '/v1/sessions/reset')]: handleResetSession,
+    [exactRouteKey('GET', '/health')]: handleHealth,
     [exactRouteKey('GET', '/v1/mobile/health')]: handleMobileHealth,
     [exactRouteKey('GET', '/v1/c2/threads/options')]: handleThreadOptions,
     [exactRouteKey('POST', '/v1/c2/threads')]: handleThreadCreate,

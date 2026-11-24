@@ -7,6 +7,7 @@ Just recipes, light commit/push hooks, post-push runner, launchd sources, build/
 Source anchors (repo-relative): justfile; .githooks; .github/workflows; launchd. Exact tracked surface inventory follows; a mapping is not a behavioral assertion.
 
 - Surface: `cli:acp server []`
+- Surface: `route:GET /health @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `file:.githooks/hook-duration.sh`
 - Surface: `file:.githooks/post-commit`
 - Surface: `file:.githooks/pre-commit`
