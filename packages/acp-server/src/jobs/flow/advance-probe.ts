@@ -1,7 +1,6 @@
 import { writeLogLine } from 'acp-core'
 import type { ProbeFlowStep, ProbeOutcome, ProbeStepResult } from 'acp-core'
 
-import { HRC_EVENT_LOCAL_NODE_PROBE } from '../hrc-first-turn-missing.js'
 import {
   type StepAdvanceInput,
   type StepAdvanceResult,
@@ -17,7 +16,7 @@ type ProbeRunner = (input: StepAdvanceInput<ProbeFlowStep>) => Promise<{ outcome
 const PROBE_REGISTRY: Record<string, ProbeRunner> = {
   'hrc-stale-tty-reap.v1': runHrcClientProbe,
   'wrkq-refactor-eligible.v1': runWrkqRefactorEligibilityProbe,
-  [HRC_EVENT_LOCAL_NODE_PROBE]: runHrcEventLocalNodeProbe,
+  'hrc-event-local-node.v1': runHrcEventLocalNodeProbe,
 }
 
 class ProbeStepError extends Error {

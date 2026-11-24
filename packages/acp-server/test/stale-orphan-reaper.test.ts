@@ -53,7 +53,7 @@ function fixture(routes: HrcRouteFakeOptions = {}) {
   }
   const reaper = createStaleOrphanReaper(reaperInput)
   const sessionRef = {
-    scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+    scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
     laneRef: 'main',
   }
   function seed(status: 'queued' | 'running' | 'completed' = 'queued') {
@@ -452,7 +452,7 @@ for (const live of [false, true]) {
       reapStaleOrphans: f.reaper.runOnce,
       inputQueuePolicy: {},
       config: { intervalMs: 2000 },
-      runtimeResolver: async () => admissionRuntime('fettle'),
+      runtimeResolver: async () => admissionRuntime('cody'),
       launchRoleScopedRun: async () => {
         launches++
       },

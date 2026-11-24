@@ -1,6 +1,5 @@
 import { writeLogLine } from 'acp-core'
 import type { InterfaceStore } from 'acp-interface-store'
-import type { JobsStore } from 'acp-jobs-store'
 import { normalizeSessionRef } from 'agent-scope'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 import type { StoreCommitBus } from '../store-commit-bus.js'
@@ -21,7 +20,6 @@ import {
 } from '../domain/semantic-message-run.js'
 import { type HrcEventTailQuery, type HrcRouteReader, eventMatches } from '../hrc-route-reader.js'
 import { readOptionalTrimmedRawString as readString } from '../internal/read-helpers.js'
-import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
 import {
   readCompletedAssistantMessageAfterSeq,
   readCompletedAssistantMessageFromHrcEvents,
@@ -49,7 +47,6 @@ export type InterfaceRunDispatcherInput = {
   commitBus?: StoreCommitBus | undefined
   runStore: RunStore
   interfaceStore: InterfaceStore
-  jobsStore?: JobsStore | undefined
   conversationStore?: ConversationStore | undefined
   hrcClient?: Pick<AcpHrcClient, 'waitMessage'> | undefined
   /** HRC's read routes (T-13243): ACP never opens HRC's store. */
@@ -106,7 +103,7 @@ export function isUnroutableRun(run: StoredRun): boolean {
 export function createInterfaceRunDispatcher(
   input: InterfaceRunDispatcherInput
 ): InterfaceRunDispatcher {
-  const { runStore, interfaceStore, jobsStore, conversationStore, hrcClient, hrc, config } = input
+  const { runStore, interfaceStore, conversationStore, hrcClient, hrc, config } = input
 
   let nextDelayMs = 60_000
 
@@ -456,13 +453,6 @@ export function createInterfaceRunDispatcher(
     })
     if (terminalRun === undefined) {
       return
-    }
-    if (terminalStatus === 'failed' && errorCode === 'dispatch_timeout') {
-      emitDispatchTimeoutHealthEvent({
-        jobsStore,
-        run: terminalRun,
-        originVia: 'interface-run-dispatcher',
-      })
     }
 
     // Enqueue an error delivery so the gateway can replace the placeholder

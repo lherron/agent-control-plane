@@ -12,7 +12,6 @@
  */
 
 import type { JobStepRunPhase } from 'acp-core'
-import { buildHealthIncidentMeta } from './health-incident.js'
 import type { JobsStore } from './store-contracts.js'
 
 // ─── Result types (persisted to job_step_runs.result_json) ─────────────────
@@ -32,7 +31,7 @@ export type PulpitMessageStepResult = {
 
 /** Receipt for a prompt addressed to an agent seat on the collaboration ledger. */
 export type AgentDispatchDelivery = {
-  /** Addressee seat handle, e.g. `fettle@agent-control-plane:T-10391`. */
+  /** Addressee seat handle, e.g. `cody@agent-control-plane:T-10391`. */
   to: string
   roomKey?: string | undefined
   groupId?: string | undefined
@@ -85,8 +84,6 @@ export type DispatchAgentInput = (input: {
   laneRef: string
   idempotencyKey: string
   content: string
-  /** Health-incident metadata carried on the envelope. */
-  meta?: Readonly<Record<string, unknown>> | undefined
 }) => Promise<AgentDispatchDelivery>
 
 /** All ports required by the native step executor. */
@@ -221,15 +218,11 @@ export async function executeNativeSideEffectStep(
       const scopeRef = resolveDispatchScopeRef(stepDef)
       const laneRef = asString(stepDef['laneRef']) ?? 'main'
       const content = asString(stepDef['content']) ?? ''
-      const incidentTaskId = scopeRef.split(':task:')[1] ?? ''
-      const sourceEventId = resolvedFields?.['_canonicalEventId'] ?? ''
-      const meta = buildHealthIncidentMeta({ jobRunId, sourceEventId, incidentTaskId })
       const dispatched = await deps.dispatchAgentInput({
         scopeRef,
         laneRef,
         idempotencyKey,
         content,
-        meta,
       })
       result = {
         kind: 'agent-dispatch',
@@ -288,10 +281,9 @@ function resolveDispatchScopeRef(stepDef: Readonly<Record<string, unknown>>): st
 }
 
 function slugifyTaskPathSegment(value: string): string {
-  const slug = value
+  return value
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, '-')
     .replace(/^-+|-+$/g, '')
-  return slug.length > 0 ? slug : 'acp-health-dispatch-timeout'
 }

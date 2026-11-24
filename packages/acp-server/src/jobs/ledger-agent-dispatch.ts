@@ -11,9 +11,7 @@ import { formatScopeHandle, parseScopeRef } from 'agent-scope'
  * handle, which wrkq routes to the target's task room (or a pair room for a
  * non-task seat), and the HRC kicker presents it, summoning the seat if needed.
  *
- * The say is reply-required on purpose: `--fyi` never births a seat, and an
- * incident seat such as `fettle@agent-control-plane:T-xxxxx` is born by this
- * very prompt.
+ * The say is reply-required so HRC can summon a task seat to present the prompt.
  */
 export function createLedgerAgentDispatch(
   client: WorkClient,
@@ -28,7 +26,6 @@ export function createLedgerAgentDispatch(
         body: input.content,
         idempotencyKey: input.idempotencyKey,
         principalRef,
-        ...(input.meta !== undefined ? { meta: { ...input.meta } } : {}),
       })
       const envelope = receipt.envelopes[0]
       return {
@@ -49,7 +46,7 @@ export function createLedgerAgentDispatch(
   }
 }
 
-/** `agent:fettle:project:acp:task:T-1` + `main` → `fettle@acp:T-1`. */
+/** `agent:cody:project:acp:task:T-1` + `main` → `cody@acp:T-1`. */
 export function ledgerSeatHandle(scopeRef: string, laneRef: string): string {
   if (laneRef !== 'main') {
     throw new Error(

@@ -149,7 +149,7 @@ describe('advanceJobFlow fresh event and manual steps', () => {
         },
         sendPulpitMessage: async () => ({ deliveryRequestId: 'dr_native', bindingId: 'binding' }),
         dispatchAgentInput: async () => ({
-          to: 'fettle@agent-control-plane:T-1',
+          to: 'cody@agent-control-plane:T-1',
           envelopeId: 'EN-00001',
         }),
       }

@@ -295,8 +295,8 @@ describe('event-claim minting', () => {
     const store = createInMemoryJobsStore()
     const job = store.createJob({
       projectId: 'agent-control-plane',
-      agentId: 'fettle',
-      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      agentId: 'cody',
+      scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
       trigger: {
         kind: 'event',
         source: 'hrc',
@@ -319,7 +319,7 @@ describe('event-claim minting', () => {
     expect(first.runs.filter((run) => run.triggeredBy === 'webhook')).toHaveLength(1)
     expect(first.calls).toEqual([
       expect.objectContaining({
-        scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+        scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
         content:
           'HRC node max3 runtime runtime-42 missed its first turn. hrc runtime diagnostics 42',
       }),
@@ -339,16 +339,16 @@ describe('event-claim minting', () => {
     const defaultDeny = store.createJob({
       slug: 'hrc-default-deny',
       projectId: 'agent-control-plane',
-      agentId: 'fettle',
-      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      agentId: 'cody',
+      scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
       trigger: { kind: 'event', source: 'hrc', match: { event: 'first_turn_missing' } },
       input: { content: '{{payload.retrievalHint}}' },
     }).job
     const explicitAllow = store.createJob({
       slug: 'hrc-explicit-allow',
       projectId: 'agent-control-plane',
-      agentId: 'fettle',
-      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      agentId: 'cody',
+      scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
       trigger: {
         kind: 'event',
         source: 'hrc',
@@ -389,8 +389,8 @@ describe('event-claim minting', () => {
     const store = createInMemoryJobsStore()
     const job = store.createJob({
       projectId: 'agent-control-plane',
-      agentId: 'fettle',
-      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      agentId: 'cody',
+      scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
       trigger: {
         kind: 'event',
         source: 'hrc',

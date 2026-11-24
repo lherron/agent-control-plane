@@ -87,11 +87,6 @@ export {
   type TickJobsSchedulerInput,
 } from './scheduler.js'
 export {
-  isHealthDiagnosticRun,
-  buildHealthIncidentMeta,
-} from './health-incident.js'
-export type { HealthIncidentMeta } from './health-incident.js'
-export {
   resolveStepOutputRef,
   executeNativeSideEffectStep,
 } from './native-step-executor.js'

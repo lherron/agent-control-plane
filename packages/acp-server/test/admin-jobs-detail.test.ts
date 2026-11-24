@@ -241,7 +241,7 @@ describe('admin job show runHealth (T-10378)', () => {
               status: 'failed',
               error: { code: 'native_step_failed', message: 'principalRef is required' },
             },
-            { stepId: 'notify_fettle', status: 'skipped' },
+            { stepId: 'notify_cody', status: 'skipped' },
           ])
 
           const response = await fixture.request({

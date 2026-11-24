@@ -19,8 +19,6 @@ import {
   createAgentInspectionProjectRootResolver,
   loadWrkqProjectRegistry,
 } from './handlers/agent-inspection.js'
-import { ensureDispatchTimeoutHealthJob } from './jobs/health-dispatch-timeout.js'
-import { ensureHrcFirstTurnMissingJob } from './jobs/hrc-first-turn-missing.js'
 import {
   createJobNodeIdentityAuthority,
   stampLegacyJobRunsAfterIdentity,
@@ -252,10 +250,6 @@ export async function startAcpServeBin(options: AcpServerCliOptions): Promise<{
   serverDeps.mobileAuthStore = resolveMobileAuthStore()
   const acpServer = createAcpServer(serverDeps)
   const resolvedDeps = resolveAcpServerDeps(serverDeps)
-  if (jobsStore !== undefined) {
-    ensureDispatchTimeoutHealthJob(jobsStore)
-    ensureHrcFirstTurnMissingJob(jobsStore)
-  }
   const accessLogger = await createAccessLogger(process.env['ACP_ACCESS_LOG_PATH'])
   // Every bind host is the one `main` listener for the request log.
   const listenerHandlers = createAcpListenerHandlers({

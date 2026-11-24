@@ -263,11 +263,6 @@ origins, a job intended to observe those trips must declare an explicit
 
 The bridge is activated only for the ACP-co-resident HRC node declared by HRC
 configuration authority in v1.
-Before dispatch, the built-in `hrc-first-turn-missing-notify` job's in-process
-flow probe compares `payload.nodeId` with ACP's HRC-backed job execution
-identity. A mismatch or unavailable identity logs a warning and completes as a
-no-op, so future cross-node enablement cannot silently execute against the wrong
-node. The comparison never derives node identity from a hostname or IP address.
 
 The wrkq v2 adapter keeps the producer payload and the Discord/system-events
 renderer contract separate. Minimal v2 payloads still require only

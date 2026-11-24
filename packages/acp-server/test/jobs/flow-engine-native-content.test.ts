@@ -56,7 +56,7 @@ describe('advanceJobFlow exec steps', () => {
         },
         dispatchAgentInput: async (input) => {
           calls.dispatch.push(input)
-          return { to: 'fettle@agent-control-plane:T-09123', envelopeId: 'EN-00001' }
+          return { to: 'cody@agent-control-plane:T-09123', envelopeId: 'EN-00001' }
         },
       }
 
@@ -74,13 +74,13 @@ describe('advanceJobFlow exec steps', () => {
             {
               id: 'notify',
               kind: 'pulpit-message',
-              binding: 'agent-fettle.discord-primary',
-              content: 'Dispatching fettle for {{create_task.taskId}}',
+              binding: 'agent-cody.discord-primary',
+              content: 'Dispatching cody for {{create_task.taskId}}',
             },
             {
               id: 'dispatch',
               kind: 'agent-dispatch',
-              agentId: 'fettle',
+              agentId: 'cody',
               projectId: 'agent-control-plane',
               scopeRef: { $step: 'create_task', field: 'taskId' },
               laneRef: 'main',
@@ -92,9 +92,9 @@ describe('advanceJobFlow exec steps', () => {
 
       expect(advanced.status).toBe('succeeded')
       expect(calls.wrkq).toHaveLength(1)
-      expect(calls.pulpit[0]?.text).toBe('Dispatching fettle for T-09123')
+      expect(calls.pulpit[0]?.text).toBe('Dispatching cody for T-09123')
       expect(calls.dispatch[0]).toMatchObject({
-        scopeRef: 'agent:fettle:project:agent-control-plane:task:T-09123',
+        scopeRef: 'agent:cody:project:agent-control-plane:task:T-09123',
         laneRef: 'main',
         content: 'Investigate T-09123',
       })

@@ -7,7 +7,7 @@
  * Asserts:
  *   - wrkq-task step: calls wrkqTaskPort.createOrFind; persists { taskId, projectId, taskPath, created }
  *   - pulpit-message step: calls sendPulpitMessage with exact idempotency key; persists result
- *   - agent-dispatch step: calls dispatchAgentInput with deterministic key + health incident metadata
+ *   - agent-dispatch step: calls dispatchAgentInput with a deterministic key
  *   - Terminal step replay: a succeeded step row is NOT re-executed on scheduler retry
  *   - Idempotency key formats match daedalus exact specification
  *
@@ -34,7 +34,7 @@ function makeJobRun(store: ReturnType<typeof createInMemoryJobsStore>, jobId?: s
     jobId,
     agentId: 'acp-health',
     projectId: 'agent-control-plane',
-    scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+    scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
     laneRef: 'main',
     trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
     input: { content: 'health incident dispatch' },
@@ -53,9 +53,9 @@ function makeJobRun(store: ReturnType<typeof createInMemoryJobsStore>, jobId?: s
           binding: 'discord:primary',
         },
         {
-          id: 'dispatch_fettle',
+          id: 'dispatch_cody',
           kind: 'agent-dispatch',
-          scopeRef: 'agent:fettle:project:agent-control-plane:task:T-05001',
+          scopeRef: 'agent:cody:project:agent-control-plane:task:T-05001',
           laneRef: 'main',
         },
       ],
@@ -76,7 +76,7 @@ function makeJobRun(store: ReturnType<typeof createInMemoryJobsStore>, jobId?: s
   store.jobStepRuns.insertMany(jobRun.jobRunId, 'sequence', [
     { stepId: 'create_task', status: 'pending', attempt: 1 },
     { stepId: 'notify_pulpit', status: 'pending', attempt: 1 },
-    { stepId: 'dispatch_fettle', status: 'pending', attempt: 1 },
+    { stepId: 'dispatch_cody', status: 'pending', attempt: 1 },
   ])
 
   return { job, jobRun }
@@ -130,7 +130,7 @@ function makeDispatchAgentInput(): {
   const port: DispatchAgentInput = async (input) => {
     calls.push(input)
     return {
-      to: 'fettle@agent-control-plane:T-09001',
+      to: 'cody@agent-control-plane:T-09001',
       roomKey: 'T-09001',
       groupId: `EN-${calls.length.toString().padStart(5, '0')}`,
       envelopeId: `EN-${calls.length.toString().padStart(5, '0')}`,
@@ -316,22 +316,22 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
       const result = await executeNativeSideEffectStep(deps, {
         jobRunId: jobRun.jobRunId,
         phase: 'sequence',
-        stepId: 'dispatch_fettle',
+        stepId: 'dispatch_cody',
         attempt: 1,
         stepKind: 'agent-dispatch',
         stepDef: {
           kind: 'agent-dispatch',
-          id: 'dispatch_fettle',
-          scopeRef: 'agent:fettle:project:agent-control-plane:task:T-05001',
+          id: 'dispatch_cody',
+          scopeRef: 'agent:cody:project:agent-control-plane:task:T-05001',
           laneRef: 'main',
         },
       })
 
-      const idempotencyKey = `jobrun:${jobRun.jobRunId}:phase:sequence:step:dispatch_fettle:attempt:1`
+      const idempotencyKey = `jobrun:${jobRun.jobRunId}:phase:sequence:step:dispatch_cody:attempt:1`
       expect(dispatchCalls).toHaveLength(1)
       expect(dispatchCalls[0]).toEqual(
         expect.objectContaining({
-          scopeRef: 'agent:fettle:project:agent-control-plane:task:T-05001',
+          scopeRef: 'agent:cody:project:agent-control-plane:task:T-05001',
           laneRef: 'main',
           idempotencyKey,
         })
@@ -340,9 +340,9 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
       if (result.kind !== 'agent-dispatch') return
       expect(result.result).toEqual(
         expect.objectContaining({
-          to: 'fettle@agent-control-plane:T-09001',
+          to: 'cody@agent-control-plane:T-09001',
           envelopeId: 'EN-00001',
-          scopeRef: 'agent:fettle:project:agent-control-plane:task:T-05001',
+          scopeRef: 'agent:cody:project:agent-control-plane:task:T-05001',
           laneRef: 'main',
           idempotencyKey,
         })
@@ -350,78 +350,11 @@ describe('executeNativeSideEffectStep — agent-dispatch step (Phase B RED)', ()
       const { jobStepRun } = store.jobStepRuns.getById(
         jobRun.jobRunId,
         'sequence',
-        'dispatch_fettle',
+        'dispatch_cody',
         1
       )
       expect(jobStepRun?.status).toBe('succeeded')
       expect(jobStepRun?.result).toEqual(result.result)
-    } finally {
-      store.close()
-    }
-  })
-
-  test('agent-dispatch sends health incident metadata on the dispatch call', async () => {
-    const store = createInMemoryJobsStore()
-    try {
-      const { jobRun } = makeJobRun(store)
-
-      store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'create_task', 1, {
-        status: 'succeeded',
-        result: {
-          taskId: 'T-05001',
-          projectId: 'agent-control-plane',
-          taskPath: 'agent-control-plane/inbox/x',
-          created: true,
-        },
-        completedAt: '2026-06-19T10:00:01.000Z',
-      })
-      store.jobStepRuns.updateStep(jobRun.jobRunId, 'sequence', 'notify_pulpit', 1, {
-        status: 'succeeded',
-        result: { deliveryRequestId: 'dr_001', bindingId: 'b1', idempotencyKey: 'k1' },
-        completedAt: '2026-06-19T10:00:02.000Z',
-      })
-
-      const capturedMeta: Array<Readonly<Record<string, unknown>> | undefined> = []
-      const dispatchAgentInput: DispatchAgentInput = async (input) => {
-        capturedMeta.push(input.meta)
-        return { to: 'fettle@agent-control-plane:T-09001', envelopeId: 'EN-00001' }
-      }
-
-      const deps: NativeStepExecutorDeps = {
-        store,
-        wrkqTaskPort: makeWrkqTaskPort({ taskId: 'T-05001' }),
-        sendPulpitMessage: makeSendPulpitMessage().port,
-        dispatchAgentInput,
-      }
-
-      const canonicalEventId = 'evt_source_123'
-
-      // RED: throws "not implemented"
-      await executeNativeSideEffectStep(deps, {
-        jobRunId: jobRun.jobRunId,
-        phase: 'sequence',
-        stepId: 'dispatch_fettle',
-        attempt: 1,
-        stepKind: 'agent-dispatch',
-        stepDef: {
-          kind: 'agent-dispatch',
-          id: 'dispatch_fettle',
-          scopeRef: 'agent:fettle:project:agent-control-plane:task:T-05001',
-          laneRef: 'main',
-        },
-        resolvedFields: {
-          _canonicalEventId: canonicalEventId,
-        },
-      })
-
-      // Health incident metadata must be stamped
-      const meta = capturedMeta[0]
-      expect(meta).toBeDefined()
-      const source = (meta as Record<string, unknown>)?.['source']
-      expect(source).toBeDefined()
-      expect((source as Record<string, unknown>)?.['kind']).toBe('acp-health-incident')
-      expect((source as Record<string, unknown>)?.['jobRunId']).toBe(jobRun.jobRunId)
-      expect((source as Record<string, unknown>)?.['incidentTaskId']).toBe('T-05001')
     } finally {
       store.close()
     }

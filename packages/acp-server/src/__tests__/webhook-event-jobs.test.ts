@@ -430,16 +430,16 @@ describe('event job origin policy evaluator', () => {
   test('hrc agent origins require explicit allow while system:hrc uses the default policy', () => {
     const store = createInMemoryJobsStore()
     const defaultPolicy = store.createJob({
-      agentId: 'fettle',
+      agentId: 'cody',
       projectId: 'agent-control-plane',
-      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
       trigger: { kind: 'event', source: 'hrc', match: { event: 'first_turn_missing' } },
       input: { content: '{{payload.retrievalHint}}' },
     }).job
     const explicitAllow = store.createJob({
-      agentId: 'fettle',
+      agentId: 'cody',
       projectId: 'agent-control-plane',
-      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
       trigger: {
         kind: 'event',
         source: 'hrc',
@@ -538,9 +538,9 @@ describe('event job causation-chain evaluator', () => {
   test('hrc bare job-run causation refs walk while opaque refs degrade benignly', () => {
     const store = createInMemoryJobsStore()
     const job = store.createJob({
-      agentId: 'fettle',
+      agentId: 'cody',
       projectId: 'agent-control-plane',
-      scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+      scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
       trigger: {
         kind: 'event',
         source: 'hrc',

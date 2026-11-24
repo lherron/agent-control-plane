@@ -25,9 +25,9 @@ import { resolveStepOutputRef } from '../native-step-executor.js'
 
 function makeJobRun(store: ReturnType<typeof createInMemoryJobsStore>) {
   const { job } = store.createJob({
-    agentId: 'fettle',
+    agentId: 'cody',
     projectId: 'agent-control-plane',
-    scopeRef: 'agent:fettle:project:agent-control-plane:task:primary',
+    scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
     laneRef: 'main',
     trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
     input: { content: 'health check' },

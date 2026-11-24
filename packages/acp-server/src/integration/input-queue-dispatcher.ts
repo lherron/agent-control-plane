@@ -27,7 +27,6 @@ import {
   isRuntimeBusyError,
 } from '../input-admission/runtime-busy.js'
 import { causationLaunchEnvFromRunMetadata } from '../jobs/causation-env.js'
-import { emitDispatchTimeoutHealthEvent } from '../jobs/health-dispatch-timeout.js'
 import { resolveLaunchIntent } from '../launch-role-scoped.js'
 import { JobTargetRemoteError } from '../launcher-placement.js'
 import {
@@ -63,7 +62,6 @@ export type InputQueueDispatcherDeps = Pick<
   | 'hrcClient'
   | 'inputAdmissionStore'
   | 'inputQueueStore'
-  | 'jobsStore'
   | 'runStore'
   | 'runtimeResolver'
   | 'inputQueuePolicy'
@@ -263,7 +261,7 @@ async function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): Prom
         : blockerKind === 'no_correlation'
           ? `Run was blocking input queue dispatch, but no HRC launch correlation was recorded within ${timeoutSeconds}s`
           : `Run was blocking input queue dispatch with partial HRC session correlation but no turn/runtime correlation within ${timeoutSeconds}s`
-    const failedRun = deps.runStore.updateRun(run.runId, {
+    deps.runStore.updateRun(run.runId, {
       status: 'failed',
       errorCode: 'dispatch_timeout',
       errorMessage,
@@ -275,22 +273,10 @@ async function failStalePendingRunBlockers(deps: InputQueueDispatcherDeps): Prom
         queueItem.status === 'leased' ||
         queueItem.status === 'dispatching')
     ) {
-      const failedQueueItem = deps.inputQueueStore.update(queueItem.queueItemId, {
+      deps.inputQueueStore.update(queueItem.queueItemId, {
         status: 'failed',
         lastErrorCode: 'dispatch_timeout',
         lastErrorMessage: errorMessage,
-      })
-      emitDispatchTimeoutHealthEvent({
-        jobsStore: deps.jobsStore,
-        run: failedRun,
-        queueItem: failedQueueItem,
-        originVia: 'input-queue-dispatcher',
-      })
-    } else {
-      emitDispatchTimeoutHealthEvent({
-        jobsStore: deps.jobsStore,
-        run: failedRun,
-        originVia: 'input-queue-dispatcher',
       })
     }
   }

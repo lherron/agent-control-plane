@@ -95,13 +95,13 @@ describe('advanceJobFlow native steps against real wrkq (T-10378)', () => {
             {
               id: 'create_task',
               kind: 'wrkq-task',
-              title: 'ACP health: dispatch timeout',
+              title: 'Example flow task',
               container: 'agent-control-plane/inbox',
             },
             {
-              id: 'dispatch_fettle',
+              id: 'dispatch_cody',
               kind: 'agent-dispatch',
-              agentId: 'fettle',
+              agentId: 'cody',
               projectId: 'agent-control-plane',
               scopeRef: { $step: 'create_task', field: 'taskId' },
               laneRef: 'main',
@@ -114,7 +114,7 @@ describe('advanceJobFlow native steps against real wrkq (T-10378)', () => {
       const steps = jobsStore.jobStepRuns.listByJobRun(jobRun.jobRunId).jobStepRuns
       expect(steps.map((step) => [step.stepId, step.status, step.error])).toEqual([
         ['create_task', 'succeeded', undefined],
-        ['dispatch_fettle', 'succeeded', undefined],
+        ['dispatch_cody', 'succeeded', undefined],
       ])
       expect(advanced.status).toBe('succeeded')
       // Never the ACP local launch that refuses ledger-owned seats.
@@ -126,10 +126,10 @@ describe('advanceJobFlow native steps against real wrkq (T-10378)', () => {
       // No source event (manual-run shape): the task keys on the job run.
       expect(taskResult?.taskPath).toContain(`job-run-${jobRun.jobRunId}`.replaceAll('_', '-'))
       const shown = JSON.parse(wrkq(['cat', taskId, '--json', '--one'])) as Record<string, unknown>
-      expect(shown['title']).toBe('ACP health: dispatch timeout')
+      expect(shown['title']).toBe('Example flow task')
       expect(shown['created_by_principal_ref']).toBe(ACP_PRINCIPAL)
 
-      const seat = `fettle@agent-control-plane:${taskId}`
+      const seat = `cody@agent-control-plane:${taskId}`
       const dispatched = steps[1]?.result as Record<string, unknown> | undefined
       expect(dispatched).toMatchObject({ to: seat, roomKey: taskId })
       const envelope = await client.wrkq.envelope.show({
@@ -141,8 +141,7 @@ describe('advanceJobFlow native steps against real wrkq (T-10378)', () => {
         obligation: 'reply_required',
         body: `Investigate ${taskId}`,
         from: { principalRef: ACP_PRINCIPAL },
-        to: { principalRef: 'agent:fettle', scopeRef: seat },
-        meta: { source: { kind: 'acp-health-incident', incidentTaskId: taskId } },
+        to: { principalRef: 'agent:cody', scopeRef: seat },
       })
     })
   }, 30_000)

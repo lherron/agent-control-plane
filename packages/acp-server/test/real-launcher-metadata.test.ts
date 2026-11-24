@@ -14,7 +14,7 @@ async function captureDispatchOrigin(input: {
   const inputAttemptStore = new InMemoryInputAttemptStore()
   const runStore = new InMemoryRunStore()
   const sessionRef = {
-    scopeRef: 'agent:fettle:project:agent-control-plane:task:T-07237-origin-test',
+    scopeRef: 'agent:cody:project:agent-control-plane:task:T-07237-origin-test',
     laneRef: 'main' as const,
   }
   const attempt = inputAttemptStore.createAttempt({
@@ -62,7 +62,7 @@ async function captureDispatchOrigin(input: {
     sessionRef,
     intent: {
       placement: {
-        agentRoot: '/tmp/fettle',
+        agentRoot: '/tmp/cody',
         runMode: 'task',
         bundle: { kind: 'compose', compose: [] },
       },
@@ -122,7 +122,7 @@ describe('real launcher dispatch metadata', () => {
   })
 
   describe('first-turn timeout override passthrough', () => {
-    const OVERRIDE_SCOPE = 'agent:fettle:project:agent-control-plane:task:T-07237-origin-test'
+    const OVERRIDE_SCOPE = 'agent:cody:project:agent-control-plane:task:T-07237-origin-test'
 
     async function captureFirstTurnTimeout(env: {
       scope?: string | undefined
@@ -180,7 +180,7 @@ describe('real launcher dispatch metadata', () => {
           sessionRef,
           intent: {
             placement: {
-              agentRoot: '/tmp/fettle',
+              agentRoot: '/tmp/cody',
               runMode: 'task',
               bundle: { kind: 'compose', compose: [] },
             },

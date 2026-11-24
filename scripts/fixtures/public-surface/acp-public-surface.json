@@ -1988,7 +1988,6 @@
         "EventJobOutcome",
         "EventJobSkipReason",
         "FlowJobRunResponseStatus",
-        "HealthIncidentMeta",
         "InboxEventRecord",
         "InboxEventStatus",
         "InsertInboxEventInput",
@@ -2037,7 +2036,6 @@
       "rootValues": [
         "applyManagedJob",
         "assertJobExecutionAdmission",
-        "buildHealthIncidentMeta",
         "createInMemoryJobsStore",
         "createJobsScheduler",
         "detectJobDrift",
@@ -2046,7 +2044,6 @@
         "fingerprintJobOutputSink",
         "formatJobFlowValidationErrors",
         "getManagedJobProvenance",
-        "isHealthDiagnosticRun",
         "isValidFreshDuration",
         "isValidJobSlug",
         "JOB_SLUG_REGEX",
