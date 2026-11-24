@@ -54,6 +54,7 @@ Source anchors (repo-relative): packages/gateway-discord/src; packages/gateway-i
 - Surface: `route:GET /v2/mobile/dashboard @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:GET /v2/mobile/sessions @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:POST /v1/admin/interface-identities @ packages/acp-server/src/routing/exact-routes.ts`
+- Surface: `route:GET /v1/gateway/deliveries/:deliveryRequestId @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:POST /v1/gateway/deliveries/:deliveryRequestId/ack @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:POST /v1/gateway/deliveries/:deliveryRequestId/fail @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:POST /v1/gateway/deliveries/:deliveryRequestId/requeue @ packages/acp-server/src/routing/param-routes.ts`

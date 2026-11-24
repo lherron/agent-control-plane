@@ -27,6 +27,7 @@
       "GET /v1/conversation/threads/:threadId/turns",
       "GET /v1/gateway/:gatewayId/deliveries/stream",
       "GET /v1/gateway/deliveries",
+      "GET /v1/gateway/deliveries/:deliveryRequestId",
       "GET /v1/health",
       "GET /v1/history",
       "GET /v1/input-attempts/:inputAttemptId",

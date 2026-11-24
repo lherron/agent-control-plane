@@ -26,6 +26,7 @@ import { handleListConversationTurns } from '../handlers/conversation-turns.js'
 import { handleRequeueDelivery } from '../handlers/delivery-requeue.js'
 import { handleAckGatewayDelivery } from '../handlers/gateway-deliveries-ack.js'
 import { handleFailGatewayDelivery } from '../handlers/gateway-deliveries-fail.js'
+import { handleGetGatewayDelivery } from '../handlers/gateway-deliveries-get.js'
 import { handleStreamGatewayDeliveries } from '../handlers/gateway-deliveries-stream.js'
 import { handleGetInputAttempt } from '../handlers/input-attempts-get.js'
 import { handleGetJobRun, handleListJobRuns } from '../handlers/job-runs.js'
@@ -164,6 +165,7 @@ export function buildParamRoutes(): ParamRoute[] {
       '/v1/gateway/:gatewayId/deliveries/stream',
       handleStreamGatewayDeliveries
     ),
+    createParamRoute('GET', '/v1/gateway/deliveries/:deliveryRequestId', handleGetGatewayDelivery),
     createParamRoute(
       'POST',
       '/v1/gateway/deliveries/:deliveryRequestId/ack',
