@@ -557,17 +557,12 @@ function projectSession(input: {
   const status = mobileStatus(input.record.status, input.runtime)
   const runtimeActive =
     input.runtime?.status === 'busy' || input.runtime?.status === 'awaiting_input'
-  // `preferredMode: headless` can mean "provision the durable interactive
-  // broker without attaching a terminal". It is a presentation preference,
-  // not proof that the resulting tmux runtime cannot accept literal input.
-  // Preserve genuinely non-interactive worker behavior by requiring either an
-  // interactive execution mode or the persisted interactive-harness intent.
-  // An hrcpty seat (T-12046) takes literal input through its supervisor as a
-  // tmux seat does through its pane.
+  // A terminal runtime's own in-flight-input flag decides literal input,
+  // whatever the seat's preferred mode: a seat woken headless by room mail is
+  // still a live TUI (Lance 2026-11-24, R-00777).
   const supportsInput =
     (input.runtime?.transport === 'tmux' || input.runtime?.transport === 'hrcpty') &&
-    input.runtime.supportsInflightInput === true &&
-    (mode === 'interactive' || input.record.lastAppliedIntentJson?.harness.interactive === true)
+    input.runtime.supportsInflightInput === true
   const projectedRuntime =
     input.runtime === undefined
       ? undefined

@@ -293,7 +293,7 @@ describe('GET /v2/mobile/sessions', () => {
     )
   })
 
-  test('non-interactive tmux worker is listed with input and literalInput false', async () => {
+  test('a non-interactive tmux runtime with in-flight input reports literal input (R-00777)', async () => {
     const pageRequests: SessionPageRequest[] = []
     const facetRequests: SessionFacetsRequest[] = []
     const hrcClient = createPaginatedClient({
@@ -323,7 +323,7 @@ describe('GET /v2/mobile/sessions', () => {
         const local = body.sessions.find((session) => session.nodeId === 'svc')
 
         expect(local).toMatchObject({
-          capabilities: { input: false, literalInput: false },
+          capabilities: { input: true, literalInput: true },
         })
       },
       { hrcClient }
