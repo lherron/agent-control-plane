@@ -1,718 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-
-import { createInMemoryAdminStore } from 'acp-admin-store'
-import { adaptWrkqWebhookEvent } from 'acp-core'
-import { createInMemoryJobsStore } from 'acp-jobs-store'
-
-import type { Actor } from 'acp-core'
-import { withWiredServer } from '../../test/fixtures/wired-server.js'
-import type { ResolvedAcpServerDeps } from '../deps.js'
-import { handleCreateAdminJob, handlePatchAdminJob } from '../handlers/admin-jobs.js'
-import { handleAcpEventWebhook } from '../handlers/webhooks-events.js'
-import { handleWrkqWebhook } from '../handlers/webhooks-wrkq.js'
-import { createEventJobEvaluator } from '../jobs/event-job-evaluator.js'
-
-const ACTOR: Actor = { kind: 'system', id: 'test' }
-
-function makeDeps(options: { jobsStore?: boolean } = {}) {
-  const adminStore = createInMemoryAdminStore()
-  const jobsStore = options.jobsStore === false ? undefined : createInMemoryJobsStore()
-  const deps = {
-    adminStore,
-    ...(jobsStore !== undefined ? { jobsStore } : {}),
-    defaultActor: ACTOR,
-  } as unknown as ResolvedAcpServerDeps
-  return { adminStore, jobsStore, deps }
-}
-
-function jsonRequest(method: string, path: string, body: unknown): Request {
-  return new Request(`http://acp.local${path}`, {
-    method,
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-}
-
-async function call(
-  _handler: (ctx: {
-    request: Request
-    url: URL
-    params: Record<string, string>
-    deps: ResolvedAcpServerDeps
-    actor: Actor | undefined
-  }) => Response | Promise<Response>,
-  request: Request,
-  deps: ResolvedAcpServerDeps,
-  _params: Record<string, string> = {}
-): Promise<Response> {
-  return withWiredServer((fixture) => fixture.handler(request), {
-    adminStore: deps.adminStore,
-    jobsStore: deps.jobsStore,
-    defaultActor: ACTOR,
-  })
-}
-
-const EVENT_JOB_BODY = {
-  agentId: 'clod',
-  projectId: 'acp',
-  scopeRef: 'agent:clod:project:{{project_scope_id}}:task:{{ticket_id}}',
-  trigger: {
-    kind: 'event',
-    source: 'wrkq',
-    match: { event: 'created', transition: { to: 'idea' } },
-  },
-  input: { content: 'Research {{ticket_id}}' },
-}
-
-const GUARDED_EVENT_FLOW = {
-  sequence: [
-    {
-      id: 'create_task',
-      kind: 'wrkq-task',
-      title: 'Investigate {{ticket_id}}',
-      container: 'agent-control-plane/inbox',
-      description: 'Created from {{event}}.',
-    },
-    {
-      id: 'dispatch',
-      kind: 'agent-dispatch',
-      scopeRef: 'agent:clod:project:agent-control-plane:task:primary',
-      input: { content: 'Handle {{ticket_id}}.' },
-    },
-  ],
-}
-
-function evaluateEventOriginPolicy(input: {
-  jobAgentId?: string
-  originPolicy?: { agent: 'deny' | 'deny-self' | 'allow' }
-  origin?: Record<string, unknown> | undefined
-}) {
-  const store = createInMemoryJobsStore()
-  const jobAgentId = input.jobAgentId ?? 'scribe'
-  const { job } = store.createJob({
-    agentId: jobAgentId,
-    projectId: 'agent-spaces',
-    scopeRef: `agent:${jobAgentId}:project:agent-spaces:task:T-1`,
-    trigger: {
-      kind: 'event',
-      source: 'wrkq',
-      match: { event: 'created' },
-      ...(input.originPolicy !== undefined ? { originPolicy: input.originPolicy } : {}),
-    },
-    input: { content: 'Render T-1' },
-  })
-  const payload =
-    input.origin !== undefined && input.origin['actor'] === undefined
-      ? {
-          schema_version: 1,
-          source: 'wrkq',
-          event_id: 'evt_1',
-          canonical_event_id: 'wrkq:evt_1',
-          event_seq: 1,
-          event: 'created',
-          occurred_at: '2026-07-08T00:00:00Z',
-          origin: input.origin,
-          payload: {},
-        }
-      : adaptWrkqWebhookEvent({
-          schema_version: 2,
-          event_id: 'evt_1',
-          event_seq: 1,
-          event: 'created',
-          occurred_at: '2026-07-08T00:00:00Z',
-          origin: { actor: String(input.origin?.['actor'] ?? 'human:lance') },
-          ticket_id: 'T-1',
-          project_scope_id: 'agent-spaces',
-        })
-  const { event } = store.insertInboxEvent({
-    eventId: 'evt_1',
-    eventSeq: 1,
-    source: 'wrkq',
-    event: 'created',
-    payload,
-  })
-  return createEventJobEvaluator()({ job, event, store })
-}
-
-function createAllowEventJob(
-  store: ReturnType<typeof createInMemoryJobsStore>,
-  input: { slug: string; agentId: string }
-) {
-  return store.createJob({
-    slug: input.slug,
-    agentId: input.agentId,
-    projectId: 'agent-spaces',
-    scopeRef: `agent:${input.agentId}:project:agent-spaces:task:T-1`,
-    trigger: {
-      kind: 'event',
-      source: 'wrkq',
-      match: { event: 'created' },
-      originPolicy: { agent: 'allow' },
-    },
-    input: { content: 'Render T-1' },
-  }).job
-}
-
-function wrkqCreatedPayload(input: {
-  eventId: string
-  eventSeq: number
-  causationRef?: string | undefined
-}) {
-  return adaptWrkqWebhookEvent({
-    schema_version: 2,
-    event_id: input.eventId,
-    event_seq: input.eventSeq,
-    event: 'created',
-    occurred_at: '2026-07-08T00:00:00Z',
-    origin: {
-      actor: 'agent:hook-author',
-      ...(input.causationRef !== undefined ? { causation_ref: input.causationRef } : {}),
-    },
-    ticket_id: 'T-1',
-    project_scope_id: 'agent-spaces',
-  })
-}
-
-function insertWrkqEvent(
-  store: ReturnType<typeof createInMemoryJobsStore>,
-  input: { eventId: string; eventSeq: number; causationRef?: string | undefined }
-) {
-  const payload = wrkqCreatedPayload(input)
-  return store.insertInboxEvent({
-    eventId: input.eventId,
-    eventSeq: input.eventSeq,
-    source: 'wrkq',
-    event: 'created',
-    payload,
-  }).event
-}
-
-function insertHrcEvent(
-  store: ReturnType<typeof createInMemoryJobsStore>,
-  input: {
-    eventId: string
-    eventSeq: number
-    origin: { actor: string; kind: string; causation_ref?: string | undefined }
-    runtimeId?: string | undefined
-  }
-) {
-  const runtimeId = input.runtimeId ?? 'runtime-42'
-  const tripEventId = input.eventId.slice(input.eventId.lastIndexOf(':') + 1)
-  const payload = {
-    schema_version: 1,
-    source: 'hrc',
-    event_id: input.eventId,
-    canonical_event_id: `hrc:${input.eventId}`,
-    event_seq: input.eventSeq,
-    event: 'first_turn_missing',
-    occurred_at: '2026-08-14T20:00:00Z',
-    subject: { type: 'hrc-runtime', id: runtimeId },
-    origin: input.origin,
-    payload: {
-      nodeId: 'max3',
-      runtimeId,
-      scopeRef: 'agent:cody:project:agent-control-plane:task:T-07237',
-      generation: 3,
-      invocationId: 'invocation-42',
-      runId: 'run-42',
-      tripEventId,
-      retrievalHint: `hrc runtime diagnostics ${tripEventId}`,
-    },
-  }
-  return store.insertInboxEvent({
-    eventId: input.eventId,
-    eventSeq: input.eventSeq,
-    source: 'hrc',
-    event: 'first_turn_missing',
-    payload,
-  }).event
-}
-
-function appendWebhookRun(
-  store: ReturnType<typeof createInMemoryJobsStore>,
-  input: { jobId: string; eventId: string; eventSeq: number; jobRunId?: string | undefined }
-) {
-  return store.appendJobRun({
-    jobId: input.jobId,
-    triggeredAt: `2026-07-08T00:00:0${input.eventSeq}.000Z`,
-    triggeredBy: 'webhook',
-    status: 'dispatched',
-    source: {
-      kind: 'webhook',
-      source: 'wrkq',
-      eventId: input.eventId,
-      canonicalEventId: `wrkq:${input.eventId}`,
-      eventSeq: input.eventSeq,
-    },
-    ...(input.jobRunId !== undefined ? { jobRunId: input.jobRunId } : {}),
-  }).jobRun
-}
-
-describe('admin jobs trigger union', () => {
-  test('creates an event-triggered job', async () => {
-    const { deps } = makeDeps()
-    const res = await call(
-      handleCreateAdminJob,
-      jsonRequest('POST', '/v1/admin/jobs', EVENT_JOB_BODY),
-      deps
-    )
-    expect(res.status).toBe(201)
-    const body = (await res.json()) as { job: { trigger: { kind: string } } }
-    expect(body.job.trigger.kind).toBe('event')
-  })
-
-  test('creates a non-flow event job with output webhook config', async () => {
-    const { deps } = makeDeps()
-    const res = await call(
-      handleCreateAdminJob,
-      jsonRequest('POST', '/v1/admin/jobs', {
-        ...EVENT_JOB_BODY,
-        output: {
-          sinks: [
-            { kind: 'webhook', url: 'http://127.0.0.1:18551/api', format: 'discord_markdown' },
-          ],
-        },
-      }),
-      deps
-    )
-    expect(res.status).toBe(201)
-    const body = (await res.json()) as { job: { output?: { sinks?: Array<{ url: string }> } } }
-    expect(body.job.output?.sinks?.[0]?.url).toBe('http://127.0.0.1:18551/api')
-  })
-
-  test('rejects non-loopback output webhook URLs', async () => {
-    const { deps } = makeDeps()
-    const res = await call(
-      handleCreateAdminJob,
-      jsonRequest('POST', '/v1/admin/jobs', {
-        ...EVENT_JOB_BODY,
-        output: { sinks: [{ kind: 'webhook', url: 'https://example.com/hook' }] },
-      }),
-      deps
-    )
-    expect(res.status).toBe(400)
-    expect((await res.json()).error).toMatchObject({
-      code: 'malformed_request',
-      message: expect.stringContaining('must be loopback'),
-      details: { field: 'output' },
-    })
-  })
-
-  test('creates an event-triggered job with a guarded flow', async () => {
-    const { deps } = makeDeps()
-    const res = await call(
-      handleCreateAdminJob,
-      jsonRequest('POST', '/v1/admin/jobs', {
-        ...EVENT_JOB_BODY,
-        flow: GUARDED_EVENT_FLOW,
-      }),
-      deps
-    )
-    expect(res.status).toBe(201)
-    const body = (await res.json()) as { job: { trigger: { kind: string }; flow: unknown } }
-    expect(body.job.trigger.kind).toBe('event')
-    expect(body.job.flow).toEqual(GUARDED_EVENT_FLOW)
-  })
-
-  test('rejects event-triggered flow with authority interpolation', async () => {
-    const { deps } = makeDeps()
-    const res = await call(
-      handleCreateAdminJob,
-      jsonRequest('POST', '/v1/admin/jobs', {
-        ...EVENT_JOB_BODY,
-        flow: {
-          sequence: [
-            {
-              id: 'dispatch',
-              kind: 'agent-dispatch',
-              scopeRef: 'agent:clod:project:{{payload.project}}:task:primary',
-              input: { content: 'x' },
-            },
-          ],
-        },
-      }),
-      deps
-    )
-    const body = (await res.json()) as { valid: false; errors: Array<{ code: string }> }
-    expect(res.status).toBe(400)
-    expect(body.errors.map((error) => error.code)).toContain('authority_field_interpolation')
-  })
-
-  test('continues rejecting output config on event-triggered flow jobs', async () => {
-    const { deps } = makeDeps()
-    const res = await call(
-      handleCreateAdminJob,
-      jsonRequest('POST', '/v1/admin/jobs', {
-        ...EVENT_JOB_BODY,
-        flow: GUARDED_EVENT_FLOW,
-        output: {
-          sinks: [
-            { kind: 'webhook', url: 'http://127.0.0.1:18551/api', format: 'discord_markdown' },
-          ],
-        },
-      }),
-      deps
-    )
-    expect(res.status).toBe(400)
-    expect((await res.json()).error).toMatchObject({
-      code: 'malformed_request',
-      message: expect.stringContaining('only supported for non-flow'),
-      details: { field: 'output' },
-    })
-  })
-
-  test('allows bolting a guarded flow onto an event job via patch', async () => {
-    const { jobsStore, deps } = makeDeps()
-    const created = jobsStore.createJob({
-      agentId: 'clod',
-      projectId: 'acp',
-      scopeRef: 'agent:clod:project:{{project_scope_id}}:task:{{ticket_id}}',
-      trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
-      input: { content: 'x' },
-    }).job
-    const res = await call(
-      handlePatchAdminJob,
-      jsonRequest('PATCH', `/v1/admin/jobs/${created.jobId}`, {
-        flow: GUARDED_EVENT_FLOW,
-      }),
-      deps,
-      { jobId: created.jobId }
-    )
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { job: { flow: unknown } }
-    expect(body.job.flow).toEqual(GUARDED_EVENT_FLOW)
-  })
-
-  test('allows switching a guarded flow job to an event trigger via patch', async () => {
-    const { jobsStore, deps } = makeDeps()
-    const created = jobsStore.createJob({
-      agentId: 'clod',
-      projectId: 'acp',
-      scopeRef: 'agent:clod:project:acp:task:primary',
-      trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
-      input: { content: 'x' },
-      flow: GUARDED_EVENT_FLOW,
-    }).job
-    const res = await call(
-      handlePatchAdminJob,
-      jsonRequest('PATCH', `/v1/admin/jobs/${created.jobId}`, {
-        trigger: { kind: 'event', source: 'wrkq', match: { event: 'created' } },
-      }),
-      deps,
-      { jobId: created.jobId }
-    )
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { job: { trigger: { kind: string } } }
-    expect(body.job.trigger.kind).toBe('event')
-  })
-
-  test('rejects an invalid trigger', async () => {
-    const { deps } = makeDeps()
-    const res = await call(
-      handleCreateAdminJob,
-      jsonRequest('POST', '/v1/admin/jobs', {
-        ...EVENT_JOB_BODY,
-        trigger: { kind: 'event', source: 'Bad Source', match: {} },
-      }),
-      deps
-    )
-    expect(res.status).toBe(400)
-    expect((await res.json()).error).toMatchObject({
-      code: 'malformed_request',
-      message: expect.stringContaining('trigger.source'),
-      details: { field: 'trigger' },
-    })
-  })
-})
-
-describe('event job origin policy evaluator', () => {
-  test('hrc agent origins require explicit allow while system:hrc uses the default policy', () => {
-    const store = createInMemoryJobsStore()
-    const defaultPolicy = store.createJob({
-      agentId: 'cody',
-      projectId: 'agent-control-plane',
-      scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
-      trigger: { kind: 'event', source: 'hrc', match: { event: 'first_turn_missing' } },
-      input: { content: '{{payload.retrievalHint}}' },
-    }).job
-    const explicitAllow = store.createJob({
-      agentId: 'cody',
-      projectId: 'agent-control-plane',
-      scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
-      trigger: {
-        kind: 'event',
-        source: 'hrc',
-        match: { event: 'first_turn_missing' },
-        originPolicy: { agent: 'allow' },
-      },
-      input: { content: '{{payload.retrievalHint}}' },
-    }).job
-    const evaluator = createEventJobEvaluator()
-    const agentEvent = insertHrcEvent(store, {
-      eventId: 'max3:45',
-      eventSeq: 1,
-      origin: { actor: 'agent:cody', kind: 'agent' },
-    })
-
-    expect(evaluator({ job: defaultPolicy, event: agentEvent, store })).toEqual({
-      decision: 'skip',
-      reason: 'agent_origin_blocked',
-    })
-    expect(evaluator({ job: explicitAllow, event: agentEvent, store }).decision).toBe('mint')
-
-    const systemEvent = insertHrcEvent(store, {
-      eventId: 'max3:46',
-      eventSeq: 2,
-      origin: { actor: 'system:hrc', kind: 'system' },
-    })
-    expect(evaluator({ job: defaultPolicy, event: systemEvent, store }).decision).toBe('mint')
-  })
-
-  test.each([
-    {
-      name: 'default denies an agent',
-      input: { jobAgentId: 'scribe', origin: { actor: 'agent:mable' } },
-      expected: { decision: 'skip', reason: 'agent_origin_blocked' },
-    },
-    {
-      name: 'deny-self blocks same agent',
-      input: {
-        jobAgentId: 'scribe',
-        originPolicy: { agent: 'deny-self' as const },
-        origin: { actor: 'agent:scribe' },
-      },
-      expected: { decision: 'skip', reason: 'agent_origin_blocked' },
-    },
-    {
-      name: 'deny-self blocks inexact agent scope',
-      input: {
-        jobAgentId: 'scribe',
-        originPolicy: { agent: 'deny-self' as const },
-        origin: { actor: 'agent:mable:project:taskboard' },
-      },
-      expected: { decision: 'skip', reason: 'agent_origin_blocked' },
-    },
-    {
-      name: 'deny-self allows other agent',
-      input: {
-        jobAgentId: 'scribe',
-        originPolicy: { agent: 'deny-self' as const },
-        origin: { actor: 'agent:mable' },
-      },
-      expected: { decision: 'mint' },
-    },
-    {
-      name: 'deny-self blocks actorless agent',
-      input: {
-        jobAgentId: 'scribe',
-        originPolicy: { agent: 'deny-self' as const },
-        origin: { kind: 'agent' },
-      },
-      expected: { decision: 'skip', reason: 'agent_origin_blocked' },
-    },
-    {
-      name: 'explicit deny blocks an agent',
-      input: {
-        jobAgentId: 'scribe',
-        originPolicy: { agent: 'deny' as const },
-        origin: { actor: 'agent:mable' },
-      },
-      expected: { decision: 'skip', reason: 'agent_origin_blocked' },
-    },
-    {
-      name: 'allow permits same agent',
-      input: {
-        jobAgentId: 'scribe',
-        originPolicy: { agent: 'allow' as const },
-        origin: { actor: 'agent:scribe' },
-      },
-      expected: { decision: 'mint' },
-    },
-  ])('agent-origin policy: $name', ({ input, expected }) => {
-    expect(evaluateEventOriginPolicy(input)).toMatchObject(expected)
-  })
-})
-
-describe('event job causation-chain evaluator', () => {
-  test('hrc bare job-run causation refs walk while opaque refs degrade benignly', () => {
-    const store = createInMemoryJobsStore()
-    const job = store.createJob({
-      agentId: 'cody',
-      projectId: 'agent-control-plane',
-      scopeRef: 'agent:cody:project:agent-control-plane:task:primary',
-      trigger: {
-        kind: 'event',
-        source: 'hrc',
-        match: { event: 'first_turn_missing' },
-        originPolicy: { agent: 'allow' },
-      },
-      input: { content: '{{payload.retrievalHint}}' },
-    }).job
-    const causalRun = store.appendJobRun({
-      jobId: job.jobId,
-      triggeredAt: '2026-08-14T19:59:00Z',
-      triggeredBy: 'webhook',
-      status: 'dispatched',
-      source: {
-        kind: 'webhook',
-        source: 'hrc',
-        eventId: 'max3:41',
-        canonicalEventId: 'hrc:max3:41',
-        eventSeq: 41,
-      },
-    }).jobRun
-    const evaluator = createEventJobEvaluator()
-    const liveRef = insertHrcEvent(store, {
-      eventId: 'max3:47',
-      eventSeq: 42,
-      origin: {
-        actor: 'agent:cody',
-        kind: 'agent',
-        causation_ref: causalRun.jobRunId,
-      },
-    })
-    expect(evaluator({ job, event: liveRef, store })).toEqual({
-      decision: 'skip',
-      reason: 'causation_cycle',
-    })
-
-    const opaqueRef = insertHrcEvent(store, {
-      eventId: 'max3:48',
-      eventSeq: 43,
-      origin: {
-        actor: 'agent:cody',
-        kind: 'agent',
-        causation_ref: 'opaque-unknown-token',
-      },
-    })
-    expect(evaluator({ job, event: opaqueRef, store }).decision).toBe('mint')
-  })
-
-  test('A->B->A skips the second A dispatch with causation_cycle', () => {
-    const store = createInMemoryJobsStore()
-    const jobA = createAllowEventJob(store, { slug: 'job-a', agentId: 'scribe' })
-    const jobB = createAllowEventJob(store, { slug: 'job-b', agentId: 'mable' })
-    insertWrkqEvent(store, { eventId: 'evt_a_first', eventSeq: 1 })
-    const runA = appendWebhookRun(store, {
-      jobId: jobA.jobId,
-      eventId: 'evt_a_first',
-      eventSeq: 1,
-    })
-    insertWrkqEvent(store, {
-      eventId: 'evt_b_from_a',
-      eventSeq: 2,
-      causationRef: runA.jobRunId,
-    })
-    const runB = appendWebhookRun(store, {
-      jobId: jobB.jobId,
-      eventId: 'evt_b_from_a',
-      eventSeq: 2,
-    })
-    const candidate = insertWrkqEvent(store, {
-      eventId: 'evt_a_second',
-      eventSeq: 3,
-      causationRef: runB.jobRunId,
-    })
-
-    expect(createEventJobEvaluator()({ job: jobA, event: candidate, store })).toEqual({
-      decision: 'skip',
-      reason: 'causation_cycle',
-    })
-  })
-
-  test('deep linear ancestry skips with causation_depth at N+1', () => {
-    const store = createInMemoryJobsStore()
-    const candidateJob = createAllowEventJob(store, { slug: 'candidate', agentId: 'scribe' })
-    const ancestorJob = createAllowEventJob(store, { slug: 'ancestor', agentId: 'mable' })
-    insertWrkqEvent(store, { eventId: 'evt_1', eventSeq: 1 })
-    const run1 = appendWebhookRun(store, {
-      jobId: ancestorJob.jobId,
-      eventId: 'evt_1',
-      eventSeq: 1,
-    })
-    insertWrkqEvent(store, { eventId: 'evt_2', eventSeq: 2, causationRef: run1.jobRunId })
-    const run2 = appendWebhookRun(store, {
-      jobId: ancestorJob.jobId,
-      eventId: 'evt_2',
-      eventSeq: 2,
-    })
-    insertWrkqEvent(store, { eventId: 'evt_3', eventSeq: 3, causationRef: run2.jobRunId })
-    const run3 = appendWebhookRun(store, {
-      jobId: ancestorJob.jobId,
-      eventId: 'evt_3',
-      eventSeq: 3,
-    })
-    const candidate = insertWrkqEvent(store, {
-      eventId: 'evt_4',
-      eventSeq: 4,
-      causationRef: run3.jobRunId,
-    })
-
-    expect(
-      createEventJobEvaluator({ causationDepthLimit: 2 })({
-        job: candidateJob,
-        event: candidate,
-        store,
-      })
-    ).toEqual({ decision: 'skip', reason: 'causation_depth' })
-  })
-
-  test('unknown forged causation refs are orphaned and evaluate normally', () => {
-    const store = createInMemoryJobsStore()
-    const job = createAllowEventJob(store, { slug: 'candidate', agentId: 'scribe' })
-    const event = insertWrkqEvent(store, {
-      eventId: 'evt_unknown',
-      eventSeq: 1,
-      causationRef: 'jrun_forged_missing',
-    })
-
-    expect(createEventJobEvaluator()({ job, event, store }).decision).toBe('mint')
-  })
-
-  test('missing source inbox rows end the chain without a skip', () => {
-    const store = createInMemoryJobsStore()
-    const job = createAllowEventJob(store, { slug: 'candidate', agentId: 'scribe' })
-    const ancestor = createAllowEventJob(store, { slug: 'ancestor', agentId: 'mable' })
-    const run = appendWebhookRun(store, {
-      jobId: ancestor.jobId,
-      eventId: 'evt_pruned',
-      eventSeq: 1,
-    })
-    const event = insertWrkqEvent(store, {
-      eventId: 'evt_candidate',
-      eventSeq: 2,
-      causationRef: run.jobRunId,
-    })
-
-    expect(createEventJobEvaluator()({ job, event, store }).decision).toBe('mint')
-  })
-
-  test('self-referencing store rows terminate via seen-set without crashing', () => {
-    const store = createInMemoryJobsStore()
-    const job = createAllowEventJob(store, { slug: 'candidate', agentId: 'scribe' })
-    const ancestor = createAllowEventJob(store, { slug: 'ancestor', agentId: 'mable' })
-    const loopRunId = 'jrun_self_reference'
-    insertWrkqEvent(store, {
-      eventId: 'evt_loop',
-      eventSeq: 1,
-      causationRef: loopRunId,
-    })
-    const run = appendWebhookRun(store, {
-      jobRunId: loopRunId,
-      jobId: ancestor.jobId,
-      eventId: 'evt_loop',
-      eventSeq: 1,
-    })
-    const event = insertWrkqEvent(store, {
-      eventId: 'evt_candidate',
-      eventSeq: 2,
-      causationRef: run.jobRunId,
-    })
-
-    expect(createEventJobEvaluator()({ job, event, store }).decision).toBe('mint')
-  })
-})
+import { call, jsonRequest, makeDeps } from '../../test/fixtures/event-job-http.js'
 
 describe('POST /v1/webhooks/wrkq', () => {
   const payload = {
@@ -729,19 +17,11 @@ describe('POST /v1/webhooks/wrkq', () => {
 
   test('valid v2 payload → 204 + one durable inbox row; duplicate → 204, no second row', async () => {
     const { jobsStore, deps } = makeDeps()
-    const first = await call(
-      handleWrkqWebhook,
-      jsonRequest('POST', '/v1/webhooks/wrkq', payload),
-      deps
-    )
+    const first = await call(jsonRequest('POST', '/v1/webhooks/wrkq', payload), deps)
     expect(first.status).toBe(204)
     expect(jobsStore.getInboxEvent('wrkq:evt_7').event).toBeDefined()
 
-    const dup = await call(
-      handleWrkqWebhook,
-      jsonRequest('POST', '/v1/webhooks/wrkq', payload),
-      deps
-    )
+    const dup = await call(jsonRequest('POST', '/v1/webhooks/wrkq', payload), deps)
     expect(dup.status).toBe(204)
     const events = jobsStore.claimPendingInboxEvents({
       now: '2100-01-01T00:00:00.000Z',
@@ -754,7 +34,6 @@ describe('POST /v1/webhooks/wrkq', () => {
   test('unsupported schema_version → 400', async () => {
     const { deps } = makeDeps()
     const res = await call(
-      handleWrkqWebhook,
       jsonRequest('POST', '/v1/webhooks/wrkq', { ...payload, schema_version: 1 }),
       deps
     )
@@ -780,7 +59,7 @@ describe('POST /v1/webhooks/wrkq', () => {
     )
     expect(body.schema_version).toBeUndefined()
     const { jobsStore, deps } = makeDeps()
-    const res = await call(handleWrkqWebhook, jsonRequest('POST', '/v1/webhooks/wrkq', body), deps)
+    const res = await call(jsonRequest('POST', '/v1/webhooks/wrkq', body), deps)
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatchObject({
       code: 'malformed_request',
@@ -798,11 +77,7 @@ describe('POST /v1/webhooks/wrkq', () => {
   // T-05270: recognized event appends exactly one lifecycle system event.
   test('recognized event appends one wrkq.* system event (observer projection)', async () => {
     const { adminStore, deps } = makeDeps()
-    const res = await call(
-      handleWrkqWebhook,
-      jsonRequest('POST', '/v1/webhooks/wrkq', payload),
-      deps
-    )
+    const res = await call(jsonRequest('POST', '/v1/webhooks/wrkq', payload), deps)
     expect(res.status).toBe(204)
     const rows = adminStore.systemEvents.list({ kind: 'wrkq.created' })
     expect(rows).toHaveLength(1)
@@ -812,11 +87,7 @@ describe('POST /v1/webhooks/wrkq', () => {
   // Required test #4: jobsStore absent still appends the system event + 204.
   test('jobsStore absent → system event still appended, returns 204', async () => {
     const { adminStore, deps } = makeDeps({ jobsStore: false })
-    const res = await call(
-      handleWrkqWebhook,
-      jsonRequest('POST', '/v1/webhooks/wrkq', payload),
-      deps
-    )
+    const res = await call(jsonRequest('POST', '/v1/webhooks/wrkq', payload), deps)
     expect(res.status).toBe(204)
     expect(adminStore.systemEvents.list({ kind: 'wrkq.created' })).toHaveLength(1)
   })
@@ -825,7 +96,6 @@ describe('POST /v1/webhooks/wrkq', () => {
   test('unknown event name → 204, inbox row written, no lifecycle system event', async () => {
     const { adminStore, jobsStore, deps } = makeDeps()
     const res = await call(
-      handleWrkqWebhook,
       jsonRequest('POST', '/v1/webhooks/wrkq', {
         ...payload,
         event: 'snoozed',
@@ -854,21 +124,13 @@ describe('POST /v1/webhooks/events', () => {
 
   test('valid v1 payload → 204 + source-qualified inbox row; duplicate remains 204', async () => {
     const { jobsStore, deps } = makeDeps()
-    const first = await call(
-      handleAcpEventWebhook,
-      jsonRequest('POST', '/v1/webhooks/events', payload),
-      deps
-    )
+    const first = await call(jsonRequest('POST', '/v1/webhooks/events', payload), deps)
     expect(first.status).toBe(204)
     const row = jobsStore.getInboxEvent('media-ingest:evt_transcript_7').event
     expect(row).toBeDefined()
     expect(row?.source).toBe('media-ingest')
 
-    const dup = await call(
-      handleAcpEventWebhook,
-      jsonRequest('POST', '/v1/webhooks/events', payload),
-      deps
-    )
+    const dup = await call(jsonRequest('POST', '/v1/webhooks/events', payload), deps)
     expect(dup.status).toBe(204)
     const events = jobsStore.claimPendingInboxEvents({
       now: '2100-01-01T00:00:00.000Z',
@@ -901,22 +163,14 @@ describe('POST /v1/webhooks/events', () => {
       },
     }
 
-    const first = await call(
-      handleAcpEventWebhook,
-      jsonRequest('POST', '/v1/webhooks/events', hrcPayload),
-      deps
-    )
+    const first = await call(jsonRequest('POST', '/v1/webhooks/events', hrcPayload), deps)
     expect(first.status).toBe(204)
     const row = jobsStore.getInboxEvent('hrc:max3:42').event
     expect(row).toBeDefined()
     expect(row?.source).toBe('hrc')
     expect(row?.payload).toEqual(expect.objectContaining(hrcPayload))
 
-    const duplicate = await call(
-      handleAcpEventWebhook,
-      jsonRequest('POST', '/v1/webhooks/events', hrcPayload),
-      deps
-    )
+    const duplicate = await call(jsonRequest('POST', '/v1/webhooks/events', hrcPayload), deps)
     expect(duplicate.status).toBe(204)
     const events = jobsStore.claimPendingInboxEvents({
       now: '2100-01-01T00:00:00.000Z',
@@ -926,11 +180,7 @@ describe('POST /v1/webhooks/events', () => {
     expect(events).toHaveLength(1)
 
     const { schema_version: _schemaVersion, ...missingSchema } = hrcPayload
-    const rejected = await call(
-      handleAcpEventWebhook,
-      jsonRequest('POST', '/v1/webhooks/events', missingSchema),
-      deps
-    )
+    const rejected = await call(jsonRequest('POST', '/v1/webhooks/events', missingSchema), deps)
     expect(rejected.status).toBe(400)
     expect((await rejected.json()).error).toMatchObject({
       code: 'malformed_request',
@@ -963,12 +213,10 @@ describe('POST /v1/webhooks/events', () => {
     })
 
     const max3 = await call(
-      handleAcpEventWebhook,
       jsonRequest('POST', '/v1/webhooks/events', envelope('max3', 'runtime-max3')),
       deps
     )
     const svc = await call(
-      handleAcpEventWebhook,
       jsonRequest('POST', '/v1/webhooks/events', envelope('svc', 'runtime-svc')),
       deps
     )
@@ -988,7 +236,6 @@ describe('POST /v1/webhooks/events', () => {
   test('invalid generic envelope → 400', async () => {
     const { deps } = makeDeps()
     const res = await call(
-      handleAcpEventWebhook,
       jsonRequest('POST', '/v1/webhooks/events', { ...payload, source: 'Media Ingest' }),
       deps
     )
