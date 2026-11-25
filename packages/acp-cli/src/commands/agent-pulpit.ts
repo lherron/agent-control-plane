@@ -30,7 +30,7 @@ export async function runAgentPulpitCommand(
   const [subcommand, ...rest] = args
   if (subcommand !== 'send') {
     throw new CliUsageError(
-      'usage: acp agent-pulpit send --text <text> [--binding <id> | --gateway-type <type> --agent <agentId> --project <projectId>]'
+      'usage: acp agent-pulpit send --text <text> [--binding <id> | --gateway-type <type> --agent <agentId> --project <projectId>] [--sender-scope-ref <scopeRef>]'
     )
   }
 
@@ -42,6 +42,7 @@ export async function runAgentPulpitCommand(
       '--agent',
       '--project',
       '--lane-ref',
+      '--sender-scope-ref',
       '--text',
       '--idempotency-key',
       '--server',
@@ -78,6 +79,11 @@ export async function runAgentPulpitCommand(
     serverUrl,
     ...(actorAgentId !== undefined ? { actorAgentId } : {}),
   })
+  // The speaker: explicit, else this seat's own scope when it runs in one.
+  const senderScopeRef =
+    readStringFlag(parsed, '--sender-scope-ref')?.trim() ||
+    env['AGENT_SCOPE_REF']?.trim() ||
+    undefined
   const idempotencyKey =
     readStringFlag(parsed, '--idempotency-key')?.trim() || generatedIdempotencyKey()
 
@@ -90,6 +96,7 @@ export async function runAgentPulpitCommand(
     ...(readStringFlag(parsed, '--lane-ref') !== undefined
       ? { laneRef: requireStringFlag(parsed, '--lane-ref') }
       : {}),
+    ...(senderScopeRef !== undefined ? { senderScopeRef } : {}),
     text: requireStringFlag(parsed, '--text'),
     idempotencyKey,
   })

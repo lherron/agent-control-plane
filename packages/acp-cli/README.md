@@ -248,7 +248,7 @@ acp run attachment list | --actor --json --project --run --server
 acp run attachment clear | --actor --json --project --run --server
 acp send | --actor --contribution-fallback --contribution-semantics --idempotency-key --intent --json --lane-ref --meta --no-dispatch --project --scope-ref --server --table --text --wait --wait-interval-ms --wait-timeout-ms
 acp agent-pulpit | -
-acp agent-pulpit send | --actor --agent --binding --gateway-type --idempotency-key --json --lane-ref --project --server --text
+acp agent-pulpit send | --actor --agent --binding --gateway-type --idempotency-key --json --lane-ref --project --sender-scope-ref --server --text
 acp tail | --actor --from-seq --json --lane-ref --project --scope-ref --server --session --table
 acp render | --actor --json --lane-ref --project --scope-ref --server --session --source --table
 acp mobile | -

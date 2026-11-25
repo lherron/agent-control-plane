@@ -20,7 +20,7 @@ Source anchors (repo-relative): packages/acp-cli/src/cli.ts; packages/acp-server
 - Surface: `cli:acp agent patch [--actor --agent --display-name --home-dir --json --server --status]`
 - Surface: `cli:acp agent show [--actor --agent --json --server]`
 - Surface: `cli:acp agent-pulpit []`
-- Surface: `cli:acp agent-pulpit send [--actor --agent --binding --gateway-type --idempotency-key --json --lane-ref --project --server --text]`
+- Surface: `cli:acp agent-pulpit send [--actor --agent --binding --gateway-type --idempotency-key --json --lane-ref --project --sender-scope-ref --server --text]`
 - Surface: `cli:acp heartbeat []`
 - Surface: `cli:acp heartbeat set [--actor --agent --json --lane --note --scope --server --source]`
 - Surface: `cli:acp heartbeat wake [--actor --agent --json --lane --reason --scope --server]`

@@ -531,6 +531,10 @@ function addRuntimeCommands(program: Command, deps: CommandDependencies): void {
     .option('--agent <agentId>')
     .option('--project <projectId>')
     .option('--lane-ref <laneRef>')
+    .option(
+      '--sender-scope-ref <scopeRef>',
+      'speaking agent scope or handle (defaults to AGENT_SCOPE_REF)'
+    )
     .requiredOption('--text <text>')
     .option('--idempotency-key <key>')
     .action(runLeaf(deps, ['send'], runAgentPulpitCommand))

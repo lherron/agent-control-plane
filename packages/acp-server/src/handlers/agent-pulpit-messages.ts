@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 
 import { parseActorFromHeaders } from 'acp-core'
 import type { InterfaceBinding } from 'acp-interface-store'
+import { formatScopeRef, parseScopeHandle, validateScopeRef } from 'agent-scope'
 
 import { AcpHttpError, json, unprocessable } from '../http.js'
 import {
@@ -17,6 +18,7 @@ const ROUTE = 'POST /v1/agent-pulpit/messages'
 
 function fingerprint(input: {
   binding: InterfaceBinding
+  senderScopeRef: string | undefined
   bodyKind: 'text/markdown'
   bodyText: string
 }): string {
@@ -28,6 +30,8 @@ function fingerprint(input: {
         bindingId: input.binding.bindingId,
         scopeRef: input.binding.scopeRef,
         laneRef: input.binding.laneRef,
+        // Present only when sent, so replays of keys minted before the field existed match.
+        ...(input.senderScopeRef !== undefined ? { senderScopeRef: input.senderScopeRef } : {}),
         conversationRef: input.binding.conversationRef,
         threadRef: input.binding.threadRef ?? null,
         bodyKind: input.bodyKind,
@@ -46,6 +50,22 @@ function candidateDetails(binding: InterfaceBinding): Record<string, unknown> {
     ...(binding.threadRef !== undefined ? { threadRef: binding.threadRef } : {}),
     sessionRef: { scopeRef: binding.scopeRef, laneRef: binding.laneRef },
   }
+}
+
+/** The speaking agent's scope, canonical (`agent:a:project:p:task:t`) or a handle
+ * (`a@p:t`). The post renders under that agent's name and scope; without it the
+ * post speaks as the binding's agent. */
+function readSenderScopeRef(body: Record<string, unknown>): string | undefined {
+  const value = readOptionalTrimmedStringField(body, 'senderScopeRef')
+  if (value === undefined) return undefined
+  if (validateScopeRef(value).ok) return value
+  try {
+    return formatScopeRef(parseScopeHandle(value))
+  } catch {}
+  unprocessable('invalid_sender_scope_ref', 'senderScopeRef is not a scope ref or handle', {
+    field: 'senderScopeRef',
+    value,
+  })
 }
 
 function rejectMismatch(field: string, expected: string | undefined, actual: string): void {
@@ -160,6 +180,7 @@ export const handleCreateAgentPulpitMessage: RouteHandler = async ({ request, de
     bindingId !== undefined
       ? resolveBindingById({ body, bindingId, deps })
       : resolvePrimaryBinding({ body, deps })
+  const senderScopeRef = readSenderScopeRef(body)
 
   const effectiveActor =
     parseActorFromHeaders(request.headers, undefined, deps.defaultActor) ?? deps.defaultActor
@@ -168,12 +189,19 @@ export const handleCreateAgentPulpitMessage: RouteHandler = async ({ request, de
   const result = deps.interfaceStore.deliveries.enqueueIdempotent({
     route: ROUTE,
     idempotencyKey,
-    fingerprintHash: fingerprint({ binding, bodyKind: 'text/markdown', bodyText: text }),
+    fingerprintHash: fingerprint({
+      binding,
+      senderScopeRef,
+      bodyKind: 'text/markdown',
+      bodyText: text,
+    }),
     deliveryRequestId: `dr_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
     actor: effectiveActor,
     gatewayId: binding.gatewayId,
     bindingId: binding.bindingId,
-    scopeRef: binding.scopeRef,
+    // The delivery's session is the speaker: the gateway renders its name,
+    // avatar and scope subtext from it. The binding still picks the channel.
+    scopeRef: senderScopeRef ?? binding.scopeRef,
     laneRef: binding.laneRef,
     conversationRef: binding.conversationRef,
     ...(binding.threadRef !== undefined ? { threadRef: binding.threadRef } : {}),

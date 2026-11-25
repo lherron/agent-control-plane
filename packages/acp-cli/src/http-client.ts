@@ -222,6 +222,7 @@ export interface AcpClient {
     agentId?: string | undefined
     projectId?: string | undefined
     laneRef?: string | undefined
+    senderScopeRef?: string | undefined
     text: string
     idempotencyKey: string
   }): Promise<CreateAgentPulpitMessageResponse>
@@ -592,6 +593,7 @@ export function createHttpClient(
           ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
           ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
           ...(input.laneRef !== undefined ? { laneRef: input.laneRef } : {}),
+          ...(input.senderScopeRef !== undefined ? { senderScopeRef: input.senderScopeRef } : {}),
           text: input.text,
           idempotencyKey: input.idempotencyKey,
         },

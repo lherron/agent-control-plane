@@ -918,6 +918,7 @@
           "--json",
           "--lane-ref",
           "--project",
+          "--sender-scope-ref",
           "--server",
           "--text"
         ],
