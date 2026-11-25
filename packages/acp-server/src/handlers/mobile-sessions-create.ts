@@ -36,6 +36,7 @@ import {
   deliverMobileInitialPrompt,
   parseMobileInitialPrompt,
 } from './mobile-initial-prompt.js'
+import { parseMobileProvision, unpreservedProvision } from './mobile-provision.js'
 
 const IDEMPOTENCY_KEY_PREFIX = 'acp-mobile-session:v1:'
 const DEFAULT_MOBILE_TASK_ID = 'primary'
@@ -45,6 +46,7 @@ const ALLOWED_FIELDS = new Set([
   'taskId',
   'viewerWindow',
   'model',
+  'reasoningEffort',
   'requestId',
   'force',
   'scopeConfirmation',
@@ -326,7 +328,7 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
   const taskId = resolveMobileTaskId(body)
   const scopeConfirmation = parseScopeConfirmation(body, taskId)
   const force = parseMobileForce(body, taskId)
-  const model = readOptionalTrimmedStringField(body, 'model')
+  const provision = parseMobileProvision(body)
   // T-07603: no service default. HRC derives placement from scope shape, so a
   // mobile session lands in the operator's interactive window without ACP naming
   // a window at all. An explicit client-supplied key is still forwarded and still
@@ -345,7 +347,7 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
       requestId,
       sessionRef: formatSessionRef(baseSession),
       initialPrompt,
-      model,
+      provision,
     })
   }
 
@@ -360,7 +362,7 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
     runMode: baseIntent.placement.runMode as DeclarationRunMode,
     interactive: true,
     preferredMode: 'headless',
-    ...(model !== undefined ? { provision: { model } } : {}),
+    ...(provision !== undefined ? { provision } : {}),
     ...(deps.hrcAgentSources !== undefined ? { agentSources: deps.hrcAgentSources } : {}),
   }
   let resolved: ResolveRuntimeIntentResponse
@@ -369,10 +371,13 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
   } catch (error) {
     throw declarationFailure(error, requestId)
   }
-  if (model !== undefined && resolved.intent.summonDirectives?.model !== model) {
+  const unpreserved =
+    provision === undefined ? [] : unpreservedProvision(provision, resolved.intent.summonDirectives)
+  if (unpreserved.length > 0) {
     throw new HrcDomainError(
       HrcErrorCode.INTERNAL_ERROR,
-      'HRC did not preserve the requested model directive'
+      `HRC did not preserve the requested ${unpreserved.join(' and ')} directive`,
+      { unpreserved }
     )
   }
   for (const warning of resolved.declaration.warnings) {
@@ -393,10 +398,10 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
     ...baseIntent,
     harness: resolved.intent.harness,
     execution: resolved.intent.execution,
-    ...(model !== undefined && resolved.intent.provision !== undefined
+    ...(provision !== undefined && resolved.intent.provision !== undefined
       ? { provision: resolved.intent.provision }
       : {}),
-    ...(model !== undefined && resolved.intent.summonDirectives !== undefined
+    ...(provision !== undefined && resolved.intent.summonDirectives !== undefined
       ? { summonDirectives: resolved.intent.summonDirectives }
       : {}),
     ...(viewerWindow !== undefined ? { presentation: { viewerWindow } } : {}),
@@ -428,6 +433,9 @@ export const handleCreateMobileSession: RouteHandler = async ({ deps, request })
       runtimeId: started.runtimeId,
       status: started.status,
       replayed: started.claim.replayed,
+      ...(provision !== undefined && resolved.intent.summonDirectives !== undefined
+        ? { summonDirectives: resolved.intent.summonDirectives }
+        : {}),
       ...(initialPrompt !== undefined
         ? {
             initialPrompt: await deliverMobileInitialPrompt({

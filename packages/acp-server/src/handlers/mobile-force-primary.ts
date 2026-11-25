@@ -4,6 +4,7 @@ import { HrcDomainError, HrcErrorCode } from 'hrc-core'
 import { json } from '../http.js'
 import type { RouteContext } from '../routing/route-context.js'
 import { callSeatRestart, requestSeatRestart } from '../seat-restart-client.js'
+import { type MobileProvision, unpreservedProvision } from './mobile-provision.js'
 import { restartRefusal } from './mobile-sessions-restart.js'
 import { formatSessionIdentityHandle } from './shared.js'
 
@@ -59,9 +60,9 @@ export async function handleForcePrimary(input: {
   requestId: string
   sessionRef: string
   initialPrompt: string | undefined
-  model: string | undefined
+  provision: MobileProvision | undefined
 }): Promise<Response> {
-  const { force, requestId, initialPrompt, model } = input
+  const { force, requestId, initialPrompt, provision } = input
   const target = { seat: input.sessionRef, idempotencyKey: requestId }
   const reconcile = { ...target, mode: 'reconcile' }
   try {
@@ -71,7 +72,7 @@ export async function handleForcePrimary(input: {
       {
         ...target,
         ...force,
-        ...(force.mode !== 'reconcile' && model !== undefined ? { provision: { model } } : {}),
+        ...(force.mode !== 'reconcile' && provision !== undefined ? { provision } : {}),
         ...(force.mode !== 'reconcile' && initialPrompt !== undefined
           ? { firstTurn: initialPrompt }
           : {}),
@@ -96,6 +97,38 @@ export async function handleForcePrimary(input: {
       )
     }
     const { launch, firstTurn } = result
+    // HRC's force door refuses model_not_preserved itself; it does not check
+    // the effort. The restart has committed, so a dropped effort is reported.
+    const unpreserved =
+      force.mode === 'reconcile' || provision?.reasoning_effort === undefined
+        ? []
+        : unpreservedProvision(
+            { reasoning_effort: provision.reasoning_effort },
+            result.summonDirectives
+          )
+    if (unpreserved.length > 0) {
+      return json(
+        {
+          ok: false,
+          requestId,
+          code: 'reasoning_effort_not_preserved',
+          message: `HRC did not preserve the requested ${unpreserved.join(' and ')} directive`,
+          // The committed-restart shape the phone already parses.
+          detail: {
+            unpreserved,
+            sessionRef: result.sessionRef,
+            priorHostSessionId: result.priorHostSessionId,
+            hostSessionId: result.hostSessionId,
+            generation: result.generation,
+            launch,
+            ...(result.summonDirectives !== undefined
+              ? { summonDirectives: result.summonDirectives }
+              : {}),
+          },
+        },
+        502
+      )
+    }
     return json({
       disposition: result.outcome,
       claimedScope: formatSessionIdentityHandle(result.scopeRef, parseScopeRef(result.scopeRef)),
@@ -106,6 +139,9 @@ export async function handleForcePrimary(input: {
       launch,
       ...(launch.status === 'started' ? { runtimeId: launch.runtimeId, status: 'started' } : {}),
       replayed: result.replayed ?? false,
+      ...(result.summonDirectives !== undefined
+        ? { summonDirectives: result.summonDirectives }
+        : {}),
       ...(firstTurn?.delivered === true
         ? {
             initialPrompt: {
