@@ -8,6 +8,7 @@
 
 import { writeLogLine } from 'acp-core'
 
+import { MOBILE_API_ROOT, matchesMobileApiScope } from '../mobile-apis.js'
 import { isLoopbackPeer } from '../routing/peer.js'
 
 import type { RequestPeer } from '../routing/peer.js'
@@ -20,7 +21,7 @@ import type { MobileAuthStore } from './store.js'
  * `pair`   — the pairing code is the credential; the handler owns that check,
  *            because bearer is never demanded on the issuance path.
  * `bearer` — everything else on the surface.
- * `strict` — Jobhunt: bearer rules always apply, even with enforcement off.
+ * `strict` — Jobhunt and mobile API relay: bearer rules apply even with enforcement off.
  */
 export type MobileRouteClass = 'exempt' | 'pair' | 'bearer' | 'strict'
 
@@ -44,7 +45,7 @@ export function classifyMobileRoute(pathname: string): MobileRouteClass | undefi
   if (!MOBILE_PATH_PATTERN.test(pathname)) {
     return undefined
   }
-  if (pathname.startsWith('/v1/mobile/jobhunt/')) {
+  if (pathname.startsWith('/v1/mobile/jobhunt/') || pathname.startsWith(MOBILE_API_ROOT)) {
     return 'strict'
   }
   if (EXEMPT_PATHS.has(pathname)) {
@@ -65,7 +66,10 @@ export function parseBearerToken(header: string | null | undefined): string | un
   return match?.[1]
 }
 
-export type MobileAuthDecision = 'allow' | 'unauthorized'
+type MobileAuthRefusal = 'unauthorized' | 'scope_denied'
+export type MobileAuthDecision =
+  | { kind: 'allow'; deviceId?: string | undefined }
+  | { kind: MobileAuthRefusal }
 
 export type MobileAuthorizeInput = {
   pathname: string
@@ -76,31 +80,30 @@ export type MobileAuthorizeInput = {
 
 export function authorizeMobileRequest(input: MobileAuthorizeInput): MobileAuthDecision {
   const routeClass = classifyMobileRoute(input.pathname)
-  if (routeClass === undefined || routeClass === 'exempt') {
-    return 'allow'
+  if (routeClass === undefined || routeClass === 'exempt' || routeClass === 'pair') {
+    return { kind: 'allow' }
   }
 
-  // Dark ship (spec §4 step 1): `enforce: false` is zero behavior change across
-  // the non-strict classes, including the pair route's tailnet denial. Redemption is
-  // unconditional — a valid code mints a token whether or not enforcement is on —
-  // so the flag gates only refusals, never issuance.
-  if (routeClass !== 'strict' && !input.store.isEnforcing()) {
-    return 'allow'
-  }
-
-  // The pairing code is the pair route's credential and the handler checks it;
-  // demanding a bearer here would make pairing impossible by construction.
-  if (routeClass === 'pair') {
-    return 'allow'
-  }
-
-  if (isLoopbackPeer(input.peer)) {
-    return 'allow'
-  }
-
+  const loopback = isLoopbackPeer(input.peer)
   const token = parseBearerToken(input.authorization)
-  if (token !== undefined && input.store.verifyToken(token)) {
-    return 'allow'
+  const device = token === undefined ? undefined : input.store.verifyToken(token)
+  if (loopback) {
+    return { kind: 'allow', deviceId: device?.deviceId ?? 'loopback' }
+  }
+  if (device !== undefined) {
+    if (device.scope !== undefined && !matchesMobileApiScope(input.pathname, device.scope)) {
+      writeLogLine({
+        level: 'warn',
+        component: 'mobile-auth',
+        event: 'mobile.scope_denied',
+        data: { path: input.pathname, deviceId: device.deviceId },
+      })
+      return { kind: 'scope_denied' }
+    }
+    return { kind: 'allow', deviceId: device.deviceId }
+  }
+  if (routeClass !== 'strict' && !input.store.isEnforcing()) {
+    return { kind: 'allow' }
   }
   // Why, for the operator: a device that never paired sends nothing; a device paired elsewhere or revoked
   // sends a token this store does not hold. The class is logged, never the header's value (spec §2).
@@ -120,7 +123,13 @@ export function authorizeMobileRequest(input: MobileAuthorizeInput): MobileAuthD
             : 'invalid',
     },
   })
-  return 'unauthorized'
+  return { kind: 'unauthorized' }
+}
+
+export function mobileAuthRefusalResponse(refusal: MobileAuthRefusal): Response {
+  return refusal === 'scope_denied'
+    ? Response.json({ ok: false, code: refusal }, { status: 403 })
+    : mobileUnauthorizedResponse()
 }
 
 /**

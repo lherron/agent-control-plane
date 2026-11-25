@@ -1,6 +1,7 @@
 {
   "api": {
     "routes": [
+      "DELETE /v1/mobile/apis/:apiId/*path",
       "GET /admin/agents",
       "GET /health",
       "GET /v1/admin/agents",
@@ -35,6 +36,7 @@
       "GET /v1/job-runs/:jobRunId",
       "GET /v1/jobs/:jobId/runs",
       "GET /v1/media/attachments/:spoolId/:filename",
+      "GET /v1/mobile/apis/:apiId/*path",
       "GET /v1/mobile/auth/devices",
       "GET /v1/mobile/c2/actions/:requestId",
       "GET /v1/mobile/c2/artifacts/:id",
@@ -74,11 +76,13 @@
       "GET /v1/wrkq/tasks/:taskId",
       "GET /v2/mobile/dashboard",
       "GET /v2/mobile/sessions",
+      "HEAD /v1/mobile/apis/:apiId/*path",
       "HEAD /v1/mobile/plugins/:plugin/pages/:page/asset/*ref",
       "PATCH /v1/admin/agents/:agentId",
       "PATCH /v1/admin/agents/:agentId/profile",
       "PATCH /v1/admin/jobs/:jobId",
       "PATCH /v1/c2/threads/:id",
+      "PATCH /v1/mobile/apis/:apiId/*path",
       "POST /admin/agents/:agentId/inspect",
       "POST /v1/admin/agents",
       "POST /v1/admin/agents/:agentId/heartbeat/wake",
@@ -109,6 +113,7 @@
       "POST /v1/interface/messages",
       "POST /v1/interrupt",
       "POST /v1/messages",
+      "POST /v1/mobile/apis/:apiId/*path",
       "POST /v1/mobile/auth/devices/revoke",
       "POST /v1/mobile/auth/enforce",
       "POST /v1/mobile/auth/pairing-code",
@@ -148,7 +153,8 @@
       "POST /v1/wrkf/actions/launch",
       "POST /v1/wrkf/effects/deliver",
       "POST /v2/mobile/sessions/:hostSessionId/restart",
-      "PUT /v1/admin/agents/:agentId/heartbeat"
+      "PUT /v1/admin/agents/:agentId/heartbeat",
+      "PUT /v1/mobile/apis/:apiId/*path"
     ]
   },
   "capabilities": {
@@ -965,6 +971,7 @@
         "options": [
           "--actor",
           "--json",
+          "--scope",
           "--server",
           "--table"
         ],

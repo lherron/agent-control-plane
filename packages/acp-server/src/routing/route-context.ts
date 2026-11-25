@@ -16,6 +16,12 @@ export type RouteContext = {
    * Undefined means "not observable" — gates that depend on it must fail closed.
    */
   peer?: RequestPeer | undefined
+  /** Attribution from the shared mobile gate, including tokenless loopback. */
+  mobileDeviceId?: string | undefined
+  /** Switch the listener to the discard timeout when an upload is rejected mid-read. */
+  onDiscardRequestBody?: (() => void) | undefined
+  /** End a failed streaming hop without completing the HTTP response framing. */
+  abortResponseStream?: (() => void) | undefined
 }
 
 export type RouteHandler = (context: RouteContext) => Response | Promise<Response>

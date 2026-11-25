@@ -37,6 +37,8 @@ export type UpstreamRequest = {
 
 export type UpstreamResponse = { status: number; headers: IncomingHttpHeaders; body: Buffer }
 
+export class UpstreamDeadlineError extends Error {}
+
 function send(
   input: UpstreamRequest,
   onResponse: (res: IncomingMessage, settle: (error?: Error) => void) => void
@@ -67,7 +69,7 @@ function send(
       }
     )
     const timer = setTimeout(() => {
-      const error = new Error('upstream deadline exceeded')
+      const error = new UpstreamDeadlineError('upstream deadline exceeded')
       settle(error)
       req.destroy(error)
     }, input.deadlineMs)
@@ -99,7 +101,7 @@ export async function upstreamHop(input: UpstreamRequest): Promise<UpstreamRespo
  * caller and is destroyed when the caller cancels it.
  */
 export async function upstreamStream(
-  input: UpstreamRequest
+  input: UpstreamRequest & { bodyIdleMs?: number; abortResponseStream?: (() => void) | undefined }
 ): Promise<{ status: number; headers: IncomingHttpHeaders; body: ReadableStream<Uint8Array> }> {
   let head: IncomingMessage | undefined
   await send(input, (res, settle) => {
@@ -107,22 +109,61 @@ export async function upstreamStream(
     settle()
   })
   const res = head as IncomingMessage
+  const idleMs = input.bodyIdleMs
+  let idleTimer: ReturnType<typeof setTimeout> | undefined
+  function clearIdle() {
+    clearTimeout(idleTimer)
+  }
+  function armIdle() {
+    if (idleMs === undefined) return
+    clearIdle()
+    idleTimer = setTimeout(() => {
+      res.destroy(new UpstreamDeadlineError('upstream body idle deadline exceeded'))
+    }, idleMs)
+  }
+
   let open = true
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
+      armIdle()
       res.on('data', (chunk: Buffer) => {
-        if (open) controller.enqueue(new Uint8Array(chunk))
+        if (!open) return
+        controller.enqueue(new Uint8Array(chunk))
+        if (idleMs !== undefined && (controller.desiredSize ?? 0) <= 0) {
+          // Stop reading while the phone applies backpressure. Time spent
+          // waiting for the phone does not count as upstream idle time.
+          res.pause()
+          clearIdle()
+        } else {
+          armIdle()
+        }
       })
       res.on('end', () => {
+        clearIdle()
         if (open) controller.close()
         open = false
       })
       res.on('error', (error) => {
-        if (open) controller.error(error)
+        clearIdle()
+        if (!open) return
         open = false
+        if (input.abortResponseStream === undefined) {
+          controller.error(error)
+        } else {
+          // A Bun HTTP response can turn a JavaScript stream error into a
+          // valid final chunk. Leave the stream open for the transport abort.
+          input.abortResponseStream()
+        }
       })
     },
+    pull() {
+      if (idleMs !== undefined && res.isPaused()) {
+        armIdle()
+        res.resume()
+      }
+    },
     cancel() {
+      clearIdle()
       open = false
       res.destroy()
     },

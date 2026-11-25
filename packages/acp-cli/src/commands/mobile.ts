@@ -12,7 +12,13 @@
 import { CliUsageError } from '../cli-runtime.js'
 import { AcpClientHttpError } from '../http-client.js'
 
-import { hasFlag, parseArgs, requireNoPositionals, requireStringFlag } from './options.js'
+import {
+  hasFlag,
+  parseArgs,
+  readStringFlag,
+  requireNoPositionals,
+  requireStringFlag,
+} from './options.js'
 import { createRawRequesterFromParsed, renderJsonOrTable } from './shared.js'
 
 import type { CommandDependencies, CommandOutput } from './shared.js'
@@ -20,6 +26,7 @@ import type { CommandDependencies, CommandOutput } from './shared.js'
 type MobileAuthDevice = {
   deviceId: string
   deviceName?: string | undefined
+  scope?: string
   pairedAt: string
 }
 
@@ -40,10 +47,11 @@ function renderDevices(response: MobileAuthStateResponse): string {
     return lines.join('\n')
   }
 
-  lines.push('', 'DEVICE ID     PAIRED AT                 NAME')
+  const showScope = response.devices.some((device) => device.scope !== undefined)
+  lines.push('', `DEVICE ID     PAIRED AT                 NAME${showScope ? '  SCOPE' : ''}`)
   for (const device of response.devices) {
     lines.push(
-      `${device.deviceId.padEnd(13)} ${device.pairedAt.padEnd(25)} ${device.deviceName ?? '-'}`
+      `${device.deviceId.padEnd(13)} ${device.pairedAt.padEnd(25)} ${device.deviceName ?? '-'}${showScope ? `  ${device.scope ?? '-'}` : ''}`
     )
   }
   return lines.join('\n')
@@ -57,16 +65,23 @@ export async function runMobileCommand(
   const rest = args.slice(group === 'pairing-code' ? 1 : 2)
   const parsed = parseArgs(rest, {
     booleanFlags: ['--json', '--table', '--force'],
-    stringFlags: ['--server', '--actor', '--device'],
+    stringFlags: [
+      '--server',
+      '--actor',
+      '--device',
+      ...(group === 'pairing-code' ? ['--scope'] : []),
+    ],
   })
   requireNoPositionals(parsed)
 
   const requester = createRawRequesterFromParsed(parsed, deps)
 
   if (group === 'pairing-code') {
+    const scope = readStringFlag(parsed, '--scope')
     const response = await requester.requestJson<MintPairingCodeResponse>({
       method: 'POST',
       path: '/v1/mobile/auth/pairing-code',
+      ...(scope !== undefined ? { body: { scope } } : {}),
     })
     return renderJsonOrTable(parsed, response, () =>
       [

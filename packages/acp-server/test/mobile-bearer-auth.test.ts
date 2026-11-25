@@ -100,7 +100,7 @@ describe('dark ship: enforce=false is zero behavior change (spec §4 step 1)', (
         })
         expect(response.status).toBe(200)
         const body = await json<{ token: string }>(response)
-        expect(store.verifyToken(body.token)).toBe(true)
+        expect(store.verifyToken(body.token)).toBeDefined()
       },
       { mobileAuthStore: store }
     )
@@ -385,7 +385,7 @@ describe('enforced gate: exempt and pair rows (spec §1 rows 1-2)', () => {
 
       const body = await json<{ ok: boolean; token: string; deviceId: string }>(response)
       expect(body.ok).toBe(true)
-      expect(store.verifyToken(body.token)).toBe(true)
+      expect(store.verifyToken(body.token)).toBeDefined()
 
       const admitted = await request({
         method: 'GET',
@@ -463,7 +463,7 @@ describe('enforced gate: exempt and pair rows (spec §1 rows 1-2)', () => {
           peer: LOOPBACK,
         })
       )
-      expect(store.verifyToken(body.token)).toBe(true)
+      expect(store.verifyToken(body.token)).toBeDefined()
     })
   })
 })
@@ -546,7 +546,7 @@ describe('loopback auth admin routes (spec §4 — the server is the only writer
           peer: LOOPBACK,
         })
         expect(revoked.status).toBe(200)
-        expect(store.verifyToken(paired.token)).toBe(false)
+        expect(store.verifyToken(paired.token)).toBeUndefined()
         const afterRevoke = await json<{ devices: unknown[] }>(
           await request({ method: 'GET', path: '/v1/mobile/auth/devices', peer: LOOPBACK })
         )
@@ -695,7 +695,7 @@ describe('loopback auth admin routes (spec §4 — the server is the only writer
         })
         expect(response.status).toBe(200)
         const body = await json<{ token: string }>(response)
-        expect(store.verifyToken(body.token)).toBe(true)
+        expect(store.verifyToken(body.token)).toBeDefined()
       },
       { mobileAuthStore: store }
     )

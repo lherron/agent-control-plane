@@ -26,7 +26,7 @@ Source anchors (repo-relative): packages/gateway-discord/src; packages/gateway-i
 - Surface: `cli:acp mobile devices []`
 - Surface: `cli:acp mobile devices list [--actor --json --server --table]`
 - Surface: `cli:acp mobile devices revoke [--actor --device --json --server --table]`
-- Surface: `cli:acp mobile pairing-code [--actor --json --server --table]`
+- Surface: `cli:acp mobile pairing-code [--actor --json --scope --server --table]`
 - Surface: `cli:acp thread []`
 - Surface: `cli:acp thread list [--actor --json --lane-ref --project --scope-ref --server --table]`
 - Surface: `cli:acp thread show [--actor --json --server --table --thread]`
@@ -41,6 +41,12 @@ Source anchors (repo-relative): packages/gateway-discord/src; packages/gateway-i
 - Surface: `route:GET /v1/conversation/threads/:threadId/turns @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:GET /v1/interface/bindings @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:GET /v1/media/attachments/:spoolId/:filename @ packages/acp-server/src/routing/param-routes.ts`
+- Surface: `route:DELETE /v1/mobile/apis/:apiId/*path @ packages/acp-server/src/routing/param-routes.ts`
+- Surface: `route:GET /v1/mobile/apis/:apiId/*path @ packages/acp-server/src/routing/param-routes.ts`
+- Surface: `route:HEAD /v1/mobile/apis/:apiId/*path @ packages/acp-server/src/routing/param-routes.ts`
+- Surface: `route:PATCH /v1/mobile/apis/:apiId/*path @ packages/acp-server/src/routing/param-routes.ts`
+- Surface: `route:POST /v1/mobile/apis/:apiId/*path @ packages/acp-server/src/routing/param-routes.ts`
+- Surface: `route:PUT /v1/mobile/apis/:apiId/*path @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:GET /v1/mobile/auth/devices @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:GET /v1/mobile/dashboard @ packages/acp-server/src/routing/exact-routes.ts`
 - Surface: `route:GET /v1/mobile/dm/targets @ packages/acp-server/src/routing/exact-routes.ts`

@@ -32,6 +32,7 @@ import { handleGetInputAttempt } from '../handlers/input-attempts-get.js'
 import { handleGetJobRun, handleListJobRuns } from '../handlers/job-runs.js'
 import { handleCancelLedgerInput } from '../handlers/ledger-input-cancel.js'
 import { handleGetMediaAttachment } from '../handlers/media-attachments.js'
+import { handleMobileApi } from '../handlers/mobile-apis.js'
 import { handleMobileAttachInfo } from '../handlers/mobile-attach-info.js'
 import {
   handleJobhuntAsk,
@@ -144,6 +145,12 @@ export function buildParamRoutes(): ParamRoute[] {
   }
 
   return [
+    createParamRoute('GET', '/v1/mobile/apis/:apiId/*path', handleMobileApi),
+    createParamRoute('HEAD', '/v1/mobile/apis/:apiId/*path', handleMobileApi),
+    createParamRoute('POST', '/v1/mobile/apis/:apiId/*path', handleMobileApi),
+    createParamRoute('PUT', '/v1/mobile/apis/:apiId/*path', handleMobileApi),
+    createParamRoute('PATCH', '/v1/mobile/apis/:apiId/*path', handleMobileApi),
+    createParamRoute('DELETE', '/v1/mobile/apis/:apiId/*path', handleMobileApi),
     createParamRoute('GET', '/v1/mobile/jobhunt/leads/:id', handleJobhuntLead),
     createParamRoute('POST', '/v1/mobile/jobhunt/leads/:id/decision', handleJobhuntDecision),
     createParamRoute('POST', '/v1/mobile/jobhunt/leads/:id/ask', handleJobhuntAsk),

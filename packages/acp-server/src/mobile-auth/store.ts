@@ -46,6 +46,7 @@ export type MobileAuthDevice = {
   /** Hex SHA-256 of the bearer token. The token itself is never stored. */
   tokenHash: string
   deviceName?: string | undefined
+  scope?: string
   pairedAt: string
 }
 
@@ -57,6 +58,7 @@ export type MobileAuthState = {
 export type MobileAuthPublicDevice = {
   deviceId: string
   deviceName?: string | undefined
+  scope?: string
   pairedAt: string
 }
 
@@ -84,9 +86,9 @@ export interface MobileAuthStore {
   /** Roster + flag, safe to render (no hashes). */
   readPublicState(): { enforce: boolean; devices: MobileAuthPublicDevice[] }
   isEnforcing(): boolean
-  /** Constant-time membership test of `token` against every stored hash. */
-  verifyToken(token: string): boolean
-  mintPairingCode(): MintedPairingCode
+  /** Check every stored hash and return the matched device. */
+  verifyToken(token: string): MobileAuthDevice | undefined
+  mintPairingCode(scope?: string): MintedPairingCode
   /** Consumes the outstanding code on first success only. */
   redeemPairingCode(code: string, deviceName?: string | undefined): RedeemedPairing | undefined
   revokeDevice(deviceId: string): MobileAuthPublicDevice | undefined
@@ -147,7 +149,8 @@ function isMobileAuthDevice(value: unknown): value is MobileAuthDevice {
     typeof record['deviceId'] === 'string' &&
     typeof record['tokenHash'] === 'string' &&
     typeof record['pairedAt'] === 'string' &&
-    (record['deviceName'] === undefined || typeof record['deviceName'] === 'string')
+    (record['deviceName'] === undefined || typeof record['deviceName'] === 'string') &&
+    (record['scope'] === undefined || typeof record['scope'] === 'string')
   )
 }
 
@@ -176,7 +179,9 @@ export function createMobileAuthStore(options: MobileAuthStoreOptions = {}): Mob
   const now = options.now ?? (() => Date.now())
 
   let state: MobileAuthState = load()
-  let outstandingCode: { codeHash: string; expiresAtMs: number } | undefined
+  let outstandingCode:
+    | { codeHash: string; expiresAtMs: number; scope: string | undefined }
+    | undefined
 
   function load(): MobileAuthState {
     if (path === undefined) {
@@ -206,6 +211,7 @@ export function createMobileAuthStore(options: MobileAuthStoreOptions = {}): Mob
     return {
       deviceId: device.deviceId,
       ...(device.deviceName !== undefined ? { deviceName: device.deviceName } : {}),
+      ...(device.scope !== undefined ? { scope: device.scope } : {}),
       pairedAt: device.pairedAt,
     }
   }
@@ -222,24 +228,24 @@ export function createMobileAuthStore(options: MobileAuthStoreOptions = {}): Mob
     verifyToken(token) {
       const candidate = token.trim()
       if (candidate.length === 0) {
-        return false
+        return undefined
       }
       const hash = sha256Hex(candidate)
       // Deliberately non-short-circuiting: every device costs the same compare.
-      let matched = false
+      let matched: MobileAuthDevice | undefined
       for (const device of state.devices) {
         if (hexDigestEquals(hash, device.tokenHash)) {
-          matched = true
+          matched = device
         }
       }
       return matched
     },
 
-    mintPairingCode() {
+    mintPairingCode(scope) {
       const code = randomFromAlphabet(PAIRING_CODE_LENGTH, PAIRING_CODE_ALPHABET)
       const expiresAtMs = now() + PAIRING_CODE_TTL_MS
       // At most one outstanding code: minting voids whatever was outstanding.
-      outstandingCode = { codeHash: sha256Hex(code), expiresAtMs }
+      outstandingCode = { codeHash: sha256Hex(code), expiresAtMs, scope }
       return { code, expiresAt: new Date(expiresAtMs).toISOString() }
     },
 
@@ -273,6 +279,7 @@ export function createMobileAuthStore(options: MobileAuthStoreOptions = {}): Mob
         deviceId: randomBytes(6).toString('hex'),
         tokenHash: sha256Hex(token),
         ...(deviceName !== undefined && deviceName.length > 0 ? { deviceName } : {}),
+        ...(outstanding.scope !== undefined ? { scope: outstanding.scope } : {}),
         pairedAt: new Date(now()).toISOString(),
       }
       state = { ...state, devices: [...state.devices, device] }

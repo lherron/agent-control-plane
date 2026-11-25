@@ -2,7 +2,8 @@ import { ensureC2Service, stopC2Service } from './c2/controller-host.js'
 import { startThreadSweep } from './c2/thread-sweep.js'
 import { type AcpServerDeps, resolveAcpServerDeps } from './deps.js'
 import { errorResponse } from './http.js'
-import { authorizeMobileRequest, mobileUnauthorizedResponse } from './mobile-auth/gate.js'
+import { MOBILE_API_ROOT, discardUnreadRequestBody } from './mobile-apis.js'
+import { authorizeMobileRequest, mobileAuthRefusalResponse } from './mobile-auth/gate.js'
 import { UNMATCHED_ROUTE } from './request-log.js'
 import { buildExactRouteHandlers, exactRouteKey } from './routing/exact-routes.js'
 import { buildParamRoutes, matchParamRoute } from './routing/param-routes.js'
@@ -23,6 +24,10 @@ export type AcpServerHandlerOptions = {
    * `route` field comes from here.
    */
   onRoute?: ((route: string) => void) | undefined
+  /** Let the listener bound the idle time of a discarded upload. */
+  onDiscardRequestBody?: (() => void) | undefined
+  /** Abort an incomplete streamed response at the listener. */
+  abortResponseStream?: (() => void) | undefined
 }
 
 export interface AcpServer {
@@ -62,47 +67,66 @@ export function createAcpServer(deps: AcpServerDeps): AcpServer {
 
     async handler(request: Request, options?: AcpServerHandlerOptions): Promise<Response> {
       const peer = options?.peer
+      let mobileApi = false
+      const finish = (response: Response): Response | Promise<Response> => {
+        if (mobileApi && response.status >= 400) {
+          return discardUnreadRequestBody(request, options?.onDiscardRequestBody).then(
+            () => response
+          )
+        }
+        return response
+      }
       try {
         const url = new URL(request.url)
         const pathname = url.pathname
+        mobileApi = pathname.startsWith(MOBILE_API_ROOT)
         const matched = matchRoute(request.method, pathname)
         options?.onRoute?.(matched?.template ?? UNMATCHED_ROUTE)
 
         // Single enforcement point for the mobile surface (spec §3): one decision
         // function, shared with the WS upgrade path in `cli.ts`, ahead of the
         // route handlers so no handler carries auth code of its own.
-        if (
-          authorizeMobileRequest({
-            pathname,
-            peer,
-            authorization: request.headers.get('authorization'),
-            store: resolvedDeps.mobileAuthStore,
-          }) === 'unauthorized'
-        ) {
-          return mobileUnauthorizedResponse()
+        const mobileAuth = authorizeMobileRequest({
+          pathname,
+          peer,
+          authorization: request.headers.get('authorization'),
+          store: resolvedDeps.mobileAuthStore,
+        })
+        if (mobileAuth.kind !== 'allow') {
+          if (mobileAuth.kind === 'scope_denied' && !mobileApi) {
+            await discardUnreadRequestBody(request, options?.onDiscardRequestBody)
+          }
+          return finish(mobileAuthRefusalResponse(mobileAuth.kind))
         }
 
         if (matched !== undefined) {
-          return await matched.handler({
-            request,
-            url,
-            params: matched.params,
-            deps: resolvedDeps,
-            peer,
-          })
+          return finish(
+            await matched.handler({
+              request,
+              url,
+              params: matched.params,
+              deps: resolvedDeps,
+              peer,
+              mobileDeviceId: mobileAuth.deviceId,
+              onDiscardRequestBody: options?.onDiscardRequestBody,
+              abortResponseStream: options?.abortResponseStream,
+            })
+          )
         }
 
-        return Response.json(
-          {
-            error: {
-              code: 'not_found',
-              message: 'route not found',
+        return finish(
+          Response.json(
+            {
+              error: {
+                code: 'not_found',
+                message: 'route not found',
+              },
             },
-          },
-          { status: 404 }
+            { status: 404 }
+          )
         )
       } catch (error) {
-        return errorResponse(error)
+        return finish(errorResponse(error))
       }
     },
   }

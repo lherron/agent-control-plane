@@ -12,6 +12,7 @@
  */
 
 import { badRequest, json } from '../http.js'
+import { mobileApiIdForScope } from '../mobile-apis.js'
 import { MobileAuthEmptyRosterError } from '../mobile-auth/store.js'
 import { isLoopbackPeer } from '../routing/peer.js'
 
@@ -53,11 +54,21 @@ async function readOptionalBody(request: Request): Promise<Record<string, unknow
 }
 
 /** POST /v1/mobile/auth/pairing-code — mint the single outstanding pairing code. */
-export const handleMintMobilePairingCode: RouteHandler = async ({ deps, peer }) => {
+export const handleMintMobilePairingCode: RouteHandler = async ({ deps, peer, request }) => {
   if (!isLoopbackPeer(peer)) {
     return notLocal()
   }
-  const minted = requireMobileAuthStore(deps).mintPairingCode()
+  // Legacy requests minted a full code regardless of the body. Only an explicit
+  // scope in a JSON object opts into scope validation.
+  const body: unknown = await request.json().catch(() => undefined)
+  const scope = isRecord(body) ? body['scope'] : undefined
+  if (
+    scope !== undefined &&
+    (typeof scope !== 'string' || mobileApiIdForScope(scope) === undefined)
+  ) {
+    badRequest('scope must name a registered mobile API as api:<apiId>', { field: 'scope' })
+  }
+  const minted = requireMobileAuthStore(deps).mintPairingCode(scope)
   return json({ ok: true, ...minted })
 }
 

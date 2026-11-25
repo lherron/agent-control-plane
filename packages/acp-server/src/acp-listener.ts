@@ -25,7 +25,8 @@ import {
   openPluginEventsWebSocket,
 } from './handlers/plugin-events-ws.js'
 import { islandCorsOrigin, islandPreflight, withIslandCors } from './island-cors.js'
-import { authorizeMobileRequest, mobileUnauthorizedResponse } from './mobile-auth/gate.js'
+import { discardUnreadRequestBody } from './mobile-apis.js'
+import { authorizeMobileRequest, mobileAuthRefusalResponse } from './mobile-auth/gate.js'
 import {
   MAIN_LISTENER,
   type RequestLogContext,
@@ -41,7 +42,11 @@ export const CAP_RPC_PATH = '/v1/cap/rpc'
 type UpgradeServer = {
   requestIP(request: Request): { address: string; family: string; port: number } | null
   upgrade(request: Request, options: unknown): boolean
+  timeout?(request: Request, seconds: number): void
 }
+
+const DISCARDED_UPLOAD_IDLE_SECONDS = 5
+const ABORTED_RESPONSE_IDLE_SECONDS = 1
 
 export interface AcpListenerOptions {
   acpServer: AcpServer
@@ -81,6 +86,7 @@ export function createAcpListenerHandlers(options: AcpListenerOptions) {
       // branch: Bun exposes it only here, and peer-gated routes (mobile bearer
       // auth, attach-info) cannot observe it from the Request alone.
       const peer = server.requestIP(request) ?? undefined
+      const onDiscardRequestBody = () => server.timeout?.(request, DISCARDED_UPLOAD_IDLE_SECONDS)
       const requestLog = startRequestLog(request, url, peer?.address, listener)
       const isWebSocketUpgrade = request.headers.get('upgrade')?.toLowerCase() === 'websocket'
       if (isWebSocketUpgrade && isPluginEventsWebSocketPath(url.pathname)) {
@@ -93,15 +99,17 @@ export function createAcpListenerHandlers(options: AcpListenerOptions) {
         // Same decision function as the HTTP router (spec §3) — checked before
         // `server.upgrade()`, since a socket that completes the handshake is
         // already inside.
-        if (
-          authorizeMobileRequest({
-            pathname: url.pathname,
-            peer,
-            authorization: request.headers.get('authorization'),
-            store: deps.mobileAuthStore,
-          }) === 'unauthorized'
-        ) {
-          return finishRequestLog(requestLog, mobileUnauthorizedResponse())
+        const mobileAuth = authorizeMobileRequest({
+          pathname: url.pathname,
+          peer,
+          authorization: request.headers.get('authorization'),
+          store: deps.mobileAuthStore,
+        })
+        if (mobileAuth.kind !== 'allow') {
+          if (mobileAuth.kind === 'scope_denied') {
+            await discardUnreadRequestBody(request, onDiscardRequestBody)
+          }
+          return finishRequestLog(requestLog, mobileAuthRefusalResponse(mobileAuth.kind))
         }
         return upgrade(
           server,
@@ -130,6 +138,11 @@ export function createAcpListenerHandlers(options: AcpListenerOptions) {
       } else {
         handled = await acpServer.handler(request, {
           peer,
+          onDiscardRequestBody,
+          abortResponseStream:
+            server.timeout === undefined
+              ? undefined
+              : () => server.timeout?.(request, ABORTED_RESPONSE_IDLE_SECONDS),
           onRoute: (route) => {
             requestLog.route = route
           },

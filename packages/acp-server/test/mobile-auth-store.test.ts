@@ -39,7 +39,7 @@ describe('mobile auth store — persistence', () => {
 
       const reopened = createMobileAuthStore({ path })
       expect(reopened.isEnforcing()).toBe(true)
-      expect(reopened.verifyToken(token)).toBe(true)
+      expect(reopened.verifyToken(token)).toBeDefined()
     })
   })
 

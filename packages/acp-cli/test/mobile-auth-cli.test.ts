@@ -99,7 +99,7 @@ describe('acp mobile', () => {
       ])) as { revoked: { deviceId: string }; devices: unknown[] }
       expect(revoked.revoked.deviceId).toBe(paired?.device.deviceId as string)
       expect(revoked.devices).toEqual([])
-      expect(store.verifyToken(paired?.token ?? '')).toBe(false)
+      expect(store.verifyToken(paired?.token ?? '')).toBeUndefined()
     })
   })
 

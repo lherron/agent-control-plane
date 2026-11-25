@@ -252,7 +252,7 @@ acp agent-pulpit send | --actor --agent --binding --gateway-type --idempotency-k
 acp tail | --actor --from-seq --json --lane-ref --project --scope-ref --server --session --table
 acp render | --actor --json --lane-ref --project --scope-ref --server --session --source --table
 acp mobile | -
-acp mobile pairing-code | --actor --json --server --table
+acp mobile pairing-code | --actor --json --scope --server --table
 acp mobile devices | -
 acp mobile devices list | --actor --json --server --table
 acp mobile devices revoke | --actor --device --json --server --table

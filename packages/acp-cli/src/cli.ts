@@ -587,6 +587,7 @@ function addMobileCommands(program: Command, deps: CommandDependencies): void {
     mobile
       .command('pairing-code')
       .description('mint a single-use pairing code (5 minute TTL; voids any outstanding code)')
+      .option('--scope <scope>', 'restrict the paired device to a registered API (api:<apiId>)')
   ).action(runLeaf(deps, ['pairing-code'], runMobileCommand))
 
   const devices = mobile.command('devices').description('manage paired mobile devices')
