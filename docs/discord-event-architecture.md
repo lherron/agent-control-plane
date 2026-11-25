@@ -24,9 +24,10 @@ The **system-events store is an immutable observer projection**, not authority.
 - Idempotency: `systemEvents.existsWithPayloadField({ kind, field, value })`
   before append (keyed on a stable payload id, e.g. `jobRunId`). Safe across
   repeated reconciler ticks and process restarts.
-- Wired in `cli.ts`: consumes `jobsScheduler.tick()` return (every touched run),
-  the output-reconciler `onJobRunSettled` callback, and the manual run handler
-  (`handlers/admin-jobs.ts`). Synchronous-flow terminals backfill the start
+- Wired in `serve-workers.ts`: consumes `jobsScheduler.tick()` return (every
+  touched run) and the output-reconciler `onJobRunSettled` callback, both only
+  when `ACP_SCHEDULER_ENABLED=1`; the manual run handler
+  (`handlers/admin-jobs.ts`) creates its own emitter. Synchronous-flow terminals backfill the start
   event before the completion event.
 - Optional captured agent output via
   `getRunFinalAssistantText({ getRun, hrc }, runId)` (HRC routes, T-13243)
@@ -65,7 +66,8 @@ interface bindings to enrich cards.
 
 ### 2. Store + HTTP (generic, reusable)
 
-`packages/acp-admin-store/src/open-store.ts` — `createSystemEventsStore`:
+`packages/acp-admin-store/src/system-events-store.ts` — `createSystemEventsStore`
+(opened as `adminStore.systemEvents` by `open-store.ts`):
 
 - `append(...)`, `existsWithPayloadField(...)`, and
   `list({ kind, projectId, occurredAfter, occurredBefore, afterEventId, limit })`.
@@ -79,8 +81,9 @@ interface bindings to enrich cards.
 ### 3. Render + egress (gateway-discord, embedded in acp-server)
 
 `packages/gateway-discord/src/job-runs.ts` (`buildJobRunCard`, pure event →
-embed), `work-activity.ts` (`buildWorkActivityCard`), and `app.ts`
-(`resolveCardTarget` / `pollSystemEventsOnce` / `runSystemEventsLoop`):
+embed, plus `JobRunFailureCardLimiter`), `work-activity.ts`
+(`buildWorkActivityCard`), and `lifecycle-cards.ts` (`resolveCardTarget` /
+`pollSystemEventsOnce` / `runSystemEventsLoop`, started from `app.ts`):
 
 - Polls `GET /v1/admin/system-events?afterEventId=&limit=200&waitMs=60000` **globally** (no
   kind filter; filters client-side and advances the cursor past every event so
@@ -140,6 +143,11 @@ Embed, `username = "<agent> · jobs"`, dicebear avatar thumbnail
   embed description (4096 cap) under a `-#` small-text subtitle. Caveat: unfenced
   ⇒ code/ASCII/whitespace reflows; a future option is to preserve fenced code
   blocks from the reply while rendering the rest.
+- **Failure limit** (T-10005): per job slug, at most 3 failed `job.completed`
+  cards per 10-minute window. Further failures are counted, and one
+  `✗ <n> more failed runs · <slug>` summary card (top error codes, first … last
+  run id) posts on the first poll after the window ends. Started and succeeded
+  cards are never limited; windows are in memory, so a restart starts fresh.
 
 ## Follow-ups
 

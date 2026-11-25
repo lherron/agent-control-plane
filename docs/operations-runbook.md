@@ -70,7 +70,10 @@ plist's `EnvironmentVariables` dict (`ACP_HOST`, `ACP_PORT`,
 `ACP_RUNTIME_DIR`, `ACP_LOG_PATH`, `ACP_SCHEDULER_ENABLED`,
 `ACP_REAL_HRC_LAUNCHER`, `HRC_RUNTIME_DIR`, `HRC_STATE_DIR`, `ASP_AGENTS_ROOT`,
 `ASP_HOME`, `ASP_PROJECT`, job-flow-exec allowlist vars, etc.). These are
-runtime contracts — do not rename them casually.
+runtime contracts — do not rename them casually. `acp server restart` only
+kickstarts the loaded job, which does not re-read the plist: an env or path
+change in the installed plist takes effect only after a launchd
+bootout/bootstrap of `com.praesidium.acp-server`.
 
 Discord secrets and channel routing come from **Consul KV**, with env always
 taking precedence over Consul so a local override never needs a KV write:
@@ -194,8 +197,11 @@ hooks or an unmaterialized `lefthook.yml`.
 
 Cron/event-driven automations (exec detectors, probe gates, agent dispatch,
 pulpit notifications) run on the ACP job engine
-(`packages/acp-jobs-store` + `packages/acp-server/src/jobs`), ticked every 5
-seconds when `ACP_SCHEDULER_ENABLED=1`. Jobs are authored as
+(`packages/acp-jobs-store` + `packages/acp-server/src/jobs`), scanned by the
+`jobs-scheduler` loop in `packages/acp-server/src/serve-workers.ts` when
+`ACP_SCHEDULER_ENABLED=1`. The loop wakes on `jobs`/`runs` commits, rescans on
+a 5-second cadence while job runs or event-inbox rows are active (or at their
+lease/sink-retry deadlines), and otherwise scans once a minute. Jobs are authored as
 `var/agents/<agent>/schedules/*.toml`, compiled with `asp resources plan`,
 and applied with `acp admin managed-resource apply`. Full authoring/step
 reference: `docs/ACP_JOBS_TASKS_USAGE.md` in the repo.

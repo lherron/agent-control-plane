@@ -11,8 +11,10 @@ run shows up as the `agent-control-plane-postpush` check.run and as a
   public surface, enablement changelog, dependency freshness).
 - pre-push: no gate. The wrapper only reports the pushed refs to the timeline
   through `wrkp git push`, best-effort.
+- post-commit: no gate and no Lefthook. `.githooks/post-commit` refreshes the
+  project's `code.head` through `wrkp git commit`, best-effort.
 
-Both wrappers also publish a best-effort whole-hook duration receipt
+The pre-commit and pre-push wrappers also publish a best-effort whole-hook duration receipt
 (`.githooks/hook-duration.sh`, T-11908).
 
 Materialize the gate after cloning:
