@@ -11,14 +11,7 @@ import type {
   HrcSessionRecord,
   HrcTargetView,
 } from 'hrc-core'
-import { HrcDomainError, isTerminalRuntimeStatus, splitSessionRef } from 'hrc-core'
-import type {
-  SessionFacetsRequest,
-  SessionFacetsResponse,
-  SessionPageItem,
-  SessionPageRequest,
-  SessionPeerStatus,
-} from 'hrc-sdk'
+import { HrcDomainError, splitSessionRef } from 'hrc-core'
 import { type CollaborationMessage, formatCollaborationMessage } from 'wrkq-lib'
 import { formatSessionIdentityHandle } from './shared.js'
 
@@ -50,7 +43,24 @@ import {
   sharedDashboardSessionReads,
 } from './dashboard-session-refresh.js'
 import { latestHrcSeq, listCachedLatestEventBySession } from './hrc-event-read-window.js'
+import { federatedSessionReadFromStatus, requireHrcClient } from './mobile-hrc.js'
 import { closePluginSubscriptions, handlePluginWebSocketFrame } from './mobile-plugin-ws.js'
+import {
+  type MobileSessionFacets,
+  type MobileSessionPageInfo,
+  loadMobileSessionPage,
+} from './mobile-session-page.js'
+import {
+  type MobileEventMessage,
+  type MobileExecutionMode,
+  type MobileSessionMode,
+  type MobileSessionSummary,
+  latestRuntimeForSession,
+  mobileStatus,
+  modeForExecution,
+  projectSession,
+  sessionRef,
+} from './mobile-session-projection.js'
 import {
   type MobileWebSocketLike,
   abortMobileWebSocket,
@@ -60,13 +70,12 @@ import {
   sendMobileErrorEnvelope,
   sendMobileJsonEnvelope,
 } from './mobile-ws.js'
-import { pageItemDisposition, recordDisposition } from './session-disposition.js'
+import { recordDisposition } from './session-disposition.js'
 
 const GATEWAY_ID = 'acp-local'
 const API_VERSION = 'v1'
 const DEFAULT_BASE_URL = 'http://127.0.0.1:18470'
 const DEFAULT_DASHBOARD_RECENT_EVENTS_PER_SESSION = 5
-const MOBILE_SESSION_PAGE_SIZE = 50
 const MAX_DASHBOARD_RECENT_EVENTS_PER_SESSION = 10
 const MAX_DASHBOARD_SNAPSHOT_EVENTS = 200
 const MAX_MOBILE_SESSION_RUNS = 10_000
@@ -80,10 +89,6 @@ const MOBILE_SESSION_DETAILS_QUERY_PARAM = 'sessionDetails'
 const REMOTE_CONTROL_UNAVAILABLE_MESSAGE =
   'Remote timeline, history, literal input, and interrupt are unavailable in mobile federation Phase 1.'
 
-type MobileSessionMode = 'interactive' | 'headless'
-type MobileSessionStatus = 'active' | 'stale' | 'inactive' | 'detached'
-type MobileExecutionMode = 'interactive' | 'headless' | 'nonInteractive'
-type MobileSessionSourceKind = 'local_session' | 'remote_runtime_projection'
 type MobileNodeState = 'healthy' | 'unreachable' | 'refused' | 'invalid_response'
 
 type MobileNodeSummary = {
@@ -101,141 +106,6 @@ type MobileNodeSummary = {
     runtimeProjection?: boolean | undefined
   }
   detail?: string | undefined
-}
-
-type MobileContextReading = {
-  turnId: string
-  usedTokens: number
-  windowTokens?: number | undefined
-  model?: { id: string; source: 'provider-response' | 'harness-config' } | undefined
-  observedAt: string
-}
-
-function projectContextReading(
-  runtime: HrcRuntimeSnapshot | null | undefined
-): MobileContextReading | undefined {
-  const value = runtime?.runtimeStateJson?.['contextReading']
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
-  const reading = value as Record<string, unknown>
-  if (
-    typeof reading['turnId'] !== 'string' ||
-    typeof reading['observedAt'] !== 'string' ||
-    !Number.isFinite(Date.parse(reading['observedAt'])) ||
-    typeof reading['usedTokens'] !== 'number' ||
-    !Number.isSafeInteger(reading['usedTokens']) ||
-    reading['usedTokens'] < 0
-  )
-    return undefined
-  const window = reading['windowTokens']
-  if (
-    window !== undefined &&
-    (typeof window !== 'number' || !Number.isSafeInteger(window) || window <= 0)
-  )
-    return undefined
-  const rawModel = reading['model']
-  const model =
-    typeof rawModel === 'object' && rawModel !== null && !Array.isArray(rawModel)
-      ? (rawModel as Record<string, unknown>)
-      : undefined
-  const projectedModel =
-    model &&
-    typeof model['id'] === 'string' &&
-    (model['source'] === 'provider-response' || model['source'] === 'harness-config')
-      ? ({ id: model['id'], source: model['source'] } as NonNullable<MobileContextReading['model']>)
-      : undefined
-  return {
-    turnId: reading['turnId'],
-    usedTokens: reading['usedTokens'],
-    ...(window !== undefined ? { windowTokens: window as number } : {}),
-    ...(projectedModel !== undefined ? { model: projectedModel } : {}),
-    observedAt: reading['observedAt'],
-  }
-}
-
-type MobileSessionSummary = {
-  context?: MobileContextReading | undefined
-  nodeId?: string | undefined
-  sourceKind?: MobileSessionSourceKind | undefined
-  projectionState?: 'answered' | 'unreachable' | 'refused' | 'invalid_response' | undefined
-  projectionCheckedAt?: string | undefined
-  projectionAnsweredAt?: string | undefined
-  /** T-13191: HRC's seat disposition from its session page item; null when unparked or unserved. */
-  disposition?: 'parked' | null | undefined
-  dispositionAt?: string | null | undefined
-  sessionRef: string
-  displayRef: string
-  title: string
-  mode: MobileSessionMode
-  executionMode: MobileExecutionMode
-  summaryStatus: MobileSessionStatus
-  /** @deprecated Use summaryStatus. Preserved for the older /mobile/sessions client. */
-  status?: MobileSessionStatus | undefined
-  hostSessionId: string
-  generation: number
-  runtimeId?: string | undefined
-  activeTurnId?: string | undefined
-  lastHrcSeq: number
-  lastMessageSeq: number
-  lastActivityAt?: string | undefined
-  capabilities: {
-    input: boolean
-    interrupt: boolean
-    launchHeadlessTurn: boolean
-    history: boolean
-    summary?: boolean | undefined
-    semanticDm?: boolean | undefined
-    timeline?: boolean | undefined
-    literalInput?: boolean | undefined
-    answerPrompt?: boolean | undefined
-  }
-  session?: {
-    status: string
-    generation: number
-    priorHostSessionId?: string | undefined
-    continuation?: HrcSessionRecord['continuation'] | undefined
-    lastAppliedIntent?: HrcSessionRecord['lastAppliedIntentJson'] | undefined
-    createdAt: string
-    updatedAt: string
-  }
-  runtime?:
-    | {
-        status: string
-        transport: string
-        runtimeId: string
-        activeRunId?: string | undefined
-        lastActivityAt?: string | undefined
-        supportsInflightInput: boolean
-        /**
-         * Always false: HRC retired runtime adoption (T-10146), but HRC Mobile
-         * builds through 0.1.42 decode this as a required Bool and drop the whole
-         * session page without it. Remove once no installed build requires it.
-         */
-        adopted: false
-        createdAt: string
-        updatedAt: string
-      }
-    | undefined
-  run?:
-    | {
-        status: string
-        runId: string
-        transport: string
-        runtimeId?: string | undefined
-        acceptedAt?: string | undefined
-        startedAt?: string | undefined
-        completedAt?: string | undefined
-        errorCode?: string | undefined
-        errorMessage?: string | undefined
-        updatedAt: string
-      }
-    | undefined
-  raw?:
-    | {
-        session: HrcSessionRecord
-        runtime?: HrcRuntimeSnapshot | undefined
-        run?: HrcRunRecord | undefined
-      }
-    | undefined
 }
 
 function thinLocalSessionForFederation(session: MobileSessionSummary): MobileSessionSummary {
@@ -277,46 +147,6 @@ type MobileSessionIndex = {
   sessions: MobileSessionSummary[]
 }
 
-type MobileSessionPageInfo = {
-  nextCursor?: string | undefined
-  localNodeId: string
-  eventHighWater: Record<string, number>
-  complete: boolean
-  peerStatus: Record<string, string>
-}
-
-type MobileSessionFacets = Omit<SessionFacetsResponse, 'peerStatus'> & {
-  peerStatus: Record<string, string>
-}
-
-type MobileSessionPagePayload = {
-  generatedAt: string
-  sessions: MobileSessionSummary[]
-  recentEventsBySession: Record<string, MobileEventMessage[]>
-  pageInfo: MobileSessionPageInfo
-  facets: MobileSessionFacets
-}
-
-type MobileEventMessage = {
-  type: 'hrc_event'
-  hrcSeq: number
-  streamSeq: number
-  eventKind: string
-  category: string
-  ts: string
-  payload: unknown
-  scopeRef?: string | undefined
-  laneRef?: string | undefined
-  sessionRef?: string | undefined
-  hostSessionId?: string | undefined
-  generation?: number | undefined
-  runtimeId?: string | undefined
-  runId?: string | undefined
-  launchId?: string | undefined
-  replayed?: boolean | undefined
-  errorCode?: string | undefined
-}
-
 type MobileDashboardSnapshot = {
   type: 'dashboard_snapshot'
   generatedAt: string
@@ -349,19 +179,6 @@ type MobileFederationSnapshot = {
 
 function isRemoteProjectionSource(value: unknown): boolean {
   return value === 'remote_runtime_projection'
-}
-
-/**
- * T-10418: HRC declares that scope-keyed session, event and run reads route to
- * the scope's home. Read structurally so ACP keeps building against an HRC
- * tuple that predates the field; absence means remote reads stay refused.
- */
-function federatedSessionReadFromStatus(status: { capabilities?: unknown }): boolean {
-  const capabilities = status.capabilities
-  return (
-    isRecord(capabilities) &&
-    (capabilities as Record<string, unknown>)['federatedSessionRead'] === true
-  )
 }
 
 const FEDERATED_READ_CACHE_MS = 30_000
@@ -456,214 +273,6 @@ type MobileTimelineFrame = {
 }
 
 type MobileWebSocket = MobileWebSocketLike
-
-function requireHrcClient(deps: ResolvedAcpServerDeps): AcpHrcClient {
-  if (deps.hrcClient === undefined) {
-    badRequest('hrcClient not configured')
-  }
-  return deps.hrcClient
-}
-
-function sessionRef(scopeRef: string, laneRef: string): string {
-  return `${scopeRef}/lane:${laneRef}`
-}
-
-function latestRuntimeForSession(
-  session: HrcSessionRecord,
-  runtimes: HrcRuntimeSnapshot[]
-): HrcRuntimeSnapshot | undefined {
-  const matches = runtimes.filter(
-    (runtime) =>
-      runtime.hostSessionId === session.hostSessionId && runtime.generation === session.generation
-  )
-  return matches.sort((lhs, rhs) => rhs.updatedAt.localeCompare(lhs.updatedAt))[0]
-}
-
-function executionMode(
-  session: HrcSessionRecord,
-  runtime?: HrcRuntimeSnapshot
-): MobileExecutionMode {
-  const preferred = session.lastAppliedIntentJson?.execution?.preferredMode
-  if (preferred === 'headless' || preferred === 'interactive' || preferred === 'nonInteractive') {
-    return preferred
-  }
-  if (runtime?.transport === 'headless') return 'headless'
-  return runtime?.supportsInflightInput === true ? 'interactive' : 'nonInteractive'
-}
-
-/**
- * `mode` is the binary the app buckets on: only an `interactive` execution mode
- * is an interactive session; `headless` and `nonInteractive` (wrkc/webhook-driven
- * workers) are both headless, and a headless transport is headless regardless.
- */
-function modeForExecution(
-  execution: MobileExecutionMode,
-  runtime?: HrcRuntimeSnapshot
-): MobileSessionMode {
-  if (runtime?.transport === 'headless') return 'headless'
-  return execution === 'interactive' ? 'interactive' : 'headless'
-}
-
-function mobileMode(
-  execution: MobileExecutionMode,
-  runtime?: HrcRuntimeSnapshot
-): MobileSessionMode {
-  return modeForExecution(execution, runtime)
-}
-
-function mobileStatus(status: string, runtime?: HrcRuntimeSnapshot): MobileSessionStatus {
-  const normalized = status.toLowerCase()
-  if (normalized.includes('stale')) return 'stale'
-  if (
-    normalized.includes('inactive') ||
-    normalized.includes('archived') ||
-    normalized.includes('closed') ||
-    normalized.includes('terminated')
-  ) {
-    return 'inactive'
-  }
-  const runtimeStatus = runtime?.status
-  if (runtimeStatus === 'detached') return 'detached'
-  if (runtimeStatus === 'stale') return 'stale'
-  if (
-    runtime === undefined ||
-    (runtimeStatus !== undefined && isTerminalRuntimeStatus(runtimeStatus))
-  ) {
-    return 'inactive'
-  }
-  switch (runtimeStatus) {
-    case 'idle':
-    case 'ready':
-    case 'starting':
-    case 'running':
-    case 'busy':
-    case 'awaiting_input':
-      return 'active'
-    default:
-      return 'inactive'
-  }
-}
-
-function projectSession(input: {
-  record: HrcSessionRecord
-  runtime?: HrcRuntimeSnapshot | undefined
-  run?: HrcRunRecord | undefined
-  lastEvent?: HrcLifecycleEvent | undefined
-  raw?: boolean | undefined
-  includeSessionDetails?: boolean | undefined
-}): MobileSessionSummary {
-  const execution = executionMode(input.record, input.runtime)
-  const mode = mobileMode(execution, input.runtime)
-  const status = mobileStatus(input.record.status, input.runtime)
-  const runtimeActive =
-    input.runtime?.status === 'busy' || input.runtime?.status === 'awaiting_input'
-  // A terminal runtime's own in-flight-input flag decides literal input,
-  // whatever the seat's preferred mode: a seat woken headless by room mail is
-  // still a live TUI (Lance 2026-11-24, R-00777).
-  const supportsInput =
-    (input.runtime?.transport === 'tmux' || input.runtime?.transport === 'hrcpty') &&
-    input.runtime.supportsInflightInput === true
-  const projectedRuntime =
-    input.runtime === undefined
-      ? undefined
-      : {
-          status: input.runtime.status,
-          transport: input.runtime.transport,
-          runtimeId: input.runtime.runtimeId,
-          ...(input.runtime.activeRunId !== undefined
-            ? { activeRunId: input.runtime.activeRunId }
-            : {}),
-          ...(input.runtime.lastActivityAt !== undefined
-            ? { lastActivityAt: input.runtime.lastActivityAt }
-            : {}),
-          supportsInflightInput: input.runtime.supportsInflightInput,
-          adopted: false as const,
-          createdAt: input.runtime.createdAt,
-          updatedAt: input.runtime.updatedAt,
-        }
-  const projectedRun =
-    input.run === undefined
-      ? undefined
-      : {
-          status: input.run.status,
-          runId: input.run.runId,
-          transport: input.run.transport,
-          ...(input.run.runtimeId !== undefined ? { runtimeId: input.run.runtimeId } : {}),
-          ...(input.run.acceptedAt !== undefined ? { acceptedAt: input.run.acceptedAt } : {}),
-          ...(input.run.startedAt !== undefined ? { startedAt: input.run.startedAt } : {}),
-          ...(input.run.completedAt !== undefined ? { completedAt: input.run.completedAt } : {}),
-          ...(input.run.errorCode !== undefined ? { errorCode: input.run.errorCode } : {}),
-          ...(input.run.errorMessage !== undefined ? { errorMessage: input.run.errorMessage } : {}),
-          updatedAt: input.run.updatedAt,
-        }
-
-  const includeSessionDetails = input.includeSessionDetails === true || input.raw === true
-
-  return {
-    sourceKind: 'local_session',
-    context: projectContextReading(input.runtime),
-    sessionRef: sessionRef(input.record.scopeRef, input.record.laneRef),
-    displayRef: sessionRef(input.record.scopeRef, input.record.laneRef),
-    title: input.record.identity?.agentId ?? input.record.scopeRef,
-    mode,
-    executionMode: execution,
-    summaryStatus: status,
-    status,
-    hostSessionId: input.record.hostSessionId,
-    generation: input.record.generation,
-    ...(input.runtime?.runtimeId !== undefined ? { runtimeId: input.runtime.runtimeId } : {}),
-    ...(input.runtime?.activeRunId !== undefined
-      ? { activeTurnId: input.runtime.activeRunId }
-      : {}),
-    lastHrcSeq: input.lastEvent?.hrcSeq ?? 0,
-    lastMessageSeq: 0,
-    // A latest event with an evidence origin is history re-projected at a fresh
-    // hrc_seq: it advances the cursor but never sets current freshness.
-    lastActivityAt:
-      (input.lastEvent !== undefined && !hasHrcEvidenceOrigin(input.lastEvent)
-        ? input.lastEvent.ts
-        : undefined) ??
-      input.runtime?.lastActivityAt ??
-      input.record.updatedAt,
-    capabilities: {
-      input: supportsInput,
-      interrupt: runtimeActive || input.runtime !== undefined,
-      launchHeadlessTurn: false,
-      history: true,
-      summary: true,
-      semanticDm: true,
-      timeline: true,
-      literalInput: supportsInput,
-      answerPrompt: true,
-    },
-    session: {
-      status: input.record.status,
-      generation: input.record.generation,
-      ...(input.record.priorHostSessionId !== undefined
-        ? { priorHostSessionId: input.record.priorHostSessionId }
-        : {}),
-      ...(includeSessionDetails && input.record.continuation !== undefined
-        ? { continuation: input.record.continuation }
-        : {}),
-      ...(includeSessionDetails && input.record.lastAppliedIntentJson !== undefined
-        ? { lastAppliedIntent: input.record.lastAppliedIntentJson }
-        : {}),
-      createdAt: input.record.createdAt,
-      updatedAt: input.record.updatedAt,
-    },
-    ...(projectedRuntime !== undefined ? { runtime: projectedRuntime } : {}),
-    ...(projectedRun !== undefined ? { run: projectedRun } : {}),
-    ...(input.raw === true
-      ? {
-          raw: {
-            session: input.record,
-            ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
-            ...(input.run !== undefined ? { run: input.run } : {}),
-          },
-        }
-      : {}),
-  }
-}
 
 function parseMobileSessionDetailsFlag(url: URL): boolean {
   return (
@@ -831,273 +440,6 @@ async function listMobileSessions(
     refreshedAt: new Date().toISOString(),
     counts: countSessions(sessions),
     sessions,
-  }
-}
-
-function parseMobileSessionPageLimit(url: URL, parameter = 'limit'): number {
-  const raw = url.searchParams.get(parameter)
-  if (raw === null) return MOBILE_SESSION_PAGE_SIZE
-  if (!/^\d+$/.test(raw)) {
-    badRequest(`${parameter} must be an integer between 1 and ${MOBILE_SESSION_PAGE_SIZE}`)
-  }
-  const parsed = Number(raw)
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > MOBILE_SESSION_PAGE_SIZE) {
-    badRequest(`${parameter} must be an integer between 1 and ${MOBILE_SESSION_PAGE_SIZE}`)
-  }
-  return parsed
-}
-
-function parseMobileSessionPageRequest(
-  url: URL,
-  options: { limitParameter?: string | undefined } = {}
-): SessionPageRequest {
-  const effectiveStatus = url.searchParams.get('effectiveStatus')?.trim() || undefined
-  if (
-    effectiveStatus !== undefined &&
-    !['active', 'detached', 'inactive', 'stale'].includes(effectiveStatus)
-  ) {
-    badRequest('effectiveStatus is invalid')
-  }
-  const executionMode = url.searchParams.get('executionMode')?.trim() || undefined
-  if (
-    executionMode !== undefined &&
-    !['headless', 'interactive', 'nonInteractive'].includes(executionMode)
-  ) {
-    badRequest('executionMode is invalid')
-  }
-  const nodeId = url.searchParams.get('nodeId')?.trim() || undefined
-  const cursor = url.searchParams.get('cursor')?.trim() || undefined
-  const q = url.searchParams.get('q')?.trim() || undefined
-  const agentId = url.searchParams.get('agentId')?.trim() || undefined
-  const projectId = url.searchParams.get('projectId')?.trim() || undefined
-  const laneRef = url.searchParams.get('laneRef')?.trim() || undefined
-  return {
-    limit: parseMobileSessionPageLimit(url, options.limitParameter ?? 'limit'),
-    ...(cursor !== undefined ? { cursor } : {}),
-    ...(q !== undefined ? { q } : {}),
-    ...(agentId !== undefined ? { agentId } : {}),
-    ...(projectId !== undefined ? { projectId } : {}),
-    ...(laneRef !== undefined ? { laneRef } : {}),
-    ...(effectiveStatus !== undefined
-      ? { effectiveStatus: effectiveStatus as SessionPageRequest['effectiveStatus'] }
-      : {}),
-    ...(executionMode !== undefined
-      ? { executionMode: executionMode as SessionPageRequest['executionMode'] }
-      : {}),
-    ...(nodeId !== undefined ? { nodes: nodeId } : {}),
-  }
-}
-
-function sessionFacetRequest(request: SessionPageRequest): SessionFacetsRequest {
-  return {
-    ...(request.q !== undefined ? { q: request.q } : {}),
-    ...(request.agentId !== undefined ? { agentId: request.agentId } : {}),
-    ...(request.projectId !== undefined ? { projectId: request.projectId } : {}),
-    ...(request.laneRef !== undefined ? { laneRef: request.laneRef } : {}),
-    ...(request.effectiveStatus !== undefined ? { effectiveStatus: request.effectiveStatus } : {}),
-    ...(request.executionMode !== undefined ? { executionMode: request.executionMode } : {}),
-    ...(request.nodes !== undefined ? { nodes: request.nodes } : {}),
-  }
-}
-
-function flattenPeerStatus(status: Record<string, SessionPeerStatus>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(status).map(([nodeId, observation]) => [nodeId, observation.state])
-  )
-}
-
-function peerProjectionState(
-  status: SessionPeerStatus | undefined
-): MobileSessionSummary['projectionState'] {
-  if (status === undefined || status.state === 'healthy') return 'answered'
-  return status.state === 'invalid-response' ? 'invalid_response' : status.state
-}
-
-function projectThinIndexedSession(input: {
-  item: SessionPageItem
-  localNodeId: string
-  peerStatus: Record<string, SessionPeerStatus>
-  federatedRead: boolean
-}): MobileSessionSummary {
-  const { item } = input
-  const isLocal = item.nodeId === input.localNodeId
-  const readable = isLocal || input.federatedRead
-  const peer = input.peerStatus[item.nodeId]
-  const mode: MobileSessionMode = modeForExecution(item.executionMode)
-  return {
-    nodeId: item.nodeId,
-    sourceKind: isLocal ? 'local_session' : 'remote_runtime_projection',
-    ...(!isLocal
-      ? {
-          projectionState: peerProjectionState(peer),
-          ...(peer?.checkedAt !== undefined ? { projectionCheckedAt: peer.checkedAt } : {}),
-          ...(peer?.state === 'healthy' && peer.checkedAt !== undefined
-            ? { projectionAnsweredAt: peer.checkedAt }
-            : {}),
-        }
-      : {}),
-    sessionRef: sessionRef(item.scopeRef, item.laneRef),
-    displayRef: sessionRef(item.scopeRef, item.laneRef),
-    title: item.agentId,
-    mode,
-    executionMode: item.executionMode,
-    summaryStatus: item.effectiveStatus,
-    status: item.effectiveStatus,
-    ...pageItemDisposition(item),
-    hostSessionId: item.hostSessionId,
-    generation: item.generation,
-    lastHrcSeq: 0,
-    lastMessageSeq: 0,
-    lastActivityAt: item.lastActivityAt,
-    capabilities: {
-      input: false,
-      interrupt: false,
-      launchHeadlessTurn: false,
-      history: readable,
-      summary: true,
-      semanticDm: true,
-      timeline: readable,
-      literalInput: false,
-      answerPrompt: isLocal,
-    },
-    session: {
-      status: item.effectiveStatus,
-      generation: item.generation,
-      createdAt: item.createdAt,
-      updatedAt: item.lastActivityAt,
-    },
-  }
-}
-
-async function projectIndexedSession(input: {
-  hrcClient: AcpHrcClient
-  item: SessionPageItem
-  localNodeId: string
-  peerStatus: Record<string, SessionPeerStatus>
-  federatedRead: boolean
-}): Promise<MobileSessionSummary> {
-  const thin = projectThinIndexedSession(input)
-  if (input.item.nodeId !== input.localNodeId) return thin
-
-  const [sessionResult, runtimesResult] = await Promise.allSettled([
-    input.hrcClient.getSession(input.item.hostSessionId),
-    input.hrcClient.listRuntimes({ hostSessionId: input.item.hostSessionId, all: true, limit: 20 }),
-  ])
-  if (sessionResult.status !== 'fulfilled') return thin
-  const record = sessionResult.value
-  const runtime =
-    runtimesResult.status === 'fulfilled'
-      ? latestRuntimeForSession(record, runtimesResult.value)
-      : undefined
-  const projected = projectSession({ record, runtime })
-  return {
-    ...projected,
-    nodeId: input.item.nodeId,
-    sourceKind: 'local_session',
-    mode: modeForExecution(input.item.executionMode, runtime),
-    executionMode: input.item.executionMode,
-    summaryStatus: input.item.effectiveStatus,
-    status: input.item.effectiveStatus,
-    ...pageItemDisposition(input.item),
-    lastActivityAt: input.item.lastActivityAt,
-  }
-}
-
-// Facets count the whole filtered set, so they do not change between pages of
-// one listing. HRC facets fan out to every federation peer; re-reading them on
-// each cursor page made a paged scan pay that fan-out once per page.
-const FACETS_REUSE_TTL_MS = 30_000
-const facetsByClient = new WeakMap<
-  object,
-  Map<string, { atMs: number; facets: SessionFacetsResponse }>
->()
-
-async function sessionFacetsForPage(
-  hrcClient: AcpHrcClient,
-  getSessionFacets: NonNullable<AcpHrcClient['getSessionFacets']>,
-  request: SessionPageRequest
-): Promise<SessionFacetsResponse> {
-  const facetRequest = sessionFacetRequest(request)
-  const key = JSON.stringify(facetRequest)
-  let cache = facetsByClient.get(hrcClient)
-  if (cache === undefined) {
-    cache = new Map()
-    facetsByClient.set(hrcClient, cache)
-  }
-  const cached = cache.get(key)
-  if (
-    request.cursor !== undefined &&
-    cached !== undefined &&
-    Date.now() - cached.atMs < FACETS_REUSE_TTL_MS
-  ) {
-    return cached.facets
-  }
-  const facets = await getSessionFacets(facetRequest)
-  cache.delete(key)
-  cache.set(key, { atMs: Date.now(), facets })
-  while (cache.size > 64) {
-    const oldest = cache.keys().next().value
-    if (oldest === undefined) break
-    cache.delete(oldest)
-  }
-  return facets
-}
-
-async function loadMobileSessionPage(
-  deps: ResolvedAcpServerDeps,
-  url: URL,
-  options: { limitParameter?: string | undefined } = {}
-): Promise<MobileSessionPagePayload> {
-  const hrcClient = requireHrcClient(deps)
-  if (hrcClient.listSessionsPage === undefined || hrcClient.getSessionFacets === undefined) {
-    throw new Error('Installed HRC does not expose paginated session index APIs.')
-  }
-  const request = parseMobileSessionPageRequest(url, options)
-  const [page, facets, status] = await Promise.all([
-    hrcClient.listSessionsPage(request),
-    sessionFacetsForPage(hrcClient, hrcClient.getSessionFacets.bind(hrcClient), request),
-    hrcClient.getStatus({ includeSessions: false }),
-  ])
-  const localNodeId = status.node.nodeId
-  const federatedRead = federatedSessionReadFromStatus(status)
-  const seen = new Set<string>()
-  const items = page.items.filter((item) => {
-    const key = `${item.nodeId}\u0000${item.hostSessionId}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-  const sessions = await Promise.all(
-    items.map((item) =>
-      projectIndexedSession({
-        hrcClient,
-        item,
-        localNodeId,
-        peerStatus: page.peerStatus,
-        federatedRead,
-      })
-    )
-  )
-  return {
-    generatedAt: new Date().toISOString(),
-    sessions,
-    recentEventsBySession: {},
-    pageInfo: {
-      ...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
-      localNodeId,
-      eventHighWater: page.eventHighWater,
-      complete: page.complete,
-      peerStatus: flattenPeerStatus(page.peerStatus),
-    },
-    facets: {
-      total: facets.total,
-      byEffectiveStatus: facets.byEffectiveStatus,
-      byExecutionMode: facets.byExecutionMode,
-      byAgentId: facets.byAgentId,
-      byNodeId: facets.byNodeId,
-      complete: facets.complete,
-      peerStatus: flattenPeerStatus(facets.peerStatus),
-    },
   }
 }
 
