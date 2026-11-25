@@ -1,0 +1,41 @@
+id: agent-control-plane.mobile-api-relay-scope
+kind: invariant
+status: active
+owner_project: agent-control-plane
+scope: ACP mobile API relay admission, paired-device scope and upstream destination
+predicate: >
+  The shared ACP mobile authorization decision treats /v1/mobile/apis/ as
+  strict. A non-loopback peer must present a valid paired-device bearer
+  regardless of the global mobile enforcement setting. The operator's
+  single-use pairing code binds the scope of the redeemed device. A recognized
+  API-scoped bearer presented by a non-loopback peer authorizes only the
+  exact registered API named by its scope. The gate refuses that bearer on
+  other protected mobile paths regardless of the enforcement setting. HTTP
+  dispatch and mobile WebSocket upgrades apply this same decision using the
+  same device store. Health and pairing retain their own admission rules.
+  Socket-loopback access and the existing unscoped credential policy remain
+  in force. The mobile bearer confers no authority outside the mobile surface.
+  ACP selects the loopback origin and upstream path prefix from its source
+  registry. Each relay hop stays under that prefix on that origin and forwards
+  neither the caller's bearer nor cookies. ACP owns the upstream principal and
+  device attribution.
+authority: Daedalus approval of T-14650 revision 2 in response to EN-61858, 2026-11-25
+source:
+  - wrkq:T-14650
+  - wrkq:T-14634
+  - packages/acp-server/src/mobile-auth/gate.ts
+  - packages/acp-server/src/mobile-auth/store.ts
+  - packages/acp-server/src/create-acp-server.ts
+  - packages/acp-server/src/acp-listener.ts
+  - packages/acp-server/src/loopback-upstream.ts
+required_tests:
+  - T-14650 revision 2 acceptance cases a, b, e, f and h
+last_verified: >
+  2026-11-25 revision 2 reviewed against the existing shared HTTP and mobile
+  WebSocket admission paths, paired-device store and loopback streaming helper.
+  Implementation and live activation evidence are pending.
+reopen_when:
+  - Relay admission, scope issuance, scope enforcement or shared decision ownership changes
+  - Upstream destination, confinement or caller attribution authority changes
+supersedes: []
+superseded_by: null
