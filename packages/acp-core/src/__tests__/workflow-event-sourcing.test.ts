@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import assert from 'node:assert/strict'
 
 import {
   type ActorRef,
@@ -135,7 +136,7 @@ describe('workflow event sourcing metadata', () => {
       throw new Error(created.error.message)
     }
 
-    const launched = (kernel as any).startParticipantRun({
+    const launched = kernel.startParticipantRun({
       taskId: 'task-undefined-hash',
       role: 'owner',
       actor: owner,
@@ -156,11 +157,14 @@ describe('workflow event sourcing metadata', () => {
     expect(events[1]?.eventHash).toBe(
       'sha256:648e7c8c996361b12eb0f39857450cc0c91ed41d723d92edd387957f00eb2a9b'
     )
-    expect(launched.context.contextHash).toBe(
+    expect(launched.context['contextHash']).toBe(
       'sha256:ac54cd3d443081755f033b537af12d721c8b053ed681bea302f7845c751dce69'
     )
     expect(Object.keys(created.task.state)).toEqual(['status'])
     expect(Object.keys(events[0]?.payload['state'] as Record<string, unknown>)).toEqual(['status'])
-    expect(Object.keys(launched.context.task.state)).toEqual(['status'])
+    const task = launched.context['task']
+    assert.ok(typeof task === 'object' && task !== null && 'state' in task)
+    assert.ok(typeof task.state === 'object' && task.state !== null)
+    expect(Object.keys(task.state)).toEqual(['status'])
   })
 })

@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test'
+import assert from 'node:assert/strict'
 
 import { basicWorkflowV1 } from '../workflow/definitions.js'
 import {
   type ActorRef,
   type WorkflowRejectionCode,
+  type WorkflowResult,
   createInMemoryWorkflowKernel,
 } from '../workflow/index.js'
 
@@ -30,9 +32,9 @@ function createTask(roleBindings: Record<string, ActorRef | null> = { owner }) {
   return { kernel, taskId: 'task-participant-runtime' }
 }
 
-function expectReject<T extends WorkflowRejectionCode>(
-  result: { ok: true } | { ok: false; error: { code: WorkflowRejectionCode; message: string } },
-  code: T,
+function expectReject(
+  result: WorkflowResult<object>,
+  code: WorkflowRejectionCode,
   messageFragment: string
 ) {
   expect(result.ok).toBe(false)
@@ -46,7 +48,7 @@ describe('workflow participant runtime kernel surface', () => {
   test('launches a participant run only for the actor persisted on the role binding', () => {
     const { kernel, taskId } = createTask()
 
-    const launched = (kernel as any).startParticipantRun({
+    const launched = kernel.startParticipantRun({
       taskId,
       role: 'owner',
       actor: owner,
@@ -55,6 +57,9 @@ describe('workflow participant runtime kernel surface', () => {
     })
 
     expect(launched.ok).toBe(true)
+    if (!launched.ok) {
+      throw new Error(launched.error.message)
+    }
     expect(launched.participantRun).toMatchObject({
       kind: 'participant',
       taskId,
@@ -71,7 +76,9 @@ describe('workflow participant runtime kernel surface', () => {
         role: 'owner',
       },
     })
-    expect(launched.participantRun.contextHash).toBe(launched.context.contextHash)
+    const contextHash = launched.context['contextHash']
+    assert.ok(typeof contextHash === 'string')
+    expect(launched.participantRun.contextHash).toBe(contextHash)
     expect(kernel.listEvents(taskId).map((event) => event.type)).toEqual([
       'task.created',
       'participant_run.launched',
@@ -81,7 +88,7 @@ describe('workflow participant runtime kernel surface', () => {
   test('rejects an unbound role and a mismatched actor without self-claiming the role', () => {
     const unbound = createTask({ owner: null })
     expectReject(
-      (unbound.kernel as any).startParticipantRun({
+      unbound.kernel.startParticipantRun({
         taskId: unbound.taskId,
         role: 'owner',
         actor: owner,
@@ -93,7 +100,7 @@ describe('workflow participant runtime kernel surface', () => {
 
     const bound = createTask()
     expectReject(
-      (bound.kernel as any).startParticipantRun({
+      bound.kernel.startParticipantRun({
         taskId: bound.taskId,
         role: 'owner',
         actor: otherActor,
@@ -108,13 +115,17 @@ describe('workflow participant runtime kernel surface', () => {
 
   test('idempotently resumes an existing run and recompiles ParticipantContext', () => {
     const { kernel, taskId } = createTask()
-    const first = (kernel as any).startParticipantRun({
+    const first = kernel.startParticipantRun({
       taskId,
       role: 'owner',
       actor: owner,
       idempotencyKey: 'participant:start:idempotent',
     })
-    const replay = (kernel as any).startParticipantRun({
+    if (!first.ok) {
+      throw new Error(first.error.message)
+    }
+
+    const replay = kernel.startParticipantRun({
       taskId,
       role: 'owner',
       actor: owner,
@@ -123,13 +134,16 @@ describe('workflow participant runtime kernel surface', () => {
 
     expect(replay).toEqual(first)
 
-    const resumed = (kernel as any).resumeParticipantRun({
+    const resumed = kernel.resumeParticipantRun({
       taskId,
       role: 'owner',
       actor: owner,
     })
 
     expect(resumed.ok).toBe(true)
+    if (!resumed.ok) {
+      throw new Error(resumed.error.message)
+    }
     expect(resumed.participantRun.runId).toBe(first.participantRun.runId)
     expect(resumed.context).toMatchObject({
       task: { id: taskId, version: 0 },
@@ -139,20 +153,27 @@ describe('workflow participant runtime kernel surface', () => {
 
   test('records participant run completion and failure lifecycle events with outcomes', () => {
     const { kernel, taskId } = createTask()
-    const launched = (kernel as any).startParticipantRun({
+    const launched = kernel.startParticipantRun({
       taskId,
       role: 'owner',
       actor: owner,
       idempotencyKey: 'participant:lifecycle:start',
     })
 
-    const completed = (kernel as any).completeParticipantRun(launched.participantRun.runId, {
+    if (!launched.ok) {
+      throw new Error(launched.error.message)
+    }
+
+    const completed = kernel.completeParticipantRun(launched.participantRun.runId, {
       outcome: 'success',
       evidenceRefs: ['artifact://summary'],
       summary: 'owner finished',
       idempotencyKey: 'participant:lifecycle:complete',
     })
     expect(completed.ok).toBe(true)
+    if (!completed.ok) {
+      throw new Error(completed.error.message)
+    }
     expect(completed.participantRun.status).toBe('completed')
     expect(kernel.listEvents(taskId).at(-1)).toMatchObject({
       type: 'participant_run.completed',
@@ -160,18 +181,25 @@ describe('workflow participant runtime kernel surface', () => {
       payload: { outcome: 'success', evidenceRefs: ['artifact://summary'] },
     })
 
-    const failureRun = (kernel as any).startParticipantRun({
+    const failureRun = kernel.startParticipantRun({
       taskId,
       role: 'owner',
       actor: owner,
       idempotencyKey: 'participant:lifecycle:start-failure',
     })
-    const failed = (kernel as any).failParticipantRun(failureRun.participantRun.runId, {
+    if (!failureRun.ok) {
+      throw new Error(failureRun.error.message)
+    }
+
+    const failed = kernel.failParticipantRun(failureRun.participantRun.runId, {
       reason: 'tests failed',
       classification: 'participant_repeated_failure',
       idempotencyKey: 'participant:lifecycle:fail',
     })
     expect(failed.ok).toBe(true)
+    if (!failed.ok) {
+      throw new Error(failed.error.message)
+    }
     expect(failed.participantRun.status).toBe('failed')
     expect(kernel.listEvents(taskId).at(-1)).toMatchObject({
       type: 'participant_run.completed',
