@@ -3,7 +3,13 @@ import { badRequest, json } from '../http.js'
 import { parseJsonBody, requireRecord } from '../parsers/body.js'
 
 import type { RouteHandler } from '../routing/route-context.js'
-import { callSeatRestart, requestSeatRestart } from '../seat-restart-client.js'
+import {
+  type SeatRestartResult,
+  callSeatHandoff,
+  callSeatRestart,
+  effectUnknown,
+  requestSeatRestart,
+} from '../seat-restart-client.js'
 
 const MOBILE_CODES: Record<string, { code: string; status: number }> = {
   runtime_busy: { code: 'session_busy', status: 409 },
@@ -76,38 +82,125 @@ function parseFences(body: Record<string, unknown>, hostSessionId: string): numb
   return expectedGeneration as number
 }
 
+type Mode = 'fresh' | 'handoff' | 'recap'
+
+type RestartRequest = {
+  mode: Mode | undefined
+  requestId: string | undefined
+  reconcile: boolean
+}
+
+function parseRestartRequest(body: Record<string, unknown>): RestartRequest {
+  const mode = body['mode']
+  if (mode !== undefined && mode !== 'fresh' && mode !== 'handoff' && mode !== 'recap') {
+    badRequest('mode must be fresh, handoff or recap', { field: 'mode' })
+  }
+  const requestId = body['requestId']
+  if (requestId !== undefined && (typeof requestId !== 'string' || requestId.trim() === '')) {
+    badRequest('requestId must be a nonempty string', { field: 'requestId' })
+  }
+  const reconcile = body['reconcile']
+  if (reconcile !== undefined && reconcile !== true) {
+    badRequest('reconcile must be true when given', { field: 'reconcile' })
+  }
+  if (mode === 'handoff' && (requestId !== undefined || reconcile === true)) {
+    badRequest('handoff has no replay key: send neither requestId nor reconcile', {
+      field: requestId !== undefined ? 'requestId' : 'reconcile',
+    })
+  }
+  if (mode === 'recap' && requestId === undefined) {
+    badRequest('recap requires requestId', { field: 'requestId' })
+  }
+  if (reconcile === true && (mode === undefined || requestId === undefined)) {
+    badRequest('reconcile requires mode and requestId', { field: 'reconcile' })
+  }
+  return {
+    mode: mode as Mode | undefined,
+    requestId: (requestId as string | undefined)?.trim(),
+    reconcile: reconcile === true,
+  }
+}
+
+/** The legacy response, for a request without `mode`: shipped phones read it. */
+function legacyResponse(result: SeatRestartResult): Response {
+  if (result.outcome !== 'restarted') {
+    return json(
+      { ok: false, code: 'restart_failed', message: 'HRC did not confirm the restart' },
+      502
+    )
+  }
+  return json({
+    ok: true,
+    priorHostSessionId: result.priorHostSessionId,
+    hostSessionId: result.hostSessionId,
+    generation: result.generation,
+    launch: result.launch,
+    summonDirectives: result.summonDirectives,
+  })
+}
+
+function modeResponse(mode: 'fresh' | 'recap', requestId: string, result: SeatRestartResult) {
+  if (result.outcome === 'armed') return json({ ok: true, mode, outcome: 'armed', requestId })
+  if (result.outcome !== 'restarted') {
+    // unknown, pending after reconcile, or an outcome this route does not serve.
+    return json({ ok: false, mode, outcome: 'unknown', requestId }, 202)
+  }
+  return json({
+    ok: true,
+    mode,
+    outcome: 'restarted',
+    requestId,
+    priorHostSessionId: result.priorHostSessionId,
+    hostSessionId: result.hostSessionId,
+    generation: result.generation,
+    launch: result.launch,
+    ...(result.summonDirectives !== undefined ? { summonDirectives: result.summonDirectives } : {}),
+    // Recap: whether the recap prompt reached the successor as its first turn.
+    // Delivery is not a read; the seat answers in its own transcript.
+    ...(result.firstTurn !== undefined ? { firstTurn: result.firstTurn } : {}),
+  })
+}
+
 export const handleMobileRestart: RouteHandler = async ({ deps, request, params }) => {
   const { hrcClient } = deps
   if (hrcClient === undefined) badRequest('hrcClient not configured')
   const hostSessionId = params['hostSessionId']?.trim() ?? ''
   if (hostSessionId === '') badRequest('hostSessionId path segment is required')
-  const expectedGeneration = parseFences(requireRecord(await parseJsonBody(request)), hostSessionId)
+  const body = requireRecord(await parseJsonBody(request))
+  const { mode, requestId, reconcile } = parseRestartRequest(body)
+  // A reconcile only reads a stored outcome, so it needs no fence.
+  const expectedGeneration = reconcile ? undefined : parseFences(body, hostSessionId)
   try {
     const session = await hrcClient.getSession(hostSessionId)
-    const target = {
-      seat: `${session.scopeRef}/lane:${session.laneRef.replace(/^lane:/, '') || 'main'}`,
-      idempotencyKey: randomUUID(),
+    const seat = `${session.scopeRef}/lane:${session.laneRef.replace(/^lane:/, '') || 'main'}`
+    const fence = { expectedHostSessionId: hostSessionId, expectedGeneration }
+
+    if (mode === 'handoff') {
+      // Unkeyed literal input: never reconciled or resent here.
+      try {
+        const input = await (deps.seatHandoffCall ?? callSeatHandoff)({ seat, ...fence })
+        return json({ ok: true, mode, outcome: 'prompt_accepted', input })
+      } catch (error) {
+        if (effectUnknown(error)) return json({ ok: false, mode, outcome: 'unknown' }, 202)
+        throw error
+      }
+    }
+
+    const operation = mode === 'recap' ? 'seat-restart.recap' : 'seat-restart.cold'
+    const key = requestId ?? randomUUID()
+    const call = deps.seatRestartCall ?? callSeatRestart
+    const reconcileArgs = { seat, idempotencyKey: key, reconcile: true }
+    if (reconcile) {
+      const result = await call(operation, reconcileArgs)
+      return modeResponse(mode as 'fresh' | 'recap', key, result)
     }
     const result = await requestSeatRestart(
-      deps.seatRestartCall ?? callSeatRestart,
-      'seat-restart.cold',
-      { ...target, when: 'now', expectedHostSessionId: hostSessionId, expectedGeneration },
-      { ...target, reconcile: true }
+      call,
+      operation,
+      { seat, idempotencyKey: key, ...(mode === 'recap' ? {} : { when: 'now' }), ...fence },
+      reconcileArgs
     )
-    if (result.outcome !== 'restarted') {
-      return json(
-        { ok: false, code: 'restart_failed', message: 'HRC did not confirm the restart' },
-        502
-      )
-    }
-    return json({
-      ok: true,
-      priorHostSessionId: result.priorHostSessionId,
-      hostSessionId: result.hostSessionId,
-      generation: result.generation,
-      launch: result.launch,
-      summonDirectives: result.summonDirectives,
-    })
+    return mode === undefined ? legacyResponse(result) : modeResponse(mode, key, result)
   } catch (error) {
     return refusal(error)
   }

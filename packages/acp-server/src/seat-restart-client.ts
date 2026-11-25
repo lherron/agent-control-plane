@@ -27,7 +27,7 @@ export type SeatRestartResult =
   | { outcome: 'pending' }
 
 export type SeatRestartCall = (
-  op: 'seat-restart.cold' | 'seat-restart.force',
+  op: 'seat-restart.cold' | 'seat-restart.recap' | 'seat-restart.force',
   args: Record<string, unknown>
 ) => Promise<SeatRestartResult>
 
@@ -41,14 +41,33 @@ export class SeatRestartRefusal extends Error {
   }
 }
 
-class SeatRestartUnanswered extends Error {}
+export class SeatRestartUnanswered extends Error {}
+
+/** `seat-restart.handoff` is a literal, unkeyed prompt: the module answers with
+ * the seat-input receipt, and an unanswered call may already have queued it. */
+export type SeatHandoffCall = (args: Record<string, unknown>) => Promise<Record<string, unknown>>
+
+export const callSeatHandoff: SeatHandoffCall = (args) =>
+  kernelCall('seat-restart.handoff', args) as Promise<Record<string, unknown>>
+
+/** True when a failed call may still have committed its write. */
+export function effectUnknown(error: unknown): boolean {
+  return (
+    error instanceof SeatRestartUnanswered ||
+    (error instanceof SeatRestartRefusal &&
+      (error.code === 'call_timeout' || error.detail['effect'] === 'unknown'))
+  )
+}
 
 type KernelReply =
-  | { ok: true; result: SeatRestartResult }
+  | { ok: true; result: unknown }
   | { ok: false; error: { code: string; message: string; details?: Record<string, unknown> } }
 
 export const callSeatRestart: SeatRestartCall = (op, args) =>
-  new Promise((resolve, reject) => {
+  kernelCall(op, args) as Promise<SeatRestartResult>
+
+function kernelCall(op: string, args: Record<string, unknown>): Promise<unknown> {
+  return new Promise((resolve, reject) => {
     const socket = createConnection(
       process.env['PRAESIDIUM_KERNEL_SOCKET'] ??
         join(homedir(), 'praesidium/var/run/praesidium/kernel.sock')
@@ -95,6 +114,7 @@ export const callSeatRestart: SeatRestartCall = (op, args) =>
       reject(new SeatRestartUnanswered('kernel connection closed before answering'))
     })
   })
+}
 
 export async function requestSeatRestart(
   call: SeatRestartCall,
@@ -106,14 +126,7 @@ export async function requestSeatRestart(
     const result = await call(operation, args)
     if (result.outcome !== 'pending') return result
   } catch (error) {
-    if (
-      !(error instanceof SeatRestartUnanswered) &&
-      !(
-        error instanceof SeatRestartRefusal &&
-        (error.code === 'call_timeout' || error.detail['effect'] === 'unknown')
-      )
-    )
-      throw error
+    if (!effectUnknown(error)) throw error
   }
 
   try {

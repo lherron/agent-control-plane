@@ -58,7 +58,7 @@ import { InMemoryRunStore, type RunStore, type StoredRun } from './domain/run-st
 import type { AcpHrcSdkClient } from './hrc-client.js'
 import type { JobExecPolicy } from './jobs/exec-policy.js'
 import { type MobileAuthStore, resolveMobileAuthStore } from './mobile-auth/store.js'
-import type { SeatRestartCall } from './seat-restart-client.js'
+import type { SeatHandoffCall, SeatRestartCall } from './seat-restart-client.js'
 import { acpStateDir } from './state-dir.js'
 import type { AcpWrkfWorkflowPort } from './wrkf/port.js'
 
@@ -259,6 +259,7 @@ export type HrcAgentSources = {
 
 export interface AcpServerDeps {
   seatRestartCall?: SeatRestartCall | undefined
+  seatHandoffCall?: SeatHandoffCall | undefined
   commitBus?: StoreCommitBus | undefined
   // The four acp-core store ports, served by the @wrkq/client-backed adapter
   // (wrkq-lib createWrkqStoreAdapter). Optional: when wrkf is disabled
