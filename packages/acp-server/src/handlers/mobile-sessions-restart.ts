@@ -90,8 +90,11 @@ type RestartRequest = {
   reconcile: boolean
 }
 
-function parseRestartRequest(body: Record<string, unknown>): RestartRequest {
+function parseRestartRequest(body: Record<string, unknown>, requireMode: boolean): RestartRequest {
   const mode = body['mode']
+  if (requireMode && mode === undefined) {
+    badRequest('mode is required: fresh, handoff or recap', { field: 'mode' })
+  }
   if (mode !== undefined && mode !== 'fresh' && mode !== 'handoff' && mode !== 'recap') {
     badRequest('mode must be fresh, handoff or recap', { field: 'mode' })
   }
@@ -161,13 +164,22 @@ function modeResponse(mode: 'fresh' | 'recap', requestId: string, result: SeatRe
   })
 }
 
-export const handleMobileRestart: RouteHandler = async ({ deps, request, params }) => {
+/** v1 keeps the legacy no-mode request; v2 requires `mode`, so a phone that
+ * asks for handoff or recap is refused (404) by an ACP without this contract
+ * instead of being restarted fresh. */
+export const handleMobileRestart: RouteHandler = (context) => restart(context, false)
+export const handleMobileRestartV2: RouteHandler = (context) => restart(context, true)
+
+const restart = async (
+  { deps, request, params }: Parameters<RouteHandler>[0],
+  requireMode: boolean
+): Promise<Response> => {
   const { hrcClient } = deps
   if (hrcClient === undefined) badRequest('hrcClient not configured')
   const hostSessionId = params['hostSessionId']?.trim() ?? ''
   if (hostSessionId === '') badRequest('hostSessionId path segment is required')
   const body = requireRecord(await parseJsonBody(request))
-  const { mode, requestId, reconcile } = parseRestartRequest(body)
+  const { mode, requestId, reconcile } = parseRestartRequest(body, requireMode)
   // A reconcile only reads a stored outcome, so it needs no fence.
   const expectedGeneration = reconcile ? undefined : parseFences(body, hostSessionId)
   try {

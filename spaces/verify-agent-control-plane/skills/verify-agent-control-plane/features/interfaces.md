@@ -71,6 +71,7 @@ Source anchors (repo-relative): packages/gateway-discord/src; packages/gateway-i
 - Surface: `route:POST /v1/mobile/sessions/:hostSessionId/input @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:POST /v1/mobile/sessions/:hostSessionId/interrupt @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:POST /v1/mobile/sessions/:hostSessionId/restart @ packages/acp-server/src/routing/param-routes.ts`
+- Surface: `route:POST /v2/mobile/sessions/:hostSessionId/restart @ packages/acp-server/src/routing/param-routes.ts`
 - Surface: `route:POST /v1/plugins/events/resolve-cursor @ packages/acp-server/src/routing/exact-routes.ts`
 
 - Surface: `cli:acp run attachment []`

@@ -147,6 +147,7 @@
       "POST /v1/workflow-participant-runs/:runId/fail",
       "POST /v1/wrkf/actions/launch",
       "POST /v1/wrkf/effects/deliver",
+      "POST /v2/mobile/sessions/:hostSessionId/restart",
       "PUT /v1/admin/agents/:agentId/heartbeat"
     ]
   },
