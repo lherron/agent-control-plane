@@ -133,20 +133,6 @@ function thinLocalSessionForFederation(session: MobileSessionSummary): MobileSes
   }
 }
 
-type MobileSessionIndex = {
-  refreshedAt: string
-  counts: {
-    all: number
-    interactive: number
-    headless: number
-    active: number
-    stale: number
-    inactive: number
-    detached: number
-  }
-  sessions: MobileSessionSummary[]
-}
-
 type MobileDashboardSnapshot = {
   type: 'dashboard_snapshot'
   generatedAt: string
@@ -280,18 +266,6 @@ function parseMobileSessionDetailsFlag(url: URL): boolean {
   )
 }
 
-function countSessions(sessions: MobileSessionSummary[]): MobileSessionIndex['counts'] {
-  return {
-    all: sessions.length,
-    interactive: sessions.filter((session) => session.mode === 'interactive').length,
-    headless: sessions.filter((session) => session.mode === 'headless').length,
-    active: sessions.filter((session) => session.summaryStatus === 'active').length,
-    stale: sessions.filter((session) => session.summaryStatus === 'stale').length,
-    inactive: sessions.filter((session) => session.summaryStatus === 'inactive').length,
-    detached: sessions.filter((session) => session.summaryStatus === 'detached').length,
-  }
-}
-
 function latestRunBySession(
   records: HrcSessionRecord[],
   runs: HrcRunRecord[]
@@ -309,7 +283,7 @@ function latestRunBySession(
 async function collectEvents(
   hrcClient: AcpHrcClient,
   options: Parameters<AcpHrcClient['watch']>[0],
-  limit = 500
+  limit: number
 ): Promise<HrcLifecycleEvent[]> {
   const events: HrcLifecycleEvent[] = []
   for await (const event of hrcClient.watch(options)) {
@@ -360,7 +334,7 @@ async function pollCollaborationMessages(input: {
 async function listMobileSessions(
   deps: ResolvedAcpServerDeps,
   url: URL
-): Promise<MobileSessionIndex> {
+): Promise<MobileSessionSummary[]> {
   const hrcClient = requireHrcClient(deps)
   const scopeRef = url.searchParams.get('scopeRef') ?? undefined
   const laneRef = url.searchParams.get('laneRef') ?? undefined
@@ -397,12 +371,12 @@ async function listMobileSessions(
 
   const latestEventByHostSessionGeneration = new Map<string, HrcLifecycleEvent>()
   for (const event of latestEvents) {
-    const key = `${event.hostSessionId}:${event.generation}`
+    const key = sessionGenerationKey(event)
     latestEventByHostSessionGeneration.set(key, event)
   }
 
   let sessions = records.map((record) => {
-    const generationKey = `${record.hostSessionId}:${record.generation}`
+    const generationKey = sessionGenerationKey(record)
     return projectSession({
       record,
       runtime: latestRuntimeForSession(record, runtimes),
@@ -436,11 +410,7 @@ async function listMobileSessions(
   }
 
   sessions.sort((lhs, rhs) => (rhs.lastActivityAt ?? '').localeCompare(lhs.lastActivityAt ?? ''))
-  return {
-    refreshedAt: new Date().toISOString(),
-    counts: countSessions(sessions),
-    sessions,
-  }
+  return sessions
 }
 
 function projectEvent(event: HrcLifecycleEvent): MobileEventMessage {
@@ -616,8 +586,7 @@ function collaborationMemberRefFromMobileFilter(
 function projectCollaborationMessage(
   message: CollaborationMessage,
   sessionRefValue: string,
-  memberRef: string,
-  mode: MobileSessionMode = 'interactive'
+  memberRef: string
 ): MobileTimelineFrame {
   const frameKind: MobileTimelineFrame['frameKind'] =
     message.recipient?.scopeRef === memberRef || message.sender.principalRef === 'agent:lance'
@@ -630,7 +599,7 @@ function projectCollaborationMessage(
     lastHrcSeq: 0,
     lastMessageSeq: message.messageSeq,
     sessionRef: sessionRefValue,
-    mode,
+    mode: 'interactive',
     frameKind,
     sourceEvents: [],
     blocks: [
@@ -922,7 +891,10 @@ function parseDashboardReplayCursor(url: URL): number | undefined {
   return Number.isFinite(parsed) ? Math.max(1, parsed) : 1
 }
 
-function sessionGenerationKey(input: { hostSessionId: string; generation: number }): string {
+function sessionGenerationKey(input: {
+  hostSessionId?: string | undefined
+  generation?: number | undefined
+}): string {
   return `${input.hostSessionId}:${input.generation}`
 }
 
@@ -937,10 +909,7 @@ function pushBoundedRecentEvent(
 ): void {
   if (event.hostSessionId === undefined || event.generation === undefined) return
   if (perSessionLimit <= 0) return
-  const key = sessionGenerationKey({
-    hostSessionId: event.hostSessionId,
-    generation: event.generation,
-  })
+  const key = sessionGenerationKey(event)
   const bucket = target[key] ?? []
   bucket.push(event)
   if (bucket.length > perSessionLimit) bucket.splice(0, bucket.length - perSessionLimit)
@@ -957,9 +926,10 @@ async function buildMobileDashboardSnapshot(
   const recentEventsPerSession = parseDashboardRecentEventsPerSession(url)
   const usesPaginatedIndex = url.pathname === '/v2/mobile/dashboard'
 
-  const sessionResult = usesPaginatedIndex
+  const page = usesPaginatedIndex
     ? await loadMobileSessionPage(deps, url, { limitParameter: 'sessionLimit' })
-    : await listMobileSessions(deps, url)
+    : undefined
+  const sessions = page?.sessions ?? (await listMobileSessions(deps, url))
   const latestEvents = usesPaginatedIndex
     ? []
     : await listCachedLatestEventBySession(hrcClient, {
@@ -967,12 +937,11 @@ async function buildMobileDashboardSnapshot(
         ...(laneRef !== undefined ? { laneRef } : {}),
       })
   const lastHrcSeq =
-    usesPaginatedIndex && 'pageInfo' in sessionResult
-      ? (sessionResult.pageInfo.eventHighWater[sessionResult.pageInfo.localNodeId] ?? 0)
+    page !== undefined
+      ? (page.pageInfo.eventHighWater[page.pageInfo.localNodeId] ?? 0)
       : latestHrcSeq(latestEvents)
   let lastStreamSeq = latestEvents.reduce((max, event) => Math.max(max, event.streamSeq), 0)
   const recentEventsBySession: Record<string, MobileEventMessage[]> = {}
-  const sessions = sessionResult.sessions
   const wantedSessionKeys = new Set(sessions.map((session) => sessionGenerationKey(session)))
 
   if (lastHrcSeq > 0 && recentEventsPerSession > 0) {
@@ -994,9 +963,7 @@ async function buildMobileDashboardSnapshot(
       if (
         event.hostSessionId === undefined ||
         event.generation === undefined ||
-        !wantedSessionKeys.has(
-          sessionGenerationKey(event as { hostSessionId: string; generation: number })
-        )
+        !wantedSessionKeys.has(sessionGenerationKey(event))
       ) {
         continue
       }
@@ -1014,9 +981,7 @@ async function buildMobileDashboardSnapshot(
     },
     sessions,
     recentEventsBySession,
-    ...(usesPaginatedIndex && 'pageInfo' in sessionResult
-      ? { pageInfo: sessionResult.pageInfo, facets: sessionResult.facets }
-      : {}),
+    ...(page !== undefined ? { pageInfo: page.pageInfo, facets: page.facets } : {}),
   }
 }
 
