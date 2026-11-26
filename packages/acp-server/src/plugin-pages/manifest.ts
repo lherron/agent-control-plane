@@ -1,5 +1,5 @@
 /**
- * Reading installed plugin pages (hrc-ios IOS_PLUGIN_PAGES.md §1). Loggia owns the
+ * Reading installed plugin pages (features/mobile-plugin-pages.md; Loggia schemas/plugin-mobile.schema.json). Loggia owns the
  * meaning of a plugin's `mobile` block: ACP validates it against Loggia's JSON Schema,
  * read from the loggia checkout on every read, and enforces only the two rules a schema
  * cannot express (index.html exists; the page totals at most 1 MiB, symlink targets

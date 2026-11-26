@@ -1,5 +1,5 @@
 /**
- * Per-op deadlines from `registry.discover` (IOS_PLUGIN_PAGES.md §2, cardo T-14122).
+ * Per-op deadlines from `registry.discover` (features/mobile-plugin-pages.md, cardo T-14122).
  * The CLI's deadline is the op's declared `timeout` plus 10 s for a `holds: true` op,
  * `batch_seconds_max` plus 10 s for a batch, and the default otherwise. ACP's backstop
  * is that deadline plus a grace. The catalog refreshes the cache on every read; a call

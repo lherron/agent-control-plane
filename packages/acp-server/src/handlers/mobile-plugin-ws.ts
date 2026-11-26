@@ -1,6 +1,6 @@
 /**
  * `plugin.subscribe` / `plugin.unsubscribe` on the mobile dashboard socket
- * (IOS_PLUGIN_PAGES.md §2): each subscription is one `cardo <mount> watch --args -
+ * (features/mobile-plugin-pages.md): each subscription is one `cardo <mount> watch --args -
  * --raw` child whose stdout lines go to the phone verbatim, in `plugin.line` frames
  * keyed by the phone's subscription id. The child dies on unsubscribe or socket close.
  * The socket's upgrade was admitted in the ordinary mobile `bearer` class.

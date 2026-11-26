@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-ACP serves plugin pages to HRC Mobile's drawer and relays the pages' kernel calls (hrc-ios `architecture/proposals/IOS_PLUGIN_PAGES.md` §2, T-14125). ACP is the transport only. Loggia owns the manifest's meaning, the phone builds whole cardo wire requests, and the installed `cardo` CLI carries them.
+ACP serves plugin pages to HRC Mobile's drawer and relays the pages' kernel calls (T-14125; the manifest schema is Loggia's `schemas/plugin-mobile.schema.json`, and the plugin-page rulings, including the ordinary bearer class, are in hrc-ios `docs/ios-app.md` § Plugin pages). ACP is the transport only. Loggia owns the manifest's meaning, the phone builds whole cardo wire requests, and the installed `cardo` CLI carries them.
 
 - Catalog (`GET /v1/mobile/plugins`):
   - Reads plugin roots from Loggia's `~/Library/Application Support/Loggia/config.json` key `plugins.roots` on every request. There is no cache.

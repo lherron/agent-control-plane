@@ -1,5 +1,5 @@
 /**
- * The relay's allowlist (IOS_PLUGIN_PAGES.md §1, §2). ACP is the only enforcer: the
+ * The relay's allowlist (features/mobile-plugin-pages.md). ACP is the only enforcer: the
  * phone does not re-check, and the Mac host ignores `mounts`. The mount is the front of
  * every address, `<mount>[@<owner>][:<graph>]`, so `jobhunt:hunt` matches `jobhunt`.
  */

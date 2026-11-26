@@ -1,5 +1,5 @@
 /**
- * Plugin pages on the mobile gateway (hrc-ios IOS_PLUGIN_PAGES.md §2): the catalog,
+ * Plugin pages on the mobile gateway (features/mobile-plugin-pages.md): the catalog,
  * a page's bundle, its kernel-call relay and its asset proxy. ACP is the transport and
  * owns none of the meaning: Loggia's schema reads the manifest, the phone builds whole
  * wire requests, and the installed `cardo` CLI carries them. These routes sit in the

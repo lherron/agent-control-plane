@@ -2542,7 +2542,7 @@ export function handleMobileWebSocketMessage(ws: MobileWebSocket, message: strin
   const text = typeof message === 'string' ? message : message.toString('utf8')
   try {
     const parsed = JSON.parse(text) as { type?: unknown; id?: unknown }
-    // Plugin-page subscriptions multiplex on this socket (IOS_PLUGIN_PAGES.md §2).
+    // Plugin-page subscriptions multiplex on this socket (features/mobile-plugin-pages.md).
     if (handlePluginWebSocketFrame(ws, parsed)) return
     if (parsed.type === 'ping') {
       sendMobileJsonEnvelope(ws, {
