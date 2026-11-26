@@ -1,42 +1,37 @@
 # ACP documentation
 
 Start with the [current implementation spec](agent-control-plane-current-spec.md)
-for live behavior and authority boundaries. The pages below provide focused
-references, operating procedures, and historical context.
+for ACP's authority boundaries and the [operations runbook](operations-runbook.md)
+for local operations and validation.
 
-## Architecture and interfaces
+## Architecture and contracts
 
-- [Mobile gateway surface](mobile-gateway-surface.md) — Mobile-facing APIs, ports, and implementation boundaries.
-- [Mobile bearer authentication](mobile-surface-bearer-auth-spec.md) — Approved authentication design and trust rules for mobile routes.
-- [gateway-discord message flow](gateway-discord-message-flow.md) — Discord ingress/egress, bindings, and real-Discord virtu smoke recipe.
-- [Discord event architecture](discord-event-architecture.md) — System-events → Discord lifecycle cards, and how to add a card.
+| Document | Kind | Code | Grader |
+| --- | --- | --- | --- |
+| [Current implementation spec](agent-control-plane-current-spec.md) | spec | `packages/acp-server/src/**`, `packages/acp-cli/src/**`, `packages/acp-core/src/**` | `packages/acp-server/test/wrkq-tasks-list.test.ts`, `packages/acp-server/test/mobile-sessions-create.test.ts`, `packages/acp-server/test/admin-jobs.test.ts`, `tests/conformance/acp-workflow/flow-presets-scenarios.test.ts` |
+| [Durable architecture records](../architecture/README.md) | guide | | |
+| [ADR 0001 — Adopt durable architecture records](../architecture/adr/0001-adopt-durable-architecture-records.md) | decisions | | |
+| [Active invariants](../architecture/INVARIANTS.md) | guide | | |
+| [Accepted risks](../architecture/RISKS.md) | guide | | |
+| [Ledger input cancellation](../architecture/contracts/ledger-input-cancellation.yaml) | record | | |
+| [Mobile and iOS gateway surface](mobile-gateway-surface.md) | guide | | |
+| [Mobile bearer authentication](mobile-surface-bearer-auth-spec.md) | spec | `packages/acp-server/src/mobile-auth/**`, `packages/acp-server/src/handlers/mobile-auth-admin.ts`, `packages/acp-server/src/mobile-apis.ts` | `packages/acp-server/test/mobile-bearer-auth.test.ts`, `packages/acp-server/test/mobile-auth-store.test.ts`, `packages/acp-cli/test/mobile-auth-cli.test.ts` |
+| [Discord message flow and virtu testing](gateway-discord-message-flow.md) | guide | | |
+| [Discord lifecycle event cards](discord-event-architecture.md) | guide | | |
 
-## Operations and contribution
+## Operation and verification
 
-- [Operations runbook](operations-runbook.md) — Running and inspecting ACP and its embedded gateways; apply the current restart-authority rules in AGENTS.md.
-- [Scheduled jobs and flows](ACP_JOBS_TASKS_USAGE.md) — Authoring, registering, and validating jobs on the ACP job engine.
-- [Agent enablement changelog](agent-enablement-changelog.md) — Append-only record of agent-enablement lessons and their routed carrier.
-- [Advancing producer tuples](producer-advance.md) — Coordinating ASP/HRC dependency advances and deployment readback.
-- [Suppression guard](SUPPRESSION_GUARD.md) — Reviewed suppression markers, inventory, and validation policy.
+| Document | Kind | Code | Grader |
+| --- | --- | --- | --- |
+| [Operations runbook](operations-runbook.md) | guide | | |
+| [Scheduled jobs and flows](ACP_JOBS_TASKS_USAGE.md) | guide | | |
+| [Advancing producer tuples](producer-advance.md) | guide | | |
+| [Suppression guard](SUPPRESSION_GUARD.md) | guide | | |
+| [Agent enablement changelog](agent-enablement-changelog.md) | record | | |
+| [ACP CLI usage](../packages/acp-cli/README.md) | guide | | |
+| [ACP server usage](../packages/acp-server/README.md) | guide | | |
+| [Workflow kernel conformance suite](../tests/conformance/acp-workflow/README.md) | guide | | |
+| [Flow preset scenarios](../scenarios/flow-presets/README.md) | guide | | |
 
-- [ACP verification skill](../spaces/verify-agent-control-plane/skills/verify-agent-control-plane/SKILL.md) — Scratch drives, feature maps, evidence limits and structural coverage gate.
-
-## Workflow kernel scenarios
-
-These walkthroughs drive the in-memory `acp-core` workflow kernel and are
-checked by `bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts`.
-They do not describe the wrkf-backed `/v1/tasks/:taskId` server routes.
-
-- [Flow preset scenarios](../scenarios/flow-presets/README.md)
-
-## Delegated work
-
-Specialist requests use reply-required room mail to the request's task seat.
-Mail delivery starts the worker; its reply carries the result and evidence.
-
-Finished design and smoke records live with their tasks: the PBC harness drafts
-on T-11912, provider-contribution checklist on T-01381, reconciler intent and
-proposal on T-09980, and the retired ACP workflow supervisor playbook,
-verification log and CLI-walk scenario runbooks on T-01936. Use
-`prae task attachment find <task>` to list them and `prae task attachment get`
-to retrieve one.
+The [ACP verification skill](../spaces/verify-agent-control-plane/skills/verify-agent-control-plane/SKILL.md)
+maps source surfaces to verification steps and explains what each check can prove.

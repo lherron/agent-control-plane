@@ -35,8 +35,8 @@ acp server status
 env in the ACP plist tell `acp-server` to spawn real HRC client paths against
 the locally-running HRC daemon.
 
-`acp server restart` (`packages/acp-cli/src/server-runtime.ts`,
-`runServerCommand`) detects whether the process is launchd-supervised. If it
+`acp server restart` (`packages/acp-cli/src/server-runtime.ts#runServerCommand`)
+detects whether the process is launchd-supervised. If it
 is (the normal case here), it runs the equivalent of
 `launchctl kickstart -k <serviceTarget>` and returns — launchd owns the
 process lifecycle, so a plain `acp server stop` under launchd supervision is
@@ -180,7 +180,7 @@ throwaway task completed or cancelled and record the cleanup in its comments.
 
 For any change to Discord gateway behavior specifically, a real-Discord
 smoke test (not a mocked client) is mandatory — see
-[gateway-discord message flow](/docs/agent-control-plane/gateway-discord-message-flow).
+[gateway-discord message flow](gateway-discord-message-flow.md).
 
 ## ACP viewer
 

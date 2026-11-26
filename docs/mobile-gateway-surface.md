@@ -158,56 +158,17 @@ the HRC code and detail unchanged plus `stage: "declaration"`,
 `declaration_invalid` 422, `unsupported_capability` 422, `malformed_request`
 400 with detail code `configured_context_mismatch`).
 
-### Bearer auth (spec: `docs/mobile-surface-bearer-auth-spec.md`)
+### Bearer auth
 
-acp-server binds 127.0.0.1 **and** the tailscale address, so this surface is
-loopback-*trusted* but tailnet-*reachable*. Bearer auth closes that gap. The gate
-covers every `/v*/mobile/*` path — `/v2/mobile/sessions` and the
-`/v2/mobile/dashboard` WS carry the same session data as their `/v1` siblings, and
-a future version's routes land in the bearer tier by default.
-
-Three credential classes, decided per request against the socket peer address
-(never `X-Forwarded-For`; an unobservable peer is not loopback):
-
-| Route class | Loopback peer | Non-loopback peer |
-|---|---|---|
-| `GET /v1/mobile/health`, `GET /v1/mobile/pairing` | open | open (needed pre-pairing; leak nothing secret) |
-| `POST /v1/mobile/pair` | open — codeless ack, or redeem a code | the **pairing code** is the credential; no/invalid/expired code → 401 |
-| every other `/v*/mobile/*` route | no bearer required | `Authorization: Bearer <token>` required, HTTP and WS upgrade alike |
-
-Denials are always `401 {"ok":false,"code":"unauthorized"}` — identical for a
-missing and an invalid credential, so a prober learns nothing. attach-info and the
-`/v1/mobile/auth/*` admin routes keep their stricter loopback-only gate on top: a
-bearer never substitutes for locality.
-
-One decision function (`packages/acp-server/src/mobile-auth/gate.ts`) is called
-from both the HTTP router (`create-acp-server.ts`) and the Bun WS upgrade path
-(`acp-listener.ts`, before `server.upgrade()`), so the two cannot drift. No handler carries
-auth code of its own.
-
-Operator surface — the server is the state file's only writer, so the CLI mutates
-`mobile-auth.json` exclusively through the loopback admin routes:
-
-```
-acp mobile pairing-code                  # single-use, 5 min TTL, voids any outstanding code
-acp mobile devices list
-acp mobile devices revoke --device <id>
-acp mobile auth status
-acp mobile auth enable [--force]         # --force required when no device is paired
-acp mobile auth disable                  # emergency rollback
-```
-
-Enforcement is off by default (`enforce: false` in
-`var/state/acp-server/mobile-auth.json`, overridable with `ACP_MOBILE_AUTH_PATH`).
-While it is off nothing is refused — including the codeless tailnet pair the
-shipped iOS client sends today — but code redemption still mints tokens, so a
-device can be paired before the gate is armed. Tokens are returned exactly once at
-pairing; only their SHA-256 is stored, and they never reach any log.
+ACP listens on loopback and the tailnet address. The
+[mobile bearer auth contract](mobile-surface-bearer-auth-spec.md) defines
+the socket-peer trust boundary, pairing and revocation, and the strict
+Jobhunt and mobile API relay paths. Read the live enforcement setting with
+`acp mobile auth status`.
 
 `GET /v1/mobile/sessions/:hostSessionId/attach-info`
-(`packages/acp-server/src/handlers/mobile-attach-info.ts`) is the only route on
-this surface that *enforces* the loopback convention rather than assuming it. It
-lets a local embedded-terminal client fast-attach to a session's durable
+(`packages/acp-server/src/handlers/mobile-attach-info.ts`) requires a loopback
+peer. It lets a local embedded-terminal client fast-attach to a session's durable
 broker-tmux (it was built for HRCMac, which hrc-ios decommissioned on
 2026-10-28), and it **proxies** hrc-server's attach descriptor
 (`hrcClient.getAttachDescriptor`) — `argv` is hrc-server's verbatim, and

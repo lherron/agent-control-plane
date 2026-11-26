@@ -212,8 +212,9 @@ ACP state store.
 
 ## Event Webhooks And Jobs
 
-ACP has one canonical event webhook envelope, `AcpWebhookEvent`, defined in
-`acp-core`. `POST /v1/webhooks/events` accepts this normalized v1 envelope:
+ACP's canonical event webhook envelope is
+`packages/acp-core/src/webhook/acp-event.ts#AcpWebhookEvent`.
+`POST /v1/webhooks/events` accepts this normalized v1 envelope:
 
 ```json
 {
@@ -392,33 +393,12 @@ Idempotency and concurrency rules are source-specific:
 
 ## Documentation Set
 
-Keep as current operator/package docs:
-
-- `AGENTS.md` and `CLAUDE.md`: agent-facing operational instructions.
-- `packages/*/README.md` and package-local smoke docs.
-- `tests/conformance/acp-workflow/README.md`: conformance suite guide.
-- [Flow preset scenarios](../scenarios/flow-presets/README.md): kernel fixtures
-  exercised by the flow-presets conformance test.
-
-Treat as historical or migration material unless current source says otherwise:
-
-- `tests/fixtures/heuristic-learning/implementation.md`
-- `HEURISTIC_LEARNING_E2E_RUNBOOK.md`
-- `HRC_SPLIT_IMPL.md`
-
-Untracked drafts observed during this cleanup:
-
-- `CANONICAL_WORKFLOW_REFACTOR.md`
-- PBC harness drafts (preserved as attachments on T-11912)
-
-They describe target refactor direction and should not be treated as current
-implementation until source and installed behavior match them.
+The [documentation catalog](README.md) links the maintained contracts, records
+and operating guides. The [workflow conformance suite](../tests/conformance/acp-workflow/README.md)
+covers the in-memory kernel.
 
 ## Known Limits
 
-- Current docs still include historical workflow-kernel runbooks that are useful
-  for conformance and learning tests but do not describe the wrkf-backed server
-  task routes.
 - `acp-core` still exports the old in-memory workflow kernel while server task
   lifecycle routes use wrkf. This is a transitional architecture.
 - Some CLI compatibility flags remain accepted even when the wrkf-backed server
