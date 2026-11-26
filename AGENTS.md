@@ -17,8 +17,7 @@ commits `bun.lock`.
 
 ## Packages
 
-Every package lives in this checkout under `packages/`; the
-[package index](docs/package-index.md) gives each one's responsibility. The
+Every ACP package lives in this checkout under `packages/`. The
 `hrc-*` packages here are HRC-facing clients and presentation — search this
 repo first for their implementation; HRC runtime authority remains in
 `hrc-runtime`. `bun scripts/discover-acp.ts packages --json` computes the live

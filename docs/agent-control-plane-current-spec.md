@@ -28,6 +28,12 @@ tests, conformance coverage, presets, learning traces, and historical surfaces;
 do not treat its presence as proof that ACP server task routes are currently
 ACP-authoritative.
 
+The embedded Discord gateway uses ACP's public HTTP and SSE surfaces even
+though it runs in the same process. Production mobile HTTP and WebSocket
+routes live directly in `acp-server`; the standalone `gateway-ios` binary
+serves a separate development surface. HRC owns runtime placement, PTYs and
+the canonical event stream. ACP reads them through HRC's client surfaces.
+
 ## Packages
 
 - `acp-core`: shared domain types, presets, old workflow kernel, learning tools,
@@ -53,7 +59,9 @@ ACP-authoritative.
   contracts and apps. Older docs mention `acp-ops-web`, but no tracked
   `packages/acp-ops-web/package.json` is present in this checkout.
 - `coordination-substrate`: coordination ledger.
-- `wrkq-lib`: TypeScript access to wrkq SQLite state.
+- `wrkq-lib`: maps the ACP kernel's store ports to typed wrkq/wrkf RPCs
+  over a shared `@wrkq/client`. wrkq/wrkf own transactions, actor resolution,
+  migrations and their SQLite database.
 - `wlearn`: workflow-learning trace/replay CLI helpers.
 
 Collaboration-mail delivery is not part of ACP. It lives in praesidium-kernel
@@ -389,19 +397,14 @@ Keep as current operator/package docs:
 - `AGENTS.md` and `CLAUDE.md`: agent-facing operational instructions.
 - `packages/*/README.md` and package-local smoke docs.
 - `tests/conformance/acp-workflow/README.md`: conformance suite guide.
-- `docs/runbooks/flow-presets/*.md`: kernel scenario runbooks checked by the
-  flow-presets conformance test.
+- [Flow preset scenarios](../scenarios/flow-presets/README.md): kernel fixtures
+  exercised by the flow-presets conformance test.
 
 Treat as historical or migration material unless current source says otherwise:
 
-- `architecture/contracts/heuristic-learning-acp-hrc-spec.md`
 - `tests/fixtures/heuristic-learning/implementation.md`
 - `HEURISTIC_LEARNING_E2E_RUNBOOK.md`
 - `HRC_SPLIT_IMPL.md`
-- `architecture/archive/**`
-- `architecture/archive/acp-task-timeline-cli.md`
-- `architecture/archive/acp-task-timeline-with-hrc.md`
-- `architecture/archive/spec_agent_spaces.md` (external ASP contract material)
 
 Untracked drafts observed during this cleanup:
 

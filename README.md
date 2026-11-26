@@ -67,5 +67,4 @@ public-surface, enablement-changelog, lint, typecheck, and test gates.
 
 A Bun workspace: ACP packages under `packages/`, repository checks and discovery
 tools under `scripts/`, and the workflow conformance suite under `tests/`.
-The [package index](docs/package-index.md) is the single source of truth for
-what each package owns.
+Run `bun scripts/discover-acp.ts packages --json` for the live package inventory.

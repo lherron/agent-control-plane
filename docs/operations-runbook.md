@@ -151,6 +151,9 @@ database, located via `ACP_WRKQ_DB`/`WRKQ_DB` (or the legacy
 
 - `bun test tests/conformance/acp-workflow` — canonical ACP workflow kernel
   conformance suite; run before declaring any ACP work done.
+- `bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts`
+  exercises the hotfix, procurement and support [flow preset scenarios](../scenarios/flow-presets/README.md)
+  against the in-memory kernel.
 - `bun run typecheck`, `bun run lint` (`lint:fix` to autofix),
   `bun run check:boundaries`, `bun run check:manifests`.
 - `ASP_PROJECT=agent-control-plane just verify` — the full repository gate
@@ -170,6 +173,11 @@ database, located via `ACP_WRKQ_DB`/`WRKQ_DB` (or the legacy
   IPv4 interface. It is out of the default `bun run test` gate while it reports an open campaign
   defect; promoting it belongs to the campaign.
 
+Close every real wrkq task created by a smoke or end-to-end test before ending
+the run or removing the test database. Use the workflow's terminal transition
+when the scenario owns the lifecycle. For rejection-only fixtures, mark the
+throwaway task completed or cancelled and record the cleanup in its comments.
+
 For any change to Discord gateway behavior specifically, a real-Discord
 smoke test (not a mocked client) is mandatory — see
 [gateway-discord message flow](/docs/agent-control-plane/gateway-discord-message-flow).
@@ -184,14 +192,20 @@ snapshot request fails.
 
 ## Git hooks
 
-ACP uses Lefthook for light local checks; `just verify` runs after the push
-on mini's self-hosted runner, not in a hook (see
-`docs/local-git-hooks.md`). `just install` (or, for a
+ACP uses Lefthook for light local checks. The pre-push hook reports refs
+best-effort, and `just verify` runs after the push on mini's self-hosted runner.
+`just install` (or, for a
 dependency-only bootstrap, `bun install && bun run install:hooks`) sets the
 clone-local `core.hooksPath=.githooks`; the committed `.githooks/pre-commit`
 and `.githooks/pre-push` wrappers invoke the local Lefthook binary and fail
 if it's missing, so a fresh clone never silently falls back to Git's sample
 hooks or an unmaterialized `lefthook.yml`.
+
+For a stalled post-push check, read the Actions log and the evidence under
+`~/praesidium/var/postpush-artifacts/agent-control-plane/<run-id>-<attempt>/`
+on mini. `verify.log` has the command output. A `diagnostic-*/` directory
+contains process, lock and cache probes captured by the watchdog when
+verification stops producing output.
 
 ## Scheduled jobs and flows
 

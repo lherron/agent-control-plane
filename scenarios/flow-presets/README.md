@@ -16,9 +16,6 @@ self-contained:
 - `scenario.json` — machine-readable plan: actors, role bindings, task seed,
   ordered steps (with `kernel.op`/`controlAction`/`evidence`/`transitionId`),
   expected state-after, expected effect intents, and negative checks.
-- `docs/runbooks/flow-presets/<folder>.md` — human-readable walkthrough showing the canonical kernel
-  calls, for the three kernel-checked scenarios in the table below. The checked
-  command is the scenario conformance test listed below.
 
 The `evidence-provenance-attach/`, `obligation-waive-cancel-lifecycle/` and
 `participant-supervisor-evidence-authority/` folders are `manualOnly`: the test

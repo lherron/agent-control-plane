@@ -6,8 +6,6 @@ references, operating procedures, and historical context.
 
 ## Architecture and interfaces
 
-- [Package index](package-index.md) — Every package under `packages/` and its responsibility.
-- [Server architecture](server-architecture.md) — ACP server responsibilities, delegated authority, and integration boundaries.
 - [Mobile gateway surface](mobile-gateway-surface.md) — Mobile-facing APIs, ports, and implementation boundaries.
 - [Mobile bearer authentication](mobile-surface-bearer-auth-spec.md) — Approved authentication design and trust rules for mobile routes.
 - [gateway-discord message flow](gateway-discord-message-flow.md) — Discord ingress/egress, bindings, and real-Discord virtu smoke recipe.
@@ -19,7 +17,6 @@ references, operating procedures, and historical context.
 - [Scheduled jobs and flows](ACP_JOBS_TASKS_USAGE.md) — Authoring, registering, and validating jobs on the ACP job engine.
 - [Agent enablement changelog](agent-enablement-changelog.md) — Append-only record of agent-enablement lessons and their routed carrier.
 - [Advancing producer tuples](producer-advance.md) — Coordinating ASP/HRC dependency advances and deployment readback.
-- [Local Git hooks](local-git-hooks.md) — Bootstrapping and understanding the repository's commit and push gates.
 - [Suppression guard](SUPPRESSION_GUARD.md) — Reviewed suppression markers, inventory, and validation policy.
 
 - [ACP verification skill](../spaces/verify-agent-control-plane/skills/verify-agent-control-plane/SKILL.md) — Scratch drives, feature maps, evidence limits and structural coverage gate.
@@ -30,9 +27,7 @@ These walkthroughs drive the in-memory `acp-core` workflow kernel and are
 checked by `bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts`.
 They do not describe the wrkf-backed `/v1/tasks/:taskId` server routes.
 
-- [Hotfix scenario](runbooks/flow-presets/hotfix-implementer-tester.md) — Exercise implementer/tester separation of duties for a hotfix.
-- [Procurement scenario](runbooks/flow-presets/procurement-legal-approval.md) — Exercise vendor waiting and legal approval.
-- [Support escalation scenario](runbooks/flow-presets/support-escalation-customer-response.md) — Exercise a support escalation awaiting customer response.
+- [Flow preset scenarios](../scenarios/flow-presets/README.md)
 
 ## Delegated work
 
