@@ -42,7 +42,6 @@ cat > "$refs_file"
 "$lefthook_bin" run pre-push --no-auto-install "$@" < "$refs_file" || exit "$?"
 
 # Best-effort: a timeline outage must never block a push.
-if command -v wrkp >/dev/null 2>&1; then
-  wrkp git push "$1" "$2" < "$refs_file" >/dev/null 2>&1 || true
-fi
+wrkp="${ACP_GIT_REPORTER:-$HOME/.local/bin/wrkp}"
+[ -x "$wrkp" ] && "$wrkp" git push "$@" < "$refs_file" >/dev/null 2>&1 || true
 exit 0

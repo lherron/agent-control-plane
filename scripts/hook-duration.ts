@@ -2,8 +2,8 @@
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
-import { hostname } from 'node:os'
-import { dirname, resolve } from 'node:path'
+import { homedir, hostname } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 
 function git(...args: string[]): string | undefined {
   const child = spawnSync('git', args, {
@@ -63,7 +63,7 @@ function post(record: Record): boolean {
     ),
   ]
   return (
-    spawnSync(process.env.ACP_HOOK_PUBLISHER || 'wrkp', args, {
+    spawnSync(process.env.ACP_HOOK_PUBLISHER || join(homedir(), '.local', 'bin', 'wrkp'), args, {
       stdio: 'ignore',
       timeout: 2000,
       killSignal: 'SIGKILL',

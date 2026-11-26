@@ -15,7 +15,7 @@ function fixture() {
       ([key]) => !key.startsWith('GIT_') && key !== 'ACP_HOOK_TIMING_ACTIVE'
     )
   )
-  env.PATH = `${root}/bin:${env.PATH}`
+  env.ACP_GIT_REPORTER = `${root}/bin/wrkp`
   env.ACP_HOOK_PUBLISHER = `${root}/bin/publisher`
   env.HOOK_FIXTURE = root
   mkdirSync(`${root}/bin`)
@@ -38,7 +38,7 @@ function fixture() {
     { mode: 0o755 }
   )
   writeFileSync(
-    `${root}/bin/wrkp`,
+    env.ACP_GIT_REPORTER,
     '#!/bin/sh\necho reporter >> "$HOOK_FIXTURE/order"\ncat > "$HOOK_FIXTURE/reporter-stdin"\nexit "${REPORTER_STATUS:-0}"\n',
     { mode: 0o755 }
   )
