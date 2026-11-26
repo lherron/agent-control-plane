@@ -367,3 +367,25 @@ export function projectSession(input: {
       : {}),
   }
 }
+
+export function projectEvent(event: HrcLifecycleEvent): MobileEventMessage {
+  return {
+    type: 'hrc_event',
+    hrcSeq: event.hrcSeq,
+    streamSeq: event.streamSeq,
+    eventKind: event.eventKind,
+    category: event.category,
+    ts: event.ts,
+    payload: event.payload,
+    scopeRef: event.scopeRef,
+    laneRef: event.laneRef,
+    sessionRef: sessionRef(event.scopeRef, event.laneRef),
+    hostSessionId: event.hostSessionId,
+    generation: event.generation,
+    ...(event.runtimeId !== undefined ? { runtimeId: event.runtimeId } : {}),
+    ...(event.runId !== undefined ? { runId: event.runId } : {}),
+    ...(event.launchId !== undefined ? { launchId: event.launchId } : {}),
+    replayed: event.replayed,
+    ...(event.errorCode !== undefined ? { errorCode: event.errorCode } : {}),
+  }
+}

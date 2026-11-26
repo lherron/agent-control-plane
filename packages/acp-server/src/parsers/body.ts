@@ -29,6 +29,14 @@ export function requireTrimmedStringField(input: Record<string, unknown>, field:
   return value.trim()
 }
 
+export function readNonBlankStringField(
+  record: Record<string, unknown>,
+  key: string
+): string | undefined {
+  const value = record[key]
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+}
+
 export function readOptionalTrimmedStringField(
   input: Record<string, unknown>,
   field: string

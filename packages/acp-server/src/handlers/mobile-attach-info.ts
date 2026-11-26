@@ -34,7 +34,7 @@ import { isLoopbackPeer } from '../routing/peer.js'
 
 import type { AcpHrcClient } from '../deps.js'
 import type { RouteHandler } from '../routing/route-context.js'
-import { findLocalMobileSessionByHostSessionId } from './mobile.js'
+import { findLocalMobileSessionByHostSessionId } from './mobile-session-access.js'
 
 type ParsedTmuxAttach = {
   socketPath: string

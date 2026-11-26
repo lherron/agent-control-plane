@@ -6,8 +6,7 @@
  * T-01507/P5) can share route parsing, cursor parsing, envelope sends, error
  * envelope emission, and AbortController cleanup without duplicating bugs.
  *
- * This module owns transport/lifecycle only. Event/message projection lives in
- * `./mobile.ts` (and projection rewrites belong to later subtasks).
+ * Session and event projection live in the mobile session and timeline modules.
  */
 import { writeLogLine } from 'acp-core'
 import type { AcpHrcClient, ResolvedAcpServerDeps } from '../deps.js'
@@ -198,4 +197,12 @@ export function abortMobileWebSocket(ws: Pick<MobileWebSocketLike, 'data'>): voi
   } catch {
     // The socket is already closing; abort errors are expected during teardown.
   }
+}
+
+const MOBILE_SESSION_DETAILS_QUERY_PARAM = 'sessionDetails'
+
+export function parseMobileSessionDetailsFlag(url: URL): boolean {
+  return (
+    parseMobileRawFlag(url) || url.searchParams.get(MOBILE_SESSION_DETAILS_QUERY_PARAM) === 'true'
+  )
 }

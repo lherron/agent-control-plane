@@ -37,19 +37,21 @@ import {
   handleRevokeMobileAuthDevice,
   handleSetMobileAuthEnforce,
 } from '../handlers/mobile-auth-admin.js'
+import { handleMobileDashboard } from '../handlers/mobile-dashboard.js'
 import { handleJobhuntTriage } from '../handlers/mobile-jobhunt.js'
-import { handleMobilePluginCatalog } from '../handlers/mobile-plugins.js'
-import { handleCreateMobileSession } from '../handlers/mobile-sessions-create.js'
 import {
-  handleMobileDashboard,
   handleMobileDmTargets,
-  handleMobileHealth,
-  handleMobileHistory,
   handleMobileMessagesQuery,
   handleMobileMessagesWatch,
+  handleMobileSemanticDm,
+} from '../handlers/mobile-messages.js'
+import { handleMobilePluginCatalog } from '../handlers/mobile-plugins.js'
+import { handleCreateMobileSession } from '../handlers/mobile-sessions-create.js'
+import { handleMobileHistory } from '../handlers/mobile-timeline.js'
+import {
+  handleMobileHealth,
   handleMobilePair,
   handleMobilePairing,
-  handleMobileSemanticDm,
   handleMobileSessionsPage,
 } from '../handlers/mobile.js'
 import { handleOpsDashboardEvents } from '../handlers/ops-dashboard-events.js'

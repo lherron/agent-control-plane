@@ -44,8 +44,8 @@ import {
   handleMobilePluginCall,
   handleMobilePluginPage,
 } from '../handlers/mobile-plugins.js'
+import { handleMobileInput, handleMobileInterrupt } from '../handlers/mobile-session-access.js'
 import { handleMobileRestart, handleMobileRestartV2 } from '../handlers/mobile-sessions-restart.js'
-import { handleMobileInput, handleMobileInterrupt } from '../handlers/mobile.js'
 import { handleCancelRun } from '../handlers/runs-cancel.js'
 import { handleGetRun } from '../handlers/runs-get.js'
 import {
