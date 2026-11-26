@@ -160,8 +160,8 @@ the HRC code and detail unchanged plus `stage: "declaration"`,
 
 ### Bearer auth
 
-ACP listens on loopback and the tailnet address. The
-[mobile bearer auth contract](mobile-surface-bearer-auth-spec.md) defines
+ACP listens on loopback and the tailnet address. The contract in
+`docs/mobile-surface-bearer-auth-spec.md` defines
 the socket-peer trust boundary, pairing and revocation, and the strict
 Jobhunt and mobile API relay paths. Read the live enforcement setting with
 `acp mobile auth status`.

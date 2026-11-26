@@ -152,8 +152,8 @@ database, located via `ACP_WRKQ_DB`/`WRKQ_DB` (or the legacy
 - `bun test tests/conformance/acp-workflow` — canonical ACP workflow kernel
   conformance suite; run before declaring any ACP work done.
 - `bun test tests/conformance/acp-workflow/flow-presets-scenarios.test.ts`
-  exercises the hotfix, procurement and support [flow preset scenarios](../scenarios/flow-presets/README.md)
-  against the in-memory kernel.
+  exercises the hotfix, procurement and support flow presets against the
+  in-memory kernel. See `scenarios/flow-presets/README.md` for the scenario guide.
 - `bun run typecheck`, `bun run lint` (`lint:fix` to autofix),
   `bun run check:boundaries`, `bun run check:manifests`.
 - `ASP_PROJECT=agent-control-plane just verify` — the full repository gate
@@ -180,7 +180,7 @@ throwaway task completed or cancelled and record the cleanup in its comments.
 
 For any change to Discord gateway behavior specifically, a real-Discord
 smoke test (not a mocked client) is mandatory — see
-[gateway-discord message flow](gateway-discord-message-flow.md).
+[gateway-discord message flow](/docs/agent-control-plane/gateway-discord-message-flow).
 
 ## ACP viewer
 
