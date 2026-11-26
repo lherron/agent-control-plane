@@ -54,6 +54,22 @@ export function parseMobileForce(
   }
 }
 
+/**
+ * A force's directives are exactly what the phone asked for. A field the phone
+ * omits (Default sends neither) is sent as null, which HRC treats as "drop the
+ * inherited summon directive", so the successor compiles that field from the
+ * agent's current declaration instead of carrying an earlier explicit pin.
+ */
+function forceProvision(provision: MobileProvision | undefined): {
+  model: string | null
+  reasoning_effort: string | null
+} {
+  return {
+    model: provision?.model ?? null,
+    reasoning_effort: provision?.reasoning_effort ?? null,
+  }
+}
+
 export async function handleForcePrimary(input: {
   deps: RouteContext['deps']
   force: MobileForceRequest
@@ -72,7 +88,7 @@ export async function handleForcePrimary(input: {
       {
         ...target,
         ...force,
-        ...(force.mode !== 'reconcile' && provision !== undefined ? { provision } : {}),
+        ...(force.mode !== 'reconcile' ? { provision: forceProvision(provision) } : {}),
         ...(force.mode !== 'reconcile' && initialPrompt !== undefined
           ? { firstTurn: initialPrompt }
           : {}),

@@ -70,7 +70,7 @@ describe('POST /v1/mobile/sessions with force', () => {
                   expectedGeneration: 4,
                 }
               : force),
-            provision: { model: 'sonnet' },
+            provision: { model: 'sonnet', reasoning_effort: null },
             firstTurn: 'start here',
           })
           return { ...restarted, outcome, firstTurn, replayed: true }
@@ -127,6 +127,30 @@ describe('POST /v1/mobile/sessions with force', () => {
     expect(result.body).not.toHaveProperty('runtimeId')
   })
 
+  test('Default (no model, no effort) clears both inherited directives (T-14665)', async () => {
+    const calls: Record<string, unknown>[] = []
+    const result = await postForce(async (_op, args) => {
+      calls.push(args)
+      return { ...restarted, outcome: 'restarted', replayed: false }
+    })
+    expect(result.status).toBe(200)
+    expect(calls).toEqual([
+      { ...target, ...force, provision: { model: null, reasoning_effort: null } },
+    ])
+  })
+
+  test('reconcile sends no provision (T-14665)', async () => {
+    const calls: Record<string, unknown>[] = []
+    await postForce(
+      async (_op, args) => {
+        calls.push(args)
+        return { ...restarted, replayed: true }
+      },
+      { force: { mode: 'reconcile' } }
+    )
+    expect(calls).toEqual([{ ...target, mode: 'reconcile' }])
+  })
+
   test('times out once and reconciles with the original requestId', async () => {
     const calls: Record<string, unknown>[] = []
     const result = await postForce(
@@ -138,7 +162,12 @@ describe('POST /v1/mobile/sessions with force', () => {
       { model: 'sonnet', initialPrompt: 'start here' }
     )
     expect(calls).toEqual([
-      { ...target, ...force, provision: { model: 'sonnet' }, firstTurn: 'start here' },
+      {
+        ...target,
+        ...force,
+        provision: { model: 'sonnet', reasoning_effort: null },
+        firstTurn: 'start here',
+      },
       { ...target, ...reconcile },
     ])
     expect(result.status).toBe(200)
