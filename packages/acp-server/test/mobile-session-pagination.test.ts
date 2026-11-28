@@ -4,6 +4,7 @@ import type { HrcRuntimeSnapshot, HrcSessionRecord } from 'hrc-core'
 import type { SessionFacetsRequest, SessionPageRequest, SessionPageResponse } from 'hrc-sdk'
 
 import type { AcpHrcClient } from '../src/deps.js'
+import { withBatchSessionReads } from './fixtures/hrc-batch-reads.js'
 import { withWiredServer } from './fixtures/wired-server.js'
 
 const NOW = '2026-08-11T20:00:00.000Z'
@@ -92,7 +93,7 @@ function createPaginatedClient(input: {
       max3: { state: 'unreachable', checkedAt: NOW, detail: 'peer asleep' },
     },
   }
-  return {
+  return withBatchSessionReads({
     listSessionsPage: async (request) => {
       input.pageRequests.push(request)
       return page
@@ -112,7 +113,7 @@ function createPaginatedClient(input: {
     getStatus: async () => ({ node: { nodeId: 'svc' } }) as never,
     getSession: async () => localSession,
     listRuntimes: async () => [localRuntime],
-  } as unknown as AcpHrcClient
+  }) as unknown as AcpHrcClient
 }
 
 describe('GET /v2/mobile/sessions', () => {
@@ -419,7 +420,7 @@ describe('GET /v2/mobile/sessions', () => {
       complete: true,
       peerStatus: { mini: { state: 'healthy', checkedAt: NOW } },
     } as unknown as SessionPageResponse
-    const hrcClient = {
+    const hrcClient = withBatchSessionReads({
       listSessionsPage: async () => page,
       getSessionFacets: async () => ({
         total: 4,
@@ -434,7 +435,7 @@ describe('GET /v2/mobile/sessions', () => {
       getSession: async (hostSessionId: string) => ({ ...parkedSession, hostSessionId }),
       // A parked seat has no runtime.
       listRuntimes: async () => [],
-    } as unknown as AcpHrcClient
+    }) as unknown as AcpHrcClient
 
     await withWiredServer(
       async ({ request, json }) => {

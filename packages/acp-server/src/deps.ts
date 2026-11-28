@@ -245,6 +245,9 @@ export type AcpHrcClient = Pick<
   listFederatedRuntimes?: HrcClient['listFederatedRuntimes']
   /** T-12715: HRC seat handoffs, for the c2 rotated line (`AcpHrcSdkClient`). */
   listSeatHandoffs?: AcpHrcSdkClient['listSeatHandoffs']
+  /** The mobile session page's per-page batch reads (`AcpHrcSdkClient`). */
+  readSessionsByHostSessionIds?: AcpHrcSdkClient['readSessionsByHostSessionIds']
+  readRuntimesByHostSessionIds?: AcpHrcSdkClient['readRuntimesByHostSessionIds']
   probe?(request: Readonly<Record<string, unknown>>): Promise<{ outcome: 'idle' | 'work' }>
   submitActiveRunContribution(
     request: HrcActiveRunContributionRequest

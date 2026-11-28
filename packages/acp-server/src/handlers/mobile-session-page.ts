@@ -1,3 +1,4 @@
+import type { HrcRuntimeSnapshot, HrcSessionRecord } from 'hrc-core'
 import type {
   SessionFacetsRequest,
   SessionFacetsResponse,
@@ -177,26 +178,64 @@ function projectThinIndexedSession(input: {
   }
 }
 
-async function projectIndexedSession(input: {
-  hrcClient: AcpHrcClient
+type LocalSessionInputs = { record: HrcSessionRecord; runtimes: HrcRuntimeSnapshot[] }
+
+/**
+ * One session read and one runtime read for every local item on the page.
+ * They replaced a by-host read and a runtime list per item, which made one
+ * page cost HRC about 100 calls (EN-65215). Results are keyed by
+ * hostSessionId, so a stray row can't land on another item. A failed session
+ * read leaves every item thin, and a failed runtime read leaves them without
+ * a runtime, as a failed per-item read did.
+ */
+async function readLocalSessionInputs(
+  hrcClient: AcpHrcClient,
+  hostSessionIds: string[]
+): Promise<Map<string, LocalSessionInputs>> {
+  const inputs = new Map<string, LocalSessionInputs>()
+  if (hostSessionIds.length === 0) return inputs
+  if (
+    hrcClient.readSessionsByHostSessionIds === undefined ||
+    hrcClient.readRuntimesByHostSessionIds === undefined
+  ) {
+    throw new Error('Installed HRC client does not expose batch session reads.')
+  }
+  const [sessionsResult, runtimesResult] = await Promise.allSettled([
+    hrcClient.readSessionsByHostSessionIds(hostSessionIds),
+    hrcClient.readRuntimesByHostSessionIds(hostSessionIds),
+  ])
+  if (sessionsResult.status !== 'fulfilled') return inputs
+  const runtimesByHost = new Map<string, HrcRuntimeSnapshot[]>()
+  if (runtimesResult.status === 'fulfilled') {
+    for (const runtime of runtimesResult.value) {
+      const bucket = runtimesByHost.get(runtime.hostSessionId)
+      if (bucket === undefined) runtimesByHost.set(runtime.hostSessionId, [runtime])
+      else bucket.push(runtime)
+    }
+  }
+  const wanted = new Set(hostSessionIds)
+  for (const item of sessionsResult.value) {
+    if ('error' in item || !wanted.has(item.hostSessionId)) continue
+    inputs.set(item.hostSessionId, {
+      record: item,
+      runtimes: runtimesByHost.get(item.hostSessionId) ?? [],
+    })
+  }
+  return inputs
+}
+
+function projectIndexedSession(input: {
   item: SessionPageItem
   localNodeId: string
   peerStatus: Record<string, SessionPeerStatus>
   federatedRead: boolean
-}): Promise<MobileSessionSummary> {
+  local: LocalSessionInputs | undefined
+}): MobileSessionSummary {
   const thin = projectThinIndexedSession(input)
-  if (input.item.nodeId !== input.localNodeId) return thin
+  if (input.item.nodeId !== input.localNodeId || input.local === undefined) return thin
 
-  const [sessionResult, runtimesResult] = await Promise.allSettled([
-    input.hrcClient.getSession(input.item.hostSessionId),
-    input.hrcClient.listRuntimes({ hostSessionId: input.item.hostSessionId, all: true, limit: 20 }),
-  ])
-  if (sessionResult.status !== 'fulfilled') return thin
-  const record = sessionResult.value
-  const runtime =
-    runtimesResult.status === 'fulfilled'
-      ? latestRuntimeForSession(record, runtimesResult.value)
-      : undefined
+  const { record } = input.local
+  const runtime = latestRuntimeForSession(record, input.local.runtimes)
   const projected = projectSession({ record, runtime })
   return {
     ...projected,
@@ -275,16 +314,18 @@ export async function loadMobileSessionPage(
     seen.add(key)
     return true
   })
-  const sessions = await Promise.all(
-    items.map((item) =>
-      projectIndexedSession({
-        hrcClient,
-        item,
-        localNodeId,
-        peerStatus: page.peerStatus,
-        federatedRead,
-      })
-    )
+  const local = await readLocalSessionInputs(
+    hrcClient,
+    items.filter((item) => item.nodeId === localNodeId).map((item) => item.hostSessionId)
+  )
+  const sessions = items.map((item) =>
+    projectIndexedSession({
+      item,
+      localNodeId,
+      peerStatus: page.peerStatus,
+      federatedRead,
+      local: local.get(item.hostSessionId),
+    })
   )
   return {
     generatedAt: new Date().toISOString(),

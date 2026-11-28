@@ -2,6 +2,7 @@
  * ACP's HRC client: the pinned hrc-sdk `HrcClient` plus the HRC routes ACP reads that it has no method for yet.
  */
 import type { SessionRef } from 'agent-scope'
+import type { HrcRuntimeSnapshot, HrcSessionRecord } from 'hrc-core'
 import { HrcDomainError, resolveControlSocketPath } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
 import type {
@@ -17,6 +18,11 @@ import type {
   HrcRuntimeRow,
 } from './hrc-route-reader.js'
 import { ACP_SERVER_USER_AGENT } from './user-agent.js'
+
+/** One `POST /v1/sessions/read {hostSessionIds}` item: a session record, or a miss in its slot. */
+export type HrcHostSessionReadItem =
+  | HrcSessionRecord
+  | { hostSessionId: string; error: { code: string; message?: string | undefined } }
 
 /** One seat handoff as `GET /v1/seat-handoffs` lists it (max3 HRC 57000d0a, 2026-11-07). */
 export type HrcSeatHandoff = {
@@ -167,6 +173,31 @@ export class AcpHrcSdkClient extends HrcClient implements HrcRouteReader {
       cursor = res.headers.get('x-hrc-next-cursor')?.trim() || undefined
     } while (cursor !== undefined)
     return rows
+  }
+
+  /**
+   * `POST /v1/sessions/read` by host session id (hrc-runtime T-14818): in
+   * request order, each the `GET /v1/sessions/by-host/:id` record, or a
+   * `not_found` slot. At most 500 ids.
+   */
+  async readSessionsByHostSessionIds(hostSessionIds: string[]): Promise<HrcHostSessionReadItem[]> {
+    const reply = await this.postJson<{ items: HrcHostSessionReadItem[] }>('/v1/sessions/read', {
+      hostSessionIds,
+    })
+    return reply.items
+  }
+
+  /**
+   * `POST /v1/runtimes/read` by host session id with `all` (hrc-runtime
+   * T-14818): the rows of `GET /v1/runtimes?hostSessionId=&all=true` for each
+   * id, terminal statuses included. At most 500 ids.
+   */
+  async readRuntimesByHostSessionIds(hostSessionIds: string[]): Promise<HrcRuntimeSnapshot[]> {
+    const reply = await this.postJson<{ runtimes: HrcRuntimeSnapshot[] }>('/v1/runtimes/read', {
+      hostSessionIds,
+      all: true,
+    })
+    return reply.runtimes
   }
 
   async readActiveHostSessionId(sessionRef: SessionRef): Promise<string | undefined> {

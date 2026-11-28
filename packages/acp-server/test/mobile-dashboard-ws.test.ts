@@ -14,6 +14,7 @@ import {
   handleMobileWebSocketMessage,
   openMobileWebSocket,
 } from '../src/handlers/mobile.js'
+import { withBatchSessionReads } from './fixtures/hrc-batch-reads.js'
 
 // Use a fresh timestamp so the dashboard replay age gate
 // (ACP_MOBILE_DASHBOARD_MAX_REPLAY_AGE_MS) never trips on wall-clock drift.
@@ -87,7 +88,7 @@ function event(hrcSeq: number, overrides: Partial<HrcLifecycleEvent> = {}): HrcL
 }
 
 function createDashboardClient(events: HrcLifecycleEvent[]): AcpHrcClient {
-  return {
+  return withBatchSessionReads({
     listSessions: async () => [SESSION],
     getSession: async () => SESSION,
     listRuntimes: async () => [RUNTIME],
@@ -131,7 +132,7 @@ function createDashboardClient(events: HrcLifecycleEvent[]): AcpHrcClient {
           if (candidate.hrcSeq >= fromSeq) yield candidate
         }
       })(),
-  } as unknown as AcpHrcClient
+  }) as unknown as AcpHrcClient
 }
 
 function createDashboardSocket(input: {
