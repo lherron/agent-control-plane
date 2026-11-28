@@ -174,20 +174,32 @@ signal_registered_groups() {
 # Old revisions did not have a process-group registry. Find those survivors by
 # the environment-owned root they inherited. The snapshot is private and
 # short-lived because `ps eww` includes process environments.
+#
+# The script's own ancestors are never matched: a caller whose command line
+# carries the override (`sh -c 'export ACP_DEV_ENV_ROOT=…; just verify'`) is
+# the environment's caller, not its process, and signalling it ended `just
+# verify` with 143 after the checks passed (FB-00213).
 root_process_pids() {
-  local root="$1" snapshot shell_pid pid
+  local root="$1" snapshot shell_pid pid ancestors
   shell_pid="${BASHPID:-$$}"
   snapshot="$(mktemp "${TMPDIR:-/tmp}/acp-dev-env-ps.XXXXXX")"
   chmod 600 "${snapshot}"
-  ps eww -axo pid=,command= > "${snapshot}"
+  ps eww -axo pid=,ppid=,command= > "${snapshot}"
+  ancestors=" "
+  pid="$$"
+  while [[ "${pid}" =~ ^[0-9]+$ ]] && (( pid > 1 )); do
+    pid="$(awk -v pid="${pid}" '$1 == pid { print $2; exit }' "${snapshot}")"
+    [[ -n "${pid}" ]] && ancestors+="${pid} "
+  done
   while IFS= read -r pid; do
     [[ "${pid}" =~ ^[0-9]+$ ]] || continue
     kill -0 "${pid}" 2>/dev/null && printf '%s\n' "${pid}"
-  done < <(awk -v self="$$" -v shell_pid="${shell_pid}" \
+  done < <(awk -v self="$$" -v shell_pid="${shell_pid}" -v ancestors="${ancestors}" \
       -v marker="ACP_DEV_ENV_ROOT=${root}" \
       -v hrc_marker="HRC_RUNTIME_DIR=${root}/" \
       -v acp_marker="ACP_RUNTIME_DIR=${root}/" '
-    $1 != self && $1 != shell_pid && (index($0, marker) || index($0, hrc_marker) || index($0, acp_marker)) { print $1 }
+    $1 != self && $1 != shell_pid && !index(ancestors, " " $1 " ") &&
+      (index($0, marker) || index($0, hrc_marker) || index($0, acp_marker)) { print $1 }
   ' "${snapshot}")
   rm -f "${snapshot}"
 }
