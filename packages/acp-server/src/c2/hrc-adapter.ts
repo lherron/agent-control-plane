@@ -288,6 +288,11 @@ export function createC2HrcHost(options: C2HrcHostOptions): C2HrcHost {
     }
     continuities = scopes
     if (options.ownsUnscoped) {
+      // Discovery reads every non-task seat once per resync to find c2 rows
+      // outside the scope allowlist, so it can't be narrowed by scope. On
+      // max3 that is about 3,000 one-millisecond reads per acp-server start,
+      // which HRC's owner rated harmless (2026-11-28). If it ever hurts, the
+      // fix is one HRC read listing the seats that hold ns=c2 rows, not pacing.
       const found = new Set<string>()
       await mapLimit([...continuities].sort(), SCAN_CONCURRENCY, async (scopeRef) => {
         const read = await readSeat(scopeRef, 'annotations', () => c2Rows(scopeRef))
