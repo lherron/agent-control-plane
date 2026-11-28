@@ -137,7 +137,8 @@ describe('plugin page asset proxy', () => {
       ]) {
         const response = await request('GET', base + ref)
         expect(response.status).toBe(400)
-        expect(((await response.json()) as any).error.code).toBe('invalid_asset_ref')
+        const body: unknown = await response.json()
+        expect(body).toMatchObject({ error: { code: 'invalid_asset_ref' } })
       }
       expect(origin.seen).toHaveLength(0)
     })
@@ -159,7 +160,8 @@ describe('plugin page asset proxy', () => {
     await withServer(async (request) => {
       const response = await request('GET', `${base}ra-1/audio`)
       expect(response.status).toBe(503)
-      expect(((await response.json()) as any).error.code).toBe('asset_unavailable')
+      const body: unknown = await response.json()
+      expect(body).toMatchObject({ error: { code: 'asset_unavailable' } })
     })
   })
 })
